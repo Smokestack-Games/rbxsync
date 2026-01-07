@@ -4,8 +4,9 @@
 //! for game extraction and synchronization.
 
 pub mod git;
+pub mod file_watcher;
 
-use std::collections::{HashMap, VecDeque};
+use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
 use std::time::Instant;
@@ -73,11 +74,21 @@ pub struct AppState {
 
     /// Active extraction session
     pub extraction_session: RwLock<Option<ExtractionSession>>,
+
+    /// File watcher state for live sync
+    pub file_watcher_state: Arc<RwLock<file_watcher::FileWatcherState>>,
+
+    /// Channel to receive file changes
+    pub file_change_rx: Mutex<mpsc::UnboundedReceiver<file_watcher::FileChange>>,
+
+    /// Track which VS Code workspaces we've logged (to prevent spam)
+    pub logged_vscode_workspaces: RwLock<HashSet<String>>,
 }
 
 impl AppState {
     pub fn new() -> Arc<Self> {
         let (trigger, trigger_rx) = watch::channel(());
+        let (file_change_tx, file_change_rx) = mpsc::unbounded_channel();
         Arc::new(Self {
             request_queue: Mutex::new(VecDeque::new()),
             project_queues: RwLock::new(HashMap::new()),
@@ -88,6 +99,9 @@ impl AppState {
             trigger,
             trigger_rx,
             extraction_session: RwLock::new(None),
+            file_watcher_state: Arc::new(RwLock::new(file_watcher::FileWatcherState::new(file_change_tx))),
+            file_change_rx: Mutex::new(file_change_rx),
+            logged_vscode_workspaces: RwLock::new(HashSet::new()),
         })
     }
 }
@@ -149,6 +163,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/sync/command", post(handle_sync_command))
         .route("/sync/batch", post(handle_sync_batch))
         .route("/sync/read-tree", post(handle_sync_read_tree))
+        .route("/sync/from-studio", post(handle_sync_from_studio))
         // Git endpoints
         .route("/git/status", post(handle_git_status))
         .route("/git/log", post(handle_git_log))
@@ -297,13 +312,36 @@ async fn handle_register_vscode(
         }));
     }
 
+    // Update heartbeat timestamp
     let mut workspaces = state.vscode_workspaces.write().await;
+    let is_new = !workspaces.contains_key(&req.workspace_dir);
     workspaces.insert(req.workspace_dir.clone(), VsCodeWorkspace {
         workspace_dir: req.workspace_dir.clone(),
         last_heartbeat: Some(Instant::now()),
     });
+    drop(workspaces); // Release lock before acquiring another
 
-    tracing::info!("VS Code workspace registered: {}", req.workspace_dir);
+    // Only log and start file watcher if this is a new workspace this session
+    // Use a separate set to prevent spam from heartbeat registrations
+    let mut logged = state.logged_vscode_workspaces.write().await;
+    let should_log = !logged.contains(&req.workspace_dir);
+    if should_log {
+        logged.insert(req.workspace_dir.clone());
+        drop(logged); // Release lock
+
+        tracing::info!("VS Code workspace registered: {}", req.workspace_dir);
+
+        // Start file watcher for new workspaces
+        if is_new {
+            let watcher_state = state.file_watcher_state.clone();
+            let dir = req.workspace_dir.clone();
+            tokio::spawn(async move {
+                if let Err(e) = file_watcher::start_file_watcher(dir, watcher_state).await {
+                    tracing::error!("Failed to start file watcher: {}", e);
+                }
+            });
+        }
+    }
 
     Json(serde_json::json!({
         "success": true,
@@ -926,6 +964,139 @@ async fn handle_sync_batch(
     }
 }
 
+/// Sync changes from Studio back to files
+#[derive(Debug, Deserialize)]
+pub struct SyncFromStudioRequest {
+    pub operations: Vec<StudioChangeOperation>,
+    pub project_dir: String,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct StudioChangeOperation {
+    #[serde(rename = "type")]
+    pub change_type: String,  // "create", "modify", "delete"
+    pub path: String,
+    #[serde(rename = "className")]
+    pub class_name: Option<String>,
+    pub data: Option<serde_json::Value>,
+}
+
+/// Handle changes from Studio and write them to files
+async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl IntoResponse {
+    let src_dir = PathBuf::from(&req.project_dir).join("src");
+
+    if !src_dir.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Source directory does not exist"
+            })),
+        );
+    }
+
+    let mut files_written = 0;
+    let mut errors: Vec<String> = Vec::new();
+
+    for op in &req.operations {
+        // Convert instance path to file path
+        let inst_path = &op.path;
+        let full_path = src_dir.join(inst_path);
+
+        match op.change_type.as_str() {
+            "delete" => {
+                // Try to delete both .luau and .rbxjson files
+                let luau_extensions = [".server.luau", ".client.luau", ".luau"];
+                for ext in luau_extensions {
+                    let script_path = format!("{}{}", full_path.to_string_lossy(), ext);
+                    let _ = std::fs::remove_file(&script_path);
+                }
+                let json_path = format!("{}.rbxjson", full_path.to_string_lossy());
+                let _ = std::fs::remove_file(&json_path);
+                files_written += 1;
+            }
+            "create" | "modify" => {
+                if let Some(data) = &op.data {
+                    // Ensure parent directory exists
+                    if let Some(parent) = full_path.parent() {
+                        let _ = std::fs::create_dir_all(parent);
+                    }
+
+                    // Check if this is a script with source
+                    let class_name = op.class_name.as_deref()
+                        .or_else(|| data.get("className").and_then(|v| v.as_str()))
+                        .unwrap_or("");
+
+                    let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
+
+                    if is_script {
+                        // Extract script source
+                        if let Some(props) = data.get("properties") {
+                            if let Some(source) = props.get("Source")
+                                .and_then(|v| v.get("value"))
+                                .and_then(|v| v.as_str())
+                            {
+                                let extension = match class_name {
+                                    "Script" => ".server.luau",
+                                    "LocalScript" => ".client.luau",
+                                    _ => ".luau",
+                                };
+                                let script_path = format!("{}{}", full_path.to_string_lossy(), extension);
+
+                                match std::fs::write(&script_path, source) {
+                                    Ok(_) => {
+                                        tracing::info!("Studio sync: wrote {}", script_path);
+                                        files_written += 1;
+                                    }
+                                    Err(e) => {
+                                        errors.push(format!("Failed to write {}: {}", script_path, e));
+                                    }
+                                }
+                            }
+                        }
+                    }
+
+                    // Write .rbxjson for non-source properties
+                    let mut clean_data = data.clone();
+                    if is_script {
+                        if let Some(props) = clean_data.get_mut("properties") {
+                            if let Some(obj) = props.as_object_mut() {
+                                obj.remove("Source");
+                            }
+                        }
+                    }
+
+                    let json_path = format!("{}.rbxjson", full_path.to_string_lossy());
+                    if let Ok(json) = serde_json::to_string_pretty(&clean_data) {
+                        match std::fs::write(&json_path, json) {
+                            Ok(_) => {
+                                files_written += 1;
+                            }
+                            Err(e) => {
+                                errors.push(format!("Failed to write {}: {}", json_path, e));
+                            }
+                        }
+                    }
+                }
+            }
+            _ => {
+                errors.push(format!("Unknown change type: {}", op.change_type));
+            }
+        }
+    }
+
+    tracing::info!("Studio sync complete: {} files written, {} errors", files_written, errors.len());
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": errors.is_empty(),
+            "filesWritten": files_written,
+            "errors": errors
+        })),
+    )
+}
+
 /// Read file tree for sync - returns all instances from project directory
 #[derive(Debug, Deserialize)]
 pub struct ReadTreeRequest {
@@ -1395,7 +1566,13 @@ async fn handle_run_code(
 /// Start the server
 pub async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
     let state = AppState::new();
-    let router = create_router(state);
+    let router = create_router(state.clone());
+
+    // Start background task to process file changes for live sync
+    let state_for_watcher = state.clone();
+    tokio::spawn(async move {
+        process_file_changes(state_for_watcher).await;
+    });
 
     let addr = format!("{}:{}", config.host, config.port);
     tracing::info!("RbxSync server listening on {}", addr);
@@ -1404,4 +1581,85 @@ pub async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
     axum::serve(listener, router).await?;
 
     Ok(())
+}
+
+/// Background task to process file changes and send sync commands to the plugin
+async fn process_file_changes(state: Arc<AppState>) {
+    use std::collections::HashMap;
+    use std::time::{Duration, Instant};
+
+    let mut pending: HashMap<PathBuf, (file_watcher::FileChange, Instant)> = HashMap::new();
+    let debounce_duration = Duration::from_millis(300);
+
+    loop {
+        // Try to receive file changes
+        {
+            let mut rx = state.file_change_rx.lock().await;
+            while let Ok(change) = rx.try_recv() {
+                // Debounce: update pending changes
+                pending.insert(change.path.clone(), (change, Instant::now()));
+            }
+        }
+
+        // Process changes that have passed debounce period
+        let now = Instant::now();
+        let mut ready_changes: Vec<file_watcher::FileChange> = Vec::new();
+
+        pending.retain(|_, (change, time)| {
+            if now.duration_since(*time) >= debounce_duration {
+                ready_changes.push(change.clone());
+                false
+            } else {
+                true
+            }
+        });
+
+        // Send ready changes to plugin
+        if !ready_changes.is_empty() {
+            let mut operations = Vec::new();
+
+            for change in &ready_changes {
+                if let Some(op) = file_watcher::process_file_change(change) {
+                    tracing::info!("Live sync: {:?} -> {:?}", change.kind, change.path);
+                    operations.push(op);
+                }
+            }
+
+            if !operations.is_empty() {
+                // Find project dir from first change
+                let project_dir = ready_changes.first().map(|c| c.project_dir.clone());
+
+                // Queue batch sync request to plugin
+                let request_id = Uuid::new_v4();
+                let plugin_request = PluginRequest {
+                    id: request_id,
+                    command: "sync:batch".to_string(),
+                    payload: serde_json::json!({
+                        "operations": operations,
+                        "source": "file_watcher"  // Mark as from file watcher
+                    }),
+                };
+
+                // Send to project-specific queue if we know the project
+                if let Some(ref dir) = project_dir {
+                    let mut queues = state.project_queues.write().await;
+                    if let Some(queue) = queues.get_mut(dir) {
+                        queue.push_back(plugin_request.clone());
+                    }
+                }
+
+                // Also send to global queue as fallback
+                {
+                    let mut queue = state.request_queue.lock().await;
+                    queue.push_back(plugin_request);
+                }
+
+                // Trigger long-polling requests to wake up
+                let _ = state.trigger.send(());
+            }
+        }
+
+        // Sleep before next check
+        tokio::time::sleep(Duration::from_millis(100)).await;
+    }
 }

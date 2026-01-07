@@ -17,6 +17,15 @@ pub struct GitStatus {
     pub untracked_count: usize,
     pub ahead: usize,
     pub behind: usize,
+    /// List of changed files (relative paths)
+    pub changed_files: Vec<ChangedFile>,
+}
+
+/// A changed file with its status
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct ChangedFile {
+    pub path: String,
+    pub status: String, // "modified", "added", "deleted", "renamed", "untracked"
 }
 
 /// Git commit information
@@ -46,9 +55,9 @@ pub fn get_status(project_dir: &Path) -> Result<GitStatus, String> {
         .trim()
         .to_string();
 
-    // Get status
+    // Get status with -uall to show all untracked files (not just directories)
     let status_output = Command::new("git")
-        .args(["status", "--porcelain"])
+        .args(["status", "--porcelain", "-uall"])
         .current_dir(project_dir)
         .output()
         .map_err(|e| format!("Failed to get status: {}", e))?;
@@ -58,25 +67,57 @@ pub fn get_status(project_dir: &Path) -> Result<GitStatus, String> {
     let mut staged_count = 0;
     let mut unstaged_count = 0;
     let mut untracked_count = 0;
+    let mut changed_files = Vec::new();
 
+    // Count each line as one file (each line in porcelain output = 1 file)
     for line in status_str.lines() {
-        if line.len() < 2 {
+        if line.len() < 3 {
             continue;
         }
         let first = line.chars().next().unwrap_or(' ');
         let second = line.chars().nth(1).unwrap_or(' ');
 
-        if line.starts_with("??") {
-            untracked_count += 1;
+        // Extract file path (skip the 2-char status prefix and space)
+        let file_path = line[3..].trim();
+
+        // Handle renames: "R  old_name -> new_name"
+        let display_path = if file_path.contains(" -> ") {
+            file_path.split(" -> ").last().unwrap_or(file_path)
         } else {
-            // First character is index status, second is working tree status
-            if first != ' ' && first != '?' {
-                staged_count += 1;
-            }
-            if second != ' ' && second != '?' {
-                unstaged_count += 1;
-            }
-        }
+            file_path
+        };
+
+        // Determine status type
+        let status = if line.starts_with("??") {
+            untracked_count += 1;
+            "untracked"
+        } else if first == 'A' || second == 'A' {
+            if first == 'A' { staged_count += 1; } else { unstaged_count += 1; }
+            "added"
+        } else if first == 'D' || second == 'D' {
+            if first == 'D' { staged_count += 1; } else { unstaged_count += 1; }
+            "deleted"
+        } else if first == 'R' || second == 'R' {
+            if first == 'R' { staged_count += 1; } else { unstaged_count += 1; }
+            "renamed"
+        } else if first != ' ' && first != '?' && second != ' ' && second != '?' {
+            // File is both staged AND has working tree changes
+            unstaged_count += 1;
+            "modified"
+        } else if first != ' ' && first != '?' {
+            staged_count += 1;
+            "modified"
+        } else if second != ' ' && second != '?' {
+            unstaged_count += 1;
+            "modified"
+        } else {
+            continue;
+        };
+
+        changed_files.push(ChangedFile {
+            path: display_path.to_string(),
+            status: status.to_string(),
+        });
     }
 
     // Get ahead/behind count
@@ -109,6 +150,7 @@ pub fn get_status(project_dir: &Path) -> Result<GitStatus, String> {
         untracked_count,
         ahead,
         behind,
+        changed_files,
     })
 }
 

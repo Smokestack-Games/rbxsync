@@ -10,7 +10,7 @@ pub mod plugin_builder;
 pub mod types;
 
 // Re-export commonly used types
-pub use plugin_builder::{build_plugin, install_plugin, PluginBuildConfig};
+pub use plugin_builder::{build_plugin, get_studio_plugins_folder, install_plugin, PluginBuildConfig};
 pub use types::{
     AttributeValue, CFrame, Color3, EnumValue, Instance, InstanceMeta, ProjectConfig,
     PropertyValue, Vector2, Vector3,

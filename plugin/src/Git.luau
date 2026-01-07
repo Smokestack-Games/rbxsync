@@ -10,6 +10,11 @@ local HttpService = game:GetService("HttpService")
 
 local Config = require(script.Parent.Config)
 
+export type ChangedFile = {
+    path: string,
+    status: string, -- "modified", "added", "deleted", "renamed", "untracked"
+}
+
 export type GitStatus = {
     branch: string,
     is_dirty: boolean,
@@ -18,6 +23,7 @@ export type GitStatus = {
     untracked_count: number,
     ahead: number,
     behind: number,
+    changed_files: {ChangedFile},
 }
 
 export type GitCommit = {

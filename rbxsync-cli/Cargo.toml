@@ -13,6 +13,8 @@ rbxsync-server = { path = "../rbxsync-server" }
 
 serde = { workspace = true }
 serde_json = { workspace = true }
+rbx_dom_weak = { workspace = true }
+rbx_binary = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }

@@ -23,6 +23,7 @@ local Sync = require(script.Sync)
 local Config = require(script.Config)
 local Git = require(script.Git)
 local TestRunner = require(script.TestRunner)
+local ChangeTracker = require(script.ChangeTracker)
 
 -- Initialize config with plugin reference
 Config.init(plugin)
@@ -32,6 +33,7 @@ local isConnected = false
 local isExtracting = false
 local isSyncing = false
 local userDisconnected = false  -- True when user explicitly clicks Disconnect (prevents auto-reconnect)
+local twoWaySyncEnabled = false  -- Two-way sync (Studio → files)
 local cachedPlaceName: string? = nil
 local lastExtractTime: number? = nil  -- Track last extraction time for estimates
 local lastInstanceCount: number? = nil  -- Track last instance count
@@ -70,8 +72,8 @@ local function getServerUrl(): string
     return Config.getServerUrl()
 end
 
--- Count total instances in standard services (for estimates)
-local function countInstances(): number
+-- Count instances by class in standard services
+local function getInstanceBreakdown(): {total: number, classes: {[string]: number}}
     local servicesToCount = {
         "Workspace",
         "ReplicatedStorage",
@@ -89,14 +91,60 @@ local function countInstances(): number
         "TestService",
     }
 
-    local count = 0
+    local total = 0
+    local classes = {}
+
     for _, serviceName in servicesToCount do
         local service = game:FindFirstChild(serviceName)
         if service then
-            count += 1 + #service:GetDescendants()
+            -- Count the service itself
+            total += 1
+            classes[service.ClassName] = (classes[service.ClassName] or 0) + 1
+
+            -- Count descendants
+            for _, descendant in service:GetDescendants() do
+                total += 1
+                classes[descendant.ClassName] = (classes[descendant.ClassName] or 0) + 1
+            end
         end
     end
-    return count
+
+    return { total = total, classes = classes }
+end
+
+-- Get formatted class breakdown string
+local function getClassBreakdownString(): string
+    local breakdown = getInstanceBreakdown()
+
+    -- Sort classes by count (descending)
+    local sorted = {}
+    for className, count in pairs(breakdown.classes) do
+        table.insert(sorted, {name = className, count = count})
+    end
+    table.sort(sorted, function(a, b) return a.count > b.count end)
+
+    -- Build display string with top classes
+    local parts = {}
+    local shown = 0
+    for _, item in ipairs(sorted) do
+        if shown >= 4 then break end -- Show top 4 classes
+        -- Only show significant classes (scripts, parts, etc.)
+        if item.count >= 5 or item.name:find("Script") or item.name == "Part" or item.name == "Model" or item.name == "Folder" then
+            table.insert(parts, item.count .. " " .. item.name)
+            shown += 1
+        end
+    end
+
+    if #parts == 0 then
+        return string.format("%d instances", breakdown.total)
+    end
+
+    return table.concat(parts, ", ")
+end
+
+-- Legacy function for backward compatibility
+local function countInstances(): number
+    return getInstanceBreakdown().total
 end
 
 -- Estimate extraction time based on instance count and previous extractions
@@ -393,9 +441,15 @@ end
 -- Sync: Apply batch of operations
 local function syncBatch(payload: any): {success: boolean, results: {any}?, error: string?}
     local operations = payload.operations
+    local source = payload.source  -- "file_watcher" if from file watcher
 
     if not operations or type(operations) ~= "table" then
         return { success = false, error = "No operations to apply" }
+    end
+
+    -- Mark as file watcher sync to prevent echo back
+    if source == "file_watcher" then
+        ChangeTracker.setLastFileWatcherSync()
     end
 
     -- Sort operations: creates first (by path depth), then updates, then deletes (reverse depth)
@@ -517,6 +571,57 @@ local function handleCommand(command: string, payload: any)
         return TestRunner.stopBackgroundTest()
     elseif command == "test:isRunning" then
         return { success = true, running = TestRunner.isRunning() }
+    elseif command == "debug:start" then
+        -- Start playtest
+        local RunService = game:GetService("RunService")
+        if RunService:IsRunning() then
+            return { success = false, error = "Playtest already running" }
+        end
+        -- Note: Direct playtest control is not available via plugin API
+        return {
+            success = false,
+            error = "Starting playtests programmatically is not supported by Roblox Studio. Please press F5 (Run), F6 (Play), or F7 (Server) in Studio."
+        }
+    elseif command == "debug:stop" then
+        -- Stop playtest
+        local RunService = game:GetService("RunService")
+        if not RunService:IsRunning() then
+            return { success = false, error = "No playtest running" }
+        end
+        -- Note: Direct playtest control is not available via plugin API
+        return {
+            success = false,
+            error = "Stopping playtests programmatically is not supported by Roblox Studio. Please press Shift+F5 or the Stop button in Studio."
+        }
+    elseif command == "debug:status" then
+        -- Get playtest status
+        local RunService = game:GetService("RunService")
+        local isRunning = RunService:IsRunning()
+        local isEdit = RunService:IsEdit()
+        local isClient = RunService:IsClient()
+        local isServer = RunService:IsServer()
+        local mode = "edit"
+        if isRunning then
+            if isClient and isServer then
+                mode = "play"  -- Play Solo (both client and server)
+            elseif isServer then
+                mode = "server"
+            elseif isClient then
+                mode = "client"
+            else
+                mode = "run"
+            end
+        end
+        return {
+            success = true,
+            data = {
+                running = isRunning,
+                mode = mode,
+                isEdit = isEdit,
+                isClient = isClient,
+                isServer = isServer
+            }
+        }
     elseif command == "run:code" then
         -- Execute arbitrary Luau code and return output
         local code = payload.code
@@ -753,6 +858,7 @@ connectButton.MouseButton1Click:Connect(function()
         -- User clicked Disconnect
         isConnected = false
         userDisconnected = true  -- Prevent auto-reconnect
+        ChangeTracker.stop()  -- Stop change tracking when disconnected
         print("Disconnected by user")
     else
         -- User clicked Connect
@@ -761,6 +867,10 @@ connectButton.MouseButton1Click:Connect(function()
         if success then
             isConnected = true
             registerWithServer()
+            -- Start change tracker if two-way sync is enabled
+            if twoWaySyncEnabled then
+                ChangeTracker.start()
+            end
         else
             isConnected = false
             warn("Could not connect to server")
@@ -1029,6 +1139,74 @@ end)
 syncButton.Parent = actionsFrame
 
 -- ============================================================================
+-- Two-Way Sync Toggle
+-- ============================================================================
+
+local twoWaySyncFrame = Instance.new("Frame")
+twoWaySyncFrame.Size = UDim2.new(1, 0, 0, 24)
+twoWaySyncFrame.BackgroundTransparency = 1
+twoWaySyncFrame.LayoutOrder = 3.5  -- Between actions and info
+twoWaySyncFrame.Parent = mainFrame
+
+local twoWaySyncCheckbox = Instance.new("TextButton")
+twoWaySyncCheckbox.Size = UDim2.new(0, 18, 0, 18)
+twoWaySyncCheckbox.Position = UDim2.new(0, 0, 0.5, -9)
+twoWaySyncCheckbox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+twoWaySyncCheckbox.BorderSizePixel = 0
+twoWaySyncCheckbox.Text = ""
+twoWaySyncCheckbox.AutoButtonColor = true
+twoWaySyncCheckbox.Parent = twoWaySyncFrame
+
+local checkboxCorner = Instance.new("UICorner")
+checkboxCorner.CornerRadius = UDim.new(0, 3)
+checkboxCorner.Parent = twoWaySyncCheckbox
+
+local checkmark = Instance.new("TextLabel")
+checkmark.Size = UDim2.new(1, 0, 1, 0)
+checkmark.BackgroundTransparency = 1
+checkmark.Text = ""
+checkmark.TextColor3 = Color3.fromRGB(100, 200, 100)
+checkmark.TextSize = 14
+checkmark.Font = Enum.Font.GothamBold
+checkmark.Parent = twoWaySyncCheckbox
+
+local twoWaySyncLabel = Instance.new("TextLabel")
+twoWaySyncLabel.Size = UDim2.new(1, -26, 1, 0)
+twoWaySyncLabel.Position = UDim2.new(0, 26, 0, 0)
+twoWaySyncLabel.BackgroundTransparency = 1
+twoWaySyncLabel.Text = "Two-way sync (Studio → Files)"
+twoWaySyncLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+twoWaySyncLabel.TextSize = 11
+twoWaySyncLabel.Font = Enum.Font.Gotham
+twoWaySyncLabel.TextXAlignment = Enum.TextXAlignment.Left
+twoWaySyncLabel.Parent = twoWaySyncFrame
+
+local function updateTwoWaySyncUI()
+    if twoWaySyncEnabled then
+        checkmark.Text = "✓"
+        twoWaySyncCheckbox.BackgroundColor3 = Color3.fromRGB(0, 100, 180)
+    else
+        checkmark.Text = ""
+        twoWaySyncCheckbox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    end
+end
+
+twoWaySyncCheckbox.MouseButton1Click:Connect(function()
+    twoWaySyncEnabled = not twoWaySyncEnabled
+    updateTwoWaySyncUI()
+
+    if twoWaySyncEnabled and isConnected then
+        ChangeTracker.start()
+        setStatus("Two-way sync enabled", Color3.fromRGB(100, 200, 100), 3)
+    else
+        ChangeTracker.stop()
+        if not twoWaySyncEnabled then
+            setStatus("Two-way sync disabled", Color3.fromRGB(180, 180, 180), 3)
+        end
+    end
+end)
+
+-- ============================================================================
 -- Project Info Section
 -- ============================================================================
 
@@ -1202,8 +1380,8 @@ local function updateInfoDisplay()
         placeNameLine.Text = placeName .. " (unsaved)"
     end
 
-    -- Update instance count and estimate
-    instanceLine.Text = getExtractionEstimate()
+    -- Update instance breakdown (classes instead of just count)
+    instanceLine.Text = getClassBreakdownString()
 end
 
 -- Function to update git display
@@ -1223,7 +1401,46 @@ local function updateGitDisplay()
         end
 
         if changes > 0 then
-            gitLine.Text = branchInfo .. " • " .. changes .. " changed"
+            -- Show actual changed files (top 3-4)
+            local changedFiles = status.changed_files or {}
+            local fileInfo = {}
+
+            for i, file in ipairs(changedFiles) do
+                if i > 3 then break end  -- Limit to 3 files
+
+                -- Convert file path to Roblox-friendly format
+                -- e.g., "src/ServerScriptService/MyScript.server.luau" -> "ServerScriptService/MyScript"
+                local displayPath = file.path
+                    :gsub("^src/", "")  -- Remove src/ prefix
+                    :gsub("%.server%.luau$", "")  -- Remove .server.luau
+                    :gsub("%.client%.luau$", "")  -- Remove .client.luau
+                    :gsub("%.luau$", "")  -- Remove .luau
+                    :gsub("%.rbxjson$", "")  -- Remove .rbxjson
+
+                -- Shorten long paths
+                local parts = string.split(displayPath, "/")
+                if #parts > 2 then
+                    displayPath = parts[1] .. "/.../" .. parts[#parts]
+                end
+
+                -- Add status indicator
+                local statusIcon = ({
+                    modified = "~",
+                    added = "+",
+                    deleted = "-",
+                    renamed = "→",
+                    untracked = "?",
+                })[file.status] or "•"
+
+                table.insert(fileInfo, statusIcon .. displayPath)
+            end
+
+            local remaining = changes - #fileInfo
+            if remaining > 0 then
+                table.insert(fileInfo, "+" .. remaining .. " more")
+            end
+
+            gitLine.Text = branchInfo .. " • " .. table.concat(fileInfo, ", ")
             gitLine.TextColor3 = Color3.fromRGB(255, 200, 100)
         else
             gitLine.Text = branchInfo .. " • clean"
@@ -1261,9 +1478,28 @@ task.spawn(function()
         -- Only auto-reconnect if user hasn't explicitly disconnected
         if not userDisconnected then
             local wasConnected = isConnected
-            checkConnection()
-            -- Update UI if state changed
-            if wasConnected ~= isConnected then
+            local success, _ = httpGet("/health")
+
+            -- Update connection state based on actual response
+            if success ~= isConnected then
+                isConnected = success
+                if isConnected then
+                    print("Connected")
+                    registerWithServer()
+                else
+                    print("Disconnected")
+                end
+                updateConnectionUI()
+            elseif isConnected then
+                -- Still connected - refresh registration to keep heartbeat alive
+                registerWithServer()
+            end
+        else
+            -- User disconnected - still check if server is actually available
+            -- (so we can show accurate status if they want to reconnect)
+            local success, _ = httpGet("/health")
+            if not success and isConnected then
+                isConnected = false
                 updateConnectionUI()
             end
         end
