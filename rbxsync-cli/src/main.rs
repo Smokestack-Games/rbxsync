@@ -340,6 +340,29 @@ async fn cmd_stop() -> Result<()> {
             Ok(())
         }
         Err(_) => {
+            // Server not responding - try force kill by port
+            #[cfg(unix)]
+            {
+                let output = std::process::Command::new("lsof")
+                    .args(["-ti", ":44755"])
+                    .output();
+                if let Ok(output) = output {
+                    let pids = String::from_utf8_lossy(&output.stdout);
+                    let pids: Vec<&str> = pids.lines().collect();
+                    if !pids.is_empty() {
+                        println!("Server not responding. Force stopping...");
+                        for pid in pids {
+                            if let Ok(pid) = pid.trim().parse::<i32>() {
+                                unsafe {
+                                    libc::kill(pid, libc::SIGKILL);
+                                }
+                                println!("Killed process {}", pid);
+                            }
+                        }
+                        return Ok(());
+                    }
+                }
+            }
             println!("Server is not running.");
             Ok(())
         }
