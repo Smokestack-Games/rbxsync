@@ -1,0 +1,184 @@
+{
+  "name": "rbxsync",
+  "displayName": "RbxSync",
+  "description": "Extract and sync Roblox games to git-friendly files",
+  "version": "1.0.0",
+  "publisher": "rbxsync",
+  "icon": "media/icons/rbxsync.png",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/rbxsync/rbxsync-vscode"
+  },
+  "engines": {
+    "vscode": "^1.85.0"
+  },
+  "categories": [
+    "Other",
+    "Programming Languages"
+  ],
+  "keywords": [
+    "roblox",
+    "luau",
+    "sync",
+    "git",
+    "game development"
+  ],
+  "activationEvents": [
+    "workspaceContains:rbxsync.json"
+  ],
+  "main": "./dist/extension.js",
+  "contributes": {
+    "commands": [
+      {
+        "command": "rbxsync.connect",
+        "title": "RbxSync: Connect to Studio"
+      },
+      {
+        "command": "rbxsync.disconnect",
+        "title": "RbxSync: Disconnect from Studio"
+      },
+      {
+        "command": "rbxsync.extract",
+        "title": "RbxSync: Extract Game from Studio"
+      },
+      {
+        "command": "rbxsync.sync",
+        "title": "RbxSync: Sync Changes to Studio"
+      },
+      {
+        "command": "rbxsync.refresh",
+        "title": "RbxSync: Refresh Instance Tree"
+      },
+      {
+        "command": "rbxsync.openFile",
+        "title": "RbxSync: Open Instance File"
+      },
+      {
+        "command": "rbxsync.gitStatus",
+        "title": "RbxSync: Show Git Status"
+      },
+      {
+        "command": "rbxsync.gitCommit",
+        "title": "RbxSync: Commit Changes"
+      },
+      {
+        "command": "rbxsync.runTest",
+        "title": "RbxSync: Run Play Test",
+        "icon": "$(play)"
+      },
+      {
+        "command": "rbxsync.testStart",
+        "title": "RbxSync: Start Console Capture (Manual)"
+      },
+      {
+        "command": "rbxsync.testStop",
+        "title": "RbxSync: Stop Capture & Show Output"
+      },
+      {
+        "command": "rbxsync.testOutput",
+        "title": "RbxSync: Get Current Output"
+      }
+    ],
+    "keybindings": [
+      {
+        "command": "rbxsync.runTest",
+        "key": "ctrl+shift+t",
+        "mac": "cmd+shift+t",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "rbxsync.sync",
+        "key": "ctrl+shift+s",
+        "mac": "cmd+shift+s",
+        "when": "editorTextFocus"
+      },
+      {
+        "command": "rbxsync.extract",
+        "key": "ctrl+shift+e",
+        "mac": "cmd+shift+e",
+        "when": "editorTextFocus"
+      }
+    ],
+    "viewsContainers": {
+      "activitybar": [
+        {
+          "id": "rbxsync",
+          "title": "RbxSync",
+          "icon": "media/icons/rbxsync-activity.svg"
+        }
+      ]
+    },
+    "views": {
+      "rbxsync": [
+        {
+          "id": "rbxsync.instanceTree",
+          "name": "Instances"
+        },
+        {
+          "id": "rbxsync.gitView",
+          "name": "Git Status"
+        }
+      ]
+    },
+    "menus": {
+      "view/title": [
+        {
+          "command": "rbxsync.refresh",
+          "when": "view == rbxsync.instanceTree",
+          "group": "navigation"
+        },
+        {
+          "command": "rbxsync.extract",
+          "when": "view == rbxsync.instanceTree",
+          "group": "navigation"
+        }
+      ],
+      "view/item/context": [
+        {
+          "command": "rbxsync.openFile",
+          "when": "view == rbxsync.instanceTree"
+        }
+      ]
+    },
+    "configuration": {
+      "title": "RbxSync",
+      "properties": {
+        "rbxsync.serverPort": {
+          "type": "number",
+          "default": 44755,
+          "description": "Port for the RbxSync server"
+        },
+        "rbxsync.autoConnect": {
+          "type": "boolean",
+          "default": true,
+          "description": "Automatically connect to Studio on startup"
+        },
+        "rbxsync.showNotifications": {
+          "type": "boolean",
+          "default": true,
+          "description": "Show notification messages for sync operations"
+        }
+      }
+    }
+  },
+  "scripts": {
+    "vscode:prepublish": "npm run compile",
+    "compile": "tsc -p ./",
+    "watch": "tsc -watch -p ./",
+    "lint": "eslint src --ext ts",
+    "package": "vsce package",
+    "publish": "vsce publish"
+  },
+  "devDependencies": {
+    "@types/node": "^20.10.0",
+    "@types/vscode": "^1.85.0",
+    "@typescript-eslint/eslint-plugin": "^6.13.0",
+    "@typescript-eslint/parser": "^6.13.0",
+    "eslint": "^8.55.0",
+    "typescript": "^5.3.0",
+    "@vscode/vsce": "^2.22.0"
+  },
+  "dependencies": {
+    "axios": "^1.6.0"
+  }
+}
