@@ -517,6 +517,37 @@ local function handleCommand(command: string, payload: any)
         return TestRunner.stopBackgroundTest()
     elseif command == "test:isRunning" then
         return { success = true, running = TestRunner.isRunning() }
+    elseif command == "run:code" then
+        -- Execute arbitrary Luau code and return output
+        local code = payload.code
+        if not code or code == "" then
+            return { success = false, error = "No code provided" }
+        end
+        -- Capture print output
+        local output = {}
+        local oldPrint = print
+        local function capturePrint(...)
+            local args = {...}
+            local strs = {}
+            for i, v in ipairs(args) do
+                strs[i] = tostring(v)
+            end
+            table.insert(output, table.concat(strs, "\t"))
+            oldPrint(...)
+        end
+        -- Execute code with loadstring
+        local fn, loadErr = loadstring(code)
+        if not fn then
+            return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
+        end
+        -- Replace print temporarily
+        local env = setmetatable({ print = capturePrint }, { __index = getfenv() })
+        setfenv(fn, env)
+        local ok, runErr = pcall(fn)
+        if not ok then
+            return { success = false, error = "Runtime error: " .. tostring(runErr), output = table.concat(output, "\n") }
+        end
+        return { success = true, output = table.concat(output, "\n") }
     else
         return { success = false, error = "Unknown command" }
     end

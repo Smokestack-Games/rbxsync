@@ -1,15 +1,16 @@
 # RbxSync
 
-A commercial-grade tool for extracting complete Roblox games to git-friendly repositories with full property preservation.
+A professional tool for syncing Roblox games between Studio and VS Code with full property preservation, git integration, and AI-powered development workflows.
 
 ## Features
 
-- **Complete DataModel Extraction**: Captures ALL properties of every instance using API dump reflection
-- **Custom JSON Format**: Human-readable `.rbxjson` files with proper type encoding
-- **Terrain Support**: Extracts voxel data in compressed binary chunks
-- **CSG/Union Handling**: Preserves asset references for mesh operations
-- **Chunked Transfer**: Handles large games efficiently without memory issues
+- **Complete DataModel Extraction**: Captures ALL properties using API dump reflection
+- **Two-Way Sync**: Push changes from VS Code to Studio and extract from Studio to files
+- **VS Code Extension**: Native integration with status bar, activity panel, and keyboard shortcuts
+- **MCP Integration**: AI agents can extract, sync, run code, and test games
 - **Git-Friendly**: Clean file structure designed for version control
+- **Multi-Studio Support**: Work with multiple Studio instances simultaneously
+- **Play Testing**: Run automated tests with console output capture
 
 ## Project Structure
 
@@ -17,135 +18,218 @@ A commercial-grade tool for extracting complete Roblox games to git-friendly rep
 rbxsync/
 ├── rbxsync-core/     # Core Rust library (types, serialization)
 ├── rbxsync-server/   # HTTP server (communicates with Studio plugin)
-├── rbxsync-cli/      # CLI tool (init, extract, sync)
+├── rbxsync-cli/      # CLI tool (init, extract, sync, serve)
+├── rbxsync-mcp/      # MCP server for AI integration
+├── rbxsync-vscode/   # VS Code extension
 └── plugin/           # Roblox Studio plugin (Luau)
 ```
 
 ## Quick Start
 
-### 1. Build the CLI
+### Installation
 
 ```bash
-cd rbxsync
+# Build everything
 cargo build --release
+
+# Install CLI globally
+cp target/release/rbxsync /usr/local/bin/
+
+# Build and install Studio plugin
+./target/release/rbxsync build-plugin --install
 ```
 
-### 2. Initialize a Project
+### Initialize a Project
 
 ```bash
 rbxsync init --name MyGame
 ```
 
-This creates:
+Creates:
 ```
 MyGame/
 ├── rbxsync.json      # Project configuration
-├── src/              # Instance tree will be extracted here
+├── src/              # Instance tree
 │   ├── Workspace/
 │   ├── ReplicatedStorage/
+│   ├── ServerScriptService/
 │   └── ...
-├── assets/           # Binary assets (meshes, images, sounds)
+├── assets/           # Binary assets
 └── terrain/          # Terrain voxel data
 ```
 
-### 3. Install the Studio Plugin
+### VS Code Extension
 
-Copy the `plugin/` folder contents to your Roblox Studio plugins directory.
+1. Build the extension:
+   ```bash
+   cd rbxsync-vscode
+   npm install
+   npm run build
+   npx vsce package
+   ```
 
-### 4. Extract Your Game
+2. Install the `.vsix` file in VS Code
 
-1. Open your game in Roblox Studio
-2. Enable the RbxSync plugin (click toolbar button)
-3. Run: `rbxsync extract`
+3. Open your project folder in VS Code
+4. Click the RbxSync icon in the activity bar
+5. Click "Start Server"
 
-## File Format
+### Studio Plugin
 
-### Instance JSON (`.rbxjson`)
-
-```json
-{
-  "className": "Part",
-  "name": "Baseplate",
-  "referenceId": "uuid-v4",
-  "properties": {
-    "Anchored": { "type": "bool", "value": true },
-    "Size": { "type": "Vector3", "value": { "x": 512, "y": 20, "z": 512 } },
-    "Material": { "type": "Enum", "value": { "enumType": "Material", "value": "Plastic" } }
-  },
-  "attributes": {},
-  "tags": ["Ground"]
-}
-```
-
-### Project Config (`rbxsync.json`)
-
-```json
-{
-  "name": "MyGame",
-  "tree": "./src",
-  "assets": "./assets",
-  "config": {
-    "extractBinaryAssets": true,
-    "terrainMode": "voxelData",
-    "excludeServices": ["CoreGui", "CorePackages"]
-  }
-}
-```
+1. Open Roblox Studio
+2. The RbxSync plugin widget appears
+3. Set the project path to your VS Code workspace
+4. Click "Connect"
 
 ## CLI Commands
 
 ```bash
-rbxsync init                    # Initialize new project
-rbxsync extract                 # Extract game from Studio
-rbxsync extract --service Workspace  # Extract specific service
-rbxsync serve                   # Start sync server
-rbxsync status                  # Show connection status
+rbxsync init [--name NAME]           # Initialize new project
+rbxsync serve [--port PORT]          # Start sync server (default: 44755)
+rbxsync stop                         # Stop the server
+rbxsync status                       # Show connection status
+rbxsync extract                      # Extract game from Studio
+rbxsync sync [--path DIR]            # Sync local changes to Studio
+rbxsync build-plugin [--install]     # Build Studio plugin
+```
+
+## Keyboard Shortcuts (VS Code)
+
+| Shortcut | Command |
+|----------|---------|
+| `Cmd+Shift+S` | Sync to Studio |
+| `Cmd+Shift+E` | Extract from Studio |
+| `Cmd+Shift+T` | Run Play Test |
+| `Cmd+Shift+M` | Open .rbxjson metadata |
+
+## MCP Integration
+
+RbxSync includes an MCP server for AI agent integration:
+
+```bash
+# Run the MCP server
+./target/release/rbxsync-mcp
+```
+
+### Available Tools
+
+| Tool | Description |
+|------|-------------|
+| `extract_game` | Extract game to files |
+| `sync_to_studio` | Push local changes to Studio |
+| `run_code` | Execute Luau code in Studio |
+| `run_test` | Run play test with output capture |
+| `git_status` | Get project git status |
+| `git_commit` | Commit changes |
+
+### Claude Desktop Config
+
+```json
+{
+  "mcpServers": {
+    "rbxsync": {
+      "command": "/path/to/rbxsync-mcp"
+    }
+  }
+}
+```
+
+## File Format
+
+### Script Files (`.luau` / `.lua`)
+
+Scripts are stored as plain Luau files:
+
+```lua
+-- src/ServerScriptService/Main.server.luau
+local Players = game:GetService("Players")
+
+Players.PlayerAdded:Connect(function(player)
+    print("Welcome", player.Name)
+end)
+```
+
+### Metadata Files (`.rbxjson`)
+
+Instance properties are stored alongside scripts:
+
+```json
+{
+  "className": "Script",
+  "name": "Main",
+  "properties": {
+    "Disabled": false,
+    "RunContext": "Server"
+  },
+  "attributes": {},
+  "tags": []
+}
+```
+
+### Non-Script Instances
+
+Folders and other instances use `init.rbxjson`:
+
+```json
+{
+  "className": "Folder",
+  "name": "Modules",
+  "properties": {},
+  "attributes": {
+    "Version": 1
+  },
+  "tags": ["Important"]
+}
 ```
 
 ## Architecture
 
 ```
 ┌─────────────────────────────────────────────────────────────┐
-│                      CLI / VSCode Extension                  │
+│           VS Code Extension / CLI / MCP Server              │
 └──────────────────────────┬──────────────────────────────────┘
                            │
 ┌──────────────────────────▼──────────────────────────────────┐
 │                    Rust Server (port 44755)                  │
-│                    - HTTP endpoints                          │
-│                    - Chunked transfer                        │
-│                    - File system operations                  │
+│  • Long-polling for commands                                 │
+│  • Chunked extraction handling                               │
+│  • Git operations                                            │
+│  • Multi-workspace routing                                   │
 └──────────────────────────┬──────────────────────────────────┘
                            │ HTTP (localhost)
 ┌──────────────────────────▼──────────────────────────────────┐
 │                    Studio Plugin (Luau)                      │
-│                    - API dump reflection                     │
-│                    - Instance serialization                  │
-│                    - Terrain/CSG handlers                    │
+│  • API dump reflection                                       │
+│  • Instance serialization                                    │
+│  • Console output capture                                    │
+│  • Play test automation                                      │
 └─────────────────────────────────────────────────────────────┘
 ```
 
-## Property Type Support
+## Development
 
-RbxSync supports all 30+ Roblox property types:
+### Building
 
-| Type | Encoded As |
-|------|-----------|
-| `Vector3` | `{ "type": "Vector3", "value": { "x": 1, "y": 2, "z": 3 } }` |
-| `CFrame` | Position + 3x3 rotation matrix |
-| `Color3` | RGB values (0-1 range) |
-| `Enum` | `{ "enumType": "Material", "value": "Plastic" }` |
-| `Instance` (ref) | UUID reference |
-| ... | See `rbxsync-core/src/types/properties.rs` |
+```bash
+# Build all Rust packages
+cargo build --release
 
-## Roadmap
+# Build VS Code extension
+cd rbxsync-vscode && npm run build
 
-- [x] Core property type system
-- [x] Studio plugin with reflection
-- [x] CLI with init/extract commands
-- [x] Terrain voxel extraction
-- [ ] Two-way sync (push/pull)
-- [ ] VSCode extension
-- [ ] Commercial licensing
+# Build Studio plugin
+rojo build plugin/default.project.json -o build/RbxSync.rbxm
+```
+
+### Testing
+
+```bash
+# Run Rust tests
+cargo test
+
+# Run with debug logging
+RUST_LOG=debug ./target/release/rbxsync serve
+```
 
 ## License
 

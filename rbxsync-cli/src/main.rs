@@ -66,6 +66,13 @@ enum Commands {
     /// Show diff between local files and Studio
     Diff,
 
+    /// Sync local changes to connected Studio instance
+    Sync {
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
+
     /// Build the Studio plugin as .rbxm file
     BuildPlugin {
         /// Source directory containing Luau files (default: plugin/src)
@@ -121,6 +128,9 @@ async fn main() -> Result<()> {
         }
         Commands::Diff => {
             cmd_diff().await?;
+        }
+        Commands::Sync { path } => {
+            cmd_sync(path).await?;
         }
         Commands::BuildPlugin {
             source,
@@ -368,6 +378,84 @@ async fn cmd_status() -> Result<()> {
 async fn cmd_diff() -> Result<()> {
     println!("Diff functionality not yet implemented.");
     println!("This will show differences between local files and Studio.");
+    Ok(())
+}
+
+/// Sync local changes to Studio
+async fn cmd_sync(path: Option<PathBuf>) -> Result<()> {
+    let project_dir = path.unwrap_or_else(|| std::env::current_dir().unwrap());
+    let project_dir_str = project_dir.to_string_lossy().to_string();
+
+    tracing::info!("Syncing from {:?}...", project_dir);
+
+    let client = reqwest::Client::new();
+
+    // Check server is running
+    if client.get("http://localhost:44755/health").send().await.is_err() {
+        println!("RbxSync server is not running. Start it with: rbxsync serve");
+        return Ok(());
+    }
+
+    // Read the local tree
+    println!("Reading local files...");
+    let tree_response = client
+        .post("http://localhost:44755/sync/read-tree")
+        .json(&serde_json::json!({
+            "project_dir": project_dir_str
+        }))
+        .send()
+        .await
+        .context("Failed to read local tree")?;
+
+    let tree: serde_json::Value = tree_response.json().await?;
+    let instances = tree.get("instances").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+
+    if instances.is_empty() {
+        println!("No changes to sync.");
+        return Ok(());
+    }
+
+    println!("Found {} instances to sync", instances.len());
+
+    // Build sync operations
+    let operations: Vec<serde_json::Value> = instances
+        .into_iter()
+        .map(|inst| {
+            serde_json::json!({
+                "op": "update",
+                "path": inst.get("path"),
+                "class_name": inst.get("className"),
+                "name": inst.get("name"),
+                "properties": inst.get("properties"),
+                "source": inst.get("source")
+            })
+        })
+        .collect();
+
+    // Send batch sync
+    println!("Syncing to Studio...");
+    let sync_response = client
+        .post("http://localhost:44755/sync/batch")
+        .json(&serde_json::json!({
+            "operations": operations
+        }))
+        .send()
+        .await
+        .context("Failed to sync")?;
+
+    let result: serde_json::Value = sync_response.json().await?;
+
+    if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+        let applied = result.get("applied").and_then(|v| v.as_u64()).unwrap_or(0);
+        println!("Successfully synced {} instances to Studio.", applied);
+    } else {
+        let errors = result.get("errors").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+        println!("Sync completed with errors:");
+        for err in errors {
+            println!("  - {}", err);
+        }
+    }
+
     Ok(())
 }
 

@@ -158,6 +158,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/test/start", post(handle_test_start))
         .route("/test/status", get(handle_test_status))
         .route("/test/stop", post(handle_test_stop))
+        // Run arbitrary Luau code (for MCP)
+        .route("/run", post(handle_run_code))
         // Health check
         .route("/health", get(handle_health))
         // Shutdown endpoint
@@ -1317,6 +1319,70 @@ async fn handle_test_stop(State(state): State<Arc<AppState>>) -> impl IntoRespon
                     "success": false,
                     "output": [],
                     "totalMessages": 0,
+                    "error": "Plugin response timeout"
+                })),
+            )
+        }
+    }
+}
+
+/// Request structure for running code
+#[derive(Debug, Deserialize)]
+struct RunCodeRequest {
+    code: String,
+}
+
+/// Run arbitrary Luau code in Studio (for MCP integration)
+async fn handle_run_code(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RunCodeRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "run:code".to_string(),
+        payload: serde_json::json!({
+            "code": req.code
+        }),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout
+    let timeout = tokio::time::Duration::from_secs(30);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (StatusCode::OK, Json(serde_json::json!({
+                "success": response.success,
+                "output": response.data.get("output").and_then(|v| v.as_str()).unwrap_or(""),
+                "error": response.error
+            })))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "output": null,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "output": null,
                     "error": "Plugin response timeout"
                 })),
             )
