@@ -13,15 +13,17 @@ local ChangeHistoryService = game:GetService("ChangeHistoryService")
 -- Configuration
 local SERVER_URL = "http://localhost:44755"
 local POLL_INTERVAL = 1 -- seconds
-local CHUNK_SIZE = 500 -- instances per chunk
+local CHUNK_SIZE = 50 -- instances per chunk (Roblox HttpService has 1MB limit)
 
--- Load modules
-local Reflection = require(script.Parent.Reflection)
-local Serializer = require(script.Parent.Serializer)
+-- Load modules (modules are children of this script in the bundled .rbxm)
+local Reflection = require(script.Reflection)
+local Serializer = require(script.Serializer)
+local Sync = require(script.Sync)
 
 -- Plugin state
 local isConnected = false
 local isExtracting = false
+local isSyncing = false
 
 -- HTTP helpers
 local function httpGet(endpoint: string): (boolean, any)
@@ -55,8 +57,8 @@ local function httpPost(endpoint: string, data: any): (boolean, any)
     return false, result
 end
 
--- Send extraction chunk
-local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: number, instances: {any})
+-- Send extraction chunk with retry logic for oversized chunks
+local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: number, instances: {any}): boolean
     local success, result = httpPost("/extract/chunk", {
         session_id = sessionId,
         chunk_index = chunkIndex,
@@ -64,11 +66,35 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
         data = instances,
     })
 
-    if not success then
-        warn("[RbxSync] Failed to send chunk:", result)
+    if success then
+        return true
     end
 
-    return success
+    -- Check if it's a size limit error
+    if type(result) == "string" and result:find("too large") then
+        -- Try sending instances one at a time
+        print("[RbxSync] Chunk too large, sending instances individually...")
+        for i, inst in ipairs(instances) do
+            local singleSuccess, singleResult = httpPost("/extract/chunk", {
+                session_id = sessionId,
+                chunk_index = chunkIndex,
+                total_chunks = totalChunks,
+                data = {inst},
+            })
+            if not singleSuccess then
+                if type(singleResult) == "string" and singleResult:find("too large") then
+                    warn("[RbxSync] Skipping oversized instance:", inst.name or "unknown", inst.className or "unknown")
+                else
+                    warn("[RbxSync] Failed to send instance:", singleResult)
+                    return false
+                end
+            end
+        end
+        return true
+    end
+
+    warn("[RbxSync] Failed to send chunk:", result)
+    return false
 end
 
 -- Extract full game
@@ -154,10 +180,9 @@ local function extractGame(config: {any})
             return
         end
 
-        -- Yield to prevent freezing Studio
-        if chunkIndex % 5 == 0 then
-            task.wait()
-        end
+        -- Throttle to avoid Roblox rate limits (~500 req/min)
+        -- Wait 0.15s between chunks = ~400 req/min max
+        task.wait(0.15)
     end
 
     local elapsed = os.clock() - startTime
@@ -166,14 +191,154 @@ local function extractGame(config: {any})
     isExtracting = false
 end
 
+-- Sync: Create instance at path
+local function syncCreate(payload: any): {success: boolean, error: string?}
+    local path = payload.path
+    local data = payload.data
+
+    if not path or not data then
+        return { success = false, error = "Missing path or data" }
+    end
+
+    -- Find parent
+    local pathParts = string.split(path, ".")
+    table.remove(pathParts) -- Remove the instance name itself
+    local parentPath = table.concat(pathParts, ".")
+
+    local parent: Instance? = nil
+    if #parentPath > 0 then
+        parent = Sync.findInstanceAtPath(parentPath)
+        if not parent then
+            return { success = false, error = "Parent not found: " .. parentPath }
+        end
+    end
+
+    -- Create the instance
+    local instance = Sync.createInstance(data, parent)
+    if instance then
+        -- Register for path lookup (handles name mismatches)
+        Sync.registerCreated(path, instance)
+        print("[RbxSync] Created:", path)
+        return { success = true }
+    else
+        return { success = false, error = "Failed to create instance" }
+    end
+end
+
+-- Sync: Update instance at path
+local function syncUpdate(payload: any): {success: boolean, error: string?}
+    local path = payload.path
+    local data = payload.data
+
+    if not path or not data then
+        return { success = false, error = "Missing path or data" }
+    end
+
+    local instance = Sync.findInstanceAtPath(path)
+    if not instance then
+        -- Instance doesn't exist, try to create it
+        local result = syncCreate(payload)
+        return result
+    end
+
+    -- Register existing instance for path lookup
+    Sync.registerCreated(path, instance)
+
+    local ok = Sync.updateInstance(instance, data)
+    if ok then
+        print("[RbxSync] Updated:", path)
+        return { success = true }
+    else
+        return { success = false, error = "Failed to update instance" }
+    end
+end
+
+-- Sync: Delete instance at path
+local function syncDelete(payload: any): {success: boolean, error: string?}
+    local path = payload.path
+
+    if not path then
+        return { success = false, error = "Missing path" }
+    end
+
+    local ok = Sync.deleteInstance(path)
+    if ok then
+        print("[RbxSync] Deleted:", path)
+        return { success = true }
+    else
+        return { success = false, error = "Instance not found: " .. path }
+    end
+end
+
+-- Sync: Apply batch of operations
+local function syncBatch(payload: any): {success: boolean, results: {any}?, error: string?}
+    local operations = payload.operations
+
+    if not operations or type(operations) ~= "table" then
+        return { success = false, error = "Missing or invalid operations" }
+    end
+
+    isSyncing = true
+    local results = {}
+    local successCount = 0
+    local failCount = 0
+
+    print(string.format("[RbxSync] Applying %d operations...", #operations))
+
+    for i, op in ipairs(operations) do
+        local opType = op.type
+        local result
+
+        if opType == "create" then
+            result = syncCreate(op)
+        elseif opType == "update" then
+            result = syncUpdate(op)
+        elseif opType == "delete" then
+            result = syncDelete(op)
+        else
+            result = { success = false, error = "Unknown operation: " .. tostring(opType) }
+        end
+
+        table.insert(results, result)
+
+        if result.success then
+            successCount += 1
+        else
+            failCount += 1
+            warn("[RbxSync] Failed:", op.path or "unknown", "-", result.error or "unknown error")
+        end
+
+        -- Yield occasionally to prevent freezing
+        if i % 100 == 0 then
+            task.wait()
+            print(string.format("[RbxSync] Progress: %d/%d", i, #operations))
+        end
+    end
+
+    isSyncing = false
+    print(string.format("[RbxSync] Sync complete: %d succeeded, %d failed", successCount, failCount))
+
+    return { success = failCount == 0, results = results }
+end
+
 -- Handle incoming commands from server
 local function handleCommand(command: string, payload: any)
     if command == "extract:start" then
         extractGame(payload or {})
+    elseif command == "sync:create" then
+        return syncCreate(payload or {})
+    elseif command == "sync:update" then
+        return syncUpdate(payload or {})
+    elseif command == "sync:delete" then
+        return syncDelete(payload or {})
+    elseif command == "sync:batch" then
+        return syncBatch(payload or {})
     elseif command == "ping" then
         print("[RbxSync] Received ping")
+        return { success = true }
     else
         warn("[RbxSync] Unknown command:", command)
+        return { success = false, error = "Unknown command: " .. command }
     end
 end
 
@@ -181,7 +346,7 @@ end
 local function pollLoop()
     while true do
         if isConnected then
-            local success, response = httpGet("/request")
+            local success, response = httpGet("/rbxsync/request")
 
             if success and response and response.command then
                 print("[RbxSync] Received command:", response.command)
@@ -189,12 +354,12 @@ local function pollLoop()
                 task.spawn(function()
                     local recording = ChangeHistoryService:TryBeginRecording("RbxSync")
 
-                    local ok, err = pcall(function()
-                        handleCommand(response.command, response.payload)
+                    local ok, result = pcall(function()
+                        return handleCommand(response.command, response.payload)
                     end)
 
                     if not ok then
-                        warn("[RbxSync] Command error:", err)
+                        warn("[RbxSync] Command error:", result)
                     end
 
                     if recording then
@@ -203,12 +368,13 @@ local function pollLoop()
 
                     -- Send response
                     if response.id then
-                        httpPost("/response", {
+                        local responseData = {
                             id = response.id,
-                            success = ok,
-                            data = ok and {} or nil,
-                            error = not ok and tostring(err) or nil,
-                        })
+                            success = ok and (result == nil or result.success ~= false),
+                            data = ok and result or nil,
+                            error = (not ok and tostring(result)) or (result and result.error) or nil,
+                        }
+                        httpPost("/rbxsync/response", responseData)
                     end
                 end)
             end
@@ -237,13 +403,13 @@ local toolbar = plugin:CreateToolbar("RbxSync")
 local toggleButton = toolbar:CreateButton(
     "Toggle RbxSync",
     "Connect/disconnect from RbxSync server",
-    "rbxassetid://6031075931" -- Generic sync icon
+    "" -- No icon (uses default)
 )
 
 local extractButton = toolbar:CreateButton(
     "Extract Game",
     "Extract current game to files",
-    "rbxassetid://6031075929" -- Download icon
+    "" -- No icon (uses default)
 )
 
 toggleButton.Click:Connect(function()

@@ -6,7 +6,7 @@ use std::path::PathBuf;
 
 use anyhow::{Context, Result};
 use clap::{Parser, Subcommand};
-use rbxsync_core::ProjectConfig;
+use rbxsync_core::{build_plugin, install_plugin, PluginBuildConfig, ProjectConfig};
 use rbxsync_server::{run_server, ServerConfig};
 
 #[derive(Parser)]
@@ -62,6 +62,25 @@ enum Commands {
 
     /// Show diff between local files and Studio
     Diff,
+
+    /// Build the Studio plugin as .rbxm file
+    BuildPlugin {
+        /// Source directory containing Luau files (default: plugin/src)
+        #[arg(short, long)]
+        source: Option<PathBuf>,
+
+        /// Output path for the .rbxm file (default: build/RbxSync.rbxm)
+        #[arg(short, long)]
+        output: Option<PathBuf>,
+
+        /// Plugin name (default: RbxSync)
+        #[arg(short, long)]
+        name: Option<String>,
+
+        /// Install plugin to Studio's plugins folder after building
+        #[arg(long)]
+        install: bool,
+    },
 }
 
 #[tokio::main]
@@ -96,6 +115,14 @@ async fn main() -> Result<()> {
         }
         Commands::Diff => {
             cmd_diff().await?;
+        }
+        Commands::BuildPlugin {
+            source,
+            output,
+            name,
+            install,
+        } => {
+            cmd_build_plugin(source, output, name, install)?;
         }
     }
 
@@ -296,5 +323,38 @@ async fn cmd_status() -> Result<()> {
 async fn cmd_diff() -> Result<()> {
     println!("Diff functionality not yet implemented.");
     println!("This will show differences between local files and Studio.");
+    Ok(())
+}
+
+/// Build the Studio plugin as .rbxm
+fn cmd_build_plugin(
+    source: Option<PathBuf>,
+    output: Option<PathBuf>,
+    name: Option<String>,
+    install: bool,
+) -> Result<()> {
+    let config = PluginBuildConfig {
+        source_dir: source.unwrap_or_else(|| PathBuf::from("plugin/src")),
+        output_path: output.unwrap_or_else(|| PathBuf::from("build/RbxSync.rbxm")),
+        plugin_name: name.unwrap_or_else(|| "RbxSync".to_string()),
+    };
+
+    println!("Building plugin from {:?}...", config.source_dir);
+
+    let output_path = build_plugin(&config).context("Failed to build plugin")?;
+
+    println!("Plugin built successfully: {}", output_path.display());
+
+    if install {
+        println!("Installing plugin to Studio...");
+        let installed_path =
+            install_plugin(&output_path, &config.plugin_name).context("Failed to install plugin")?;
+        println!("Plugin installed to: {}", installed_path.display());
+        println!("\nRestart Roblox Studio to load the plugin.");
+    } else {
+        println!("\nTo install, run: rbxsync build-plugin --install");
+        println!("Or manually copy {} to your Studio plugins folder.", output_path.display());
+    }
+
     Ok(())
 }

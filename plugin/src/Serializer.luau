@@ -378,11 +378,20 @@ function Serializer.serializeInstance(instance: Instance, apiDump: APIDump): any
     -- Get tags
     local tags = CollectionService:GetTags(instance)
 
+    -- Get parent info
+    local parentId = nil
+    local path = instance:GetFullName()
+    if instance.Parent then
+        parentId = getInstanceUUID(instance.Parent)
+    end
+
     -- Build serialized instance
     local serialized: any = {
         className = className,
         name = instance.Name,
         referenceId = getInstanceUUID(instance),
+        parentId = parentId,
+        path = path,
         properties = propsMap,
     }
 

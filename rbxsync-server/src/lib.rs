@@ -7,7 +7,7 @@ use std::collections::{HashMap, VecDeque};
 use std::sync::Arc;
 
 use axum::{
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -85,7 +85,7 @@ pub struct PluginResponse {
 /// Active extraction session state
 #[derive(Debug)]
 pub struct ExtractionSession {
-    pub id: Uuid,
+    pub id: String,
     pub chunks_received: usize,
     pub total_chunks: Option<usize>,
     pub data: Vec<serde_json::Value>,
@@ -94,16 +94,22 @@ pub struct ExtractionSession {
 /// Create the main router
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
-        // Plugin communication endpoints (compatible with roblox-mcp)
-        .route("/request", get(handle_request_poll))
-        .route("/response", post(handle_response))
+        // RbxSync plugin communication endpoints (separate from roblox-mcp)
+        .route("/rbxsync/request", get(handle_request_poll))
+        .route("/rbxsync/response", post(handle_response))
         // New extraction endpoints
         .route("/extract/start", post(handle_extract_start))
         .route("/extract/chunk", post(handle_extract_chunk))
         .route("/extract/status", get(handle_extract_status))
+        .route("/extract/export", post(handle_extract_export))
+        // Sync endpoints
+        .route("/sync/command", post(handle_sync_command))
+        .route("/sync/batch", post(handle_sync_batch))
         // Health check
         .route("/health", get(handle_health))
         .with_state(state)
+        // Allow large body sizes for extraction chunks (10MB limit)
+        .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
 }
 
 /// Health check endpoint
@@ -116,6 +122,14 @@ async fn handle_health() -> impl IntoResponse {
 
 /// Long-polling endpoint for plugin to receive requests
 async fn handle_request_poll(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // First check if there's already a request in the queue
+    {
+        let mut queue = state.request_queue.lock().await;
+        if let Some(request) = queue.pop_front() {
+            return (StatusCode::OK, Json(serde_json::to_value(&request).unwrap()));
+        }
+    }
+
     // Wait for a request or timeout after 15 seconds
     let timeout = tokio::time::Duration::from_secs(15);
     let mut trigger_rx = state.trigger_rx.clone();
@@ -164,13 +178,14 @@ async fn handle_extract_start(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ExtractStartRequest>,
 ) -> impl IntoResponse {
-    let session_id = Uuid::new_v4();
+    let session_uuid = Uuid::new_v4();
+    let session_id = session_uuid.to_string();
 
     // Create extraction session
     {
         let mut session = state.extraction_session.write().await;
         *session = Some(ExtractionSession {
-            id: session_id,
+            id: session_id.clone(),
             chunks_received: 0,
             total_chunks: None,
             data: Vec::new(),
@@ -179,7 +194,7 @@ async fn handle_extract_start(
 
     // Queue request to plugin
     let plugin_request = PluginRequest {
-        id: session_id,
+        id: session_uuid,
         command: "extract:start".to_string(),
         payload: serde_json::json!({
             "services": req.services.unwrap_or_default(),
@@ -203,7 +218,7 @@ async fn handle_extract_start(
 /// Handle extraction chunk from plugin
 #[derive(Debug, Deserialize)]
 pub struct ExtractChunkRequest {
-    pub session_id: Uuid,
+    pub session_id: String,
     pub chunk_index: usize,
     pub total_chunks: usize,
     pub data: serde_json::Value,
@@ -215,17 +230,49 @@ async fn handle_extract_chunk(
 ) -> impl IntoResponse {
     let mut session_guard = state.extraction_session.write().await;
 
+    // Auto-create session if plugin started extraction directly
+    if session_guard.is_none() {
+        tracing::info!("Auto-created extraction session: {}", &req.session_id);
+
+        // Create output directory for this session
+        let output_dir = format!(".rbxsync/extract_{}", &req.session_id);
+        let _ = std::fs::create_dir_all(&output_dir);
+
+        *session_guard = Some(ExtractionSession {
+            id: req.session_id.clone(),
+            chunks_received: 0,
+            total_chunks: None,
+            data: Vec::new(),
+        });
+    }
+
     if let Some(ref mut session) = *session_guard {
+        // Accept chunks from any session (plugin may have restarted)
         if session.id != req.session_id {
-            return (
-                StatusCode::BAD_REQUEST,
-                Json(serde_json::json!({"error": "Invalid session ID"})),
-            );
+            tracing::info!("Session ID changed from {} to {}, resetting", session.id, &req.session_id);
+            session.id = req.session_id.clone();
+            session.chunks_received = 0;
+            session.data.clear();
+
+            // Create new output directory
+            let output_dir = format!(".rbxsync/extract_{}", &req.session_id);
+            let _ = std::fs::create_dir_all(&output_dir);
         }
 
         session.total_chunks = Some(req.total_chunks);
         session.chunks_received += 1;
+
+        // Save chunk to disk immediately
+        let output_dir = format!(".rbxsync/extract_{}", &session.id);
+        let chunk_path = format!("{}/chunk_{:06}.json", output_dir, session.chunks_received);
+        if let Err(e) = std::fs::write(&chunk_path, serde_json::to_string(&req.data).unwrap_or_default()) {
+            tracing::warn!("Failed to save chunk to disk: {}", e);
+        }
+
+        // Also keep in memory for quick access
         session.data.push(req.data);
+
+        tracing::info!("Received chunk {}/{}", session.chunks_received, req.total_chunks);
 
         (
             StatusCode::OK,
@@ -258,6 +305,205 @@ async fn handle_extract_status(State(state): State<Arc<AppState>>) -> impl IntoR
             "sessionId": null,
             "status": "no_active_session"
         }))
+    }
+}
+
+/// Export extraction data to file
+#[derive(Debug, Deserialize)]
+pub struct ExportRequest {
+    pub output_path: String,
+}
+
+async fn handle_extract_export(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ExportRequest>,
+) -> impl IntoResponse {
+    let session = state.extraction_session.read().await;
+
+    if let Some(ref s) = *session {
+        // Flatten all chunks into a single array of instances
+        let mut all_instances = Vec::new();
+        for chunk in &s.data {
+            if let Some(instances) = chunk.as_array() {
+                all_instances.extend(instances.iter().cloned());
+            }
+        }
+
+        tracing::info!("Exporting {} instances to {}", all_instances.len(), req.output_path);
+
+        // Write to file
+        let output = serde_json::json!({
+            "sessionId": s.id,
+            "instanceCount": all_instances.len(),
+            "instances": all_instances,
+        });
+
+        match std::fs::write(&req.output_path, serde_json::to_string_pretty(&output).unwrap()) {
+            Ok(_) => {
+                tracing::info!("Export complete: {}", req.output_path);
+                (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "path": req.output_path,
+                        "instanceCount": all_instances.len()
+                    })),
+                )
+            }
+            Err(e) => {
+                tracing::error!("Export failed: {}", e);
+                (
+                    StatusCode::INTERNAL_SERVER_ERROR,
+                    Json(serde_json::json!({
+                        "success": false,
+                        "error": e.to_string()
+                    })),
+                )
+            }
+        }
+    } else {
+        (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "No extraction data available"
+            })),
+        )
+    }
+}
+
+/// Sync command request
+#[derive(Debug, Deserialize)]
+pub struct SyncCommandRequest {
+    pub command: String,
+    pub payload: serde_json::Value,
+}
+
+/// Handle sync command - sends to plugin and waits for response
+async fn handle_sync_command(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SyncCommandRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.insert(request_id, tx);
+    }
+
+    // Queue request to plugin
+    let plugin_request = PluginRequest {
+        id: request_id,
+        command: req.command.clone(),
+        payload: req.payload,
+    };
+
+    {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(plugin_request);
+    }
+    let _ = state.trigger.send(());
+
+    tracing::info!("Sent sync command: {} ({})", req.command, request_id);
+
+    // Wait for response with timeout
+    let timeout = tokio::time::Duration::from_secs(30);
+    let result = tokio::time::timeout(timeout, rx.recv()).await;
+
+    // Clean up channel
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.remove(&request_id);
+    }
+
+    match result {
+        Ok(Some(response)) => {
+            tracing::info!("Received response for {}: success={}", request_id, response.success);
+            (StatusCode::OK, Json(serde_json::to_value(&response).unwrap()))
+        }
+        Ok(None) => {
+            tracing::warn!("Channel closed for {}", request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Channel closed"})),
+            )
+        }
+        Err(_) => {
+            tracing::warn!("Timeout waiting for response: {}", request_id);
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "Timeout waiting for plugin response"})),
+            )
+        }
+    }
+}
+
+/// Sync batch request
+#[derive(Debug, Deserialize)]
+pub struct SyncBatchRequest {
+    pub operations: Vec<serde_json::Value>,
+}
+
+/// Handle sync batch - sends batch of operations to plugin
+async fn handle_sync_batch(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SyncBatchRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.insert(request_id, tx);
+    }
+
+    // Queue batch request to plugin
+    let plugin_request = PluginRequest {
+        id: request_id,
+        command: "sync:batch".to_string(),
+        payload: serde_json::json!({
+            "operations": req.operations
+        }),
+    };
+
+    {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(plugin_request);
+    }
+    let _ = state.trigger.send(());
+
+    tracing::info!("Sent sync batch with {} operations ({})", req.operations.len(), request_id);
+
+    // Wait for response with longer timeout for batch operations
+    let timeout = tokio::time::Duration::from_secs(300); // 5 minutes for large batches
+    let result = tokio::time::timeout(timeout, rx.recv()).await;
+
+    // Clean up channel
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.remove(&request_id);
+    }
+
+    match result {
+        Ok(Some(response)) => {
+            tracing::info!("Batch complete for {}: success={}", request_id, response.success);
+            (StatusCode::OK, Json(serde_json::to_value(&response).unwrap()))
+        }
+        Ok(None) => {
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"error": "Channel closed"})),
+            )
+        }
+        Err(_) => {
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"error": "Timeout waiting for plugin response"})),
+            )
+        }
     }
 }
 

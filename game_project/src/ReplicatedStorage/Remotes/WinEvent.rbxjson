@@ -1,0 +1,14 @@
+{
+  "className": "RemoteEvent",
+  "name": "WinEvent",
+  "referenceId": "0000002a-0e68-5d36-9ba4-00001dbe9b6a",
+  "properties": {
+    "Capabilities": {
+      "type": "Enum",
+      "value": {
+        "enumType": "SecurityCapabilities",
+        "value": ""
+      }
+    }
+  }
+}

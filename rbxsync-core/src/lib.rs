@@ -4,11 +4,13 @@
 //! - Roblox property type definitions and serialization
 //! - Instance representation
 //! - Project configuration
-//! - File system operations
+//! - Plugin building (.rbxm generation)
 
+pub mod plugin_builder;
 pub mod types;
 
 // Re-export commonly used types
+pub use plugin_builder::{build_plugin, install_plugin, PluginBuildConfig};
 pub use types::{
     AttributeValue, CFrame, Color3, EnumValue, Instance, InstanceMeta, ProjectConfig,
     PropertyValue, Vector2, Vector3,

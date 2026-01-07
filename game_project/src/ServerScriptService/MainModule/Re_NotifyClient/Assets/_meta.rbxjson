@@ -1,0 +1,14 @@
+{
+  "className": "Folder",
+  "name": "Assets",
+  "referenceId": "00000051-fef6-1039-80fa-0000268c8e4d",
+  "properties": {
+    "Capabilities": {
+      "type": "Enum",
+      "value": {
+        "enumType": "SecurityCapabilities",
+        "value": ""
+      }
+    }
+  }
+}
