@@ -115,6 +115,18 @@ export interface ConnectionState {
   connected: boolean;
   serverVersion?: string;
   lastError?: string;
+  place?: PlaceInfo;  // Connected Studio place (if any)
+}
+
+// Multi-workspace support
+export interface PlaceInfo {
+  place_id: number;
+  place_name: string;
+  project_dir: string;
+}
+
+export interface PlacesResponse {
+  places: PlaceInfo[];
 }
 
 // Test Runner Types

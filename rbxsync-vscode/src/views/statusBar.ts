@@ -1,10 +1,13 @@
 import * as vscode from 'vscode';
 import { RbxSyncClient } from '../server/client';
-import { ConnectionState } from '../server/types';
+import { ConnectionState, PlaceInfo } from '../server/types';
 
 export class StatusBarManager {
   private statusBarItem: vscode.StatusBarItem;
   private pollingInterval: NodeJS.Timeout | null = null;
+  private isBusy = false;
+  private allPlaces: PlaceInfo[] = [];
+  private currentProjectDir: string = '';
 
   constructor(private client: RbxSyncClient) {
     this.statusBarItem = vscode.window.createStatusBarItem(
@@ -17,22 +20,83 @@ export class StatusBarManager {
 
     // Listen for connection changes
     client.onConnectionChange((state) => {
-      this.updateStatus(state);
+      if (!this.isBusy) {
+        this.updateStatus(state);
+      }
     });
+  }
+
+  updatePlaces(places: PlaceInfo[], currentProjectDir: string): void {
+    this.allPlaces = places;
+    this.currentProjectDir = currentProjectDir;
+    if (!this.isBusy) {
+      this.updateStatus(this.client.connectionState);
+    }
   }
 
   private updateStatus(state: ConnectionState): void {
     if (state.connected) {
-      this.statusBarItem.text = '$(plug) RbxSync: Connected';
-      this.statusBarItem.tooltip = `Connected to RbxSync server${state.serverVersion ? ` v${state.serverVersion}` : ''}`;
+      const studioCount = this.allPlaces.length;
+      const linkedPlace = this.allPlaces.find(p => p.project_dir === this.currentProjectDir);
+
+      if (studioCount > 0) {
+        // Show count and linked place name
+        // Format: "● 2 Studios │ My Game ←→"
+        if (linkedPlace) {
+          if (studioCount > 1) {
+            this.statusBarItem.text = `$(circle-filled) ${studioCount} Studios │ ${linkedPlace.place_name} ←→`;
+          } else {
+            this.statusBarItem.text = `$(circle-filled) ${linkedPlace.place_name} ←→`;
+          }
+          this.statusBarItem.tooltip = this.buildTooltip(linkedPlace, studioCount);
+        } else {
+          // Studios online but none linked to this workspace
+          this.statusBarItem.text = `$(circle-filled) ${studioCount} Studio${studioCount > 1 ? 's' : ''} │ Not linked`;
+          this.statusBarItem.tooltip = `${studioCount} Studio instance${studioCount > 1 ? 's' : ''} connected\nNone linked to this workspace\n\nClick to view details`;
+        }
+        this.statusBarItem.color = new vscode.ThemeColor('testing.iconPassed');
+      } else {
+        // Server connected but no Studios
+        this.statusBarItem.text = '$(circle-filled) RbxSync │ Waiting...';
+        this.statusBarItem.tooltip = 'Server connected\nWaiting for Studio to connect\n\nClick to view details';
+        this.statusBarItem.color = new vscode.ThemeColor('charts.yellow');
+      }
       this.statusBarItem.backgroundColor = undefined;
-      this.statusBarItem.command = 'rbxsync.disconnect';
+      this.statusBarItem.command = 'rbxsync.activityView.focus';
     } else {
-      this.statusBarItem.text = '$(debug-disconnect) RbxSync: Disconnected';
-      this.statusBarItem.tooltip = state.lastError || 'Click to connect';
-      this.statusBarItem.backgroundColor = new vscode.ThemeColor('statusBarItem.warningBackground');
+      this.statusBarItem.text = '$(circle-outline) RbxSync';
+      this.statusBarItem.tooltip = state.lastError
+        ? `${state.lastError}\nClick to connect`
+        : 'Disconnected\nClick to connect';
+      this.statusBarItem.color = undefined;
+      this.statusBarItem.backgroundColor = undefined;
       this.statusBarItem.command = 'rbxsync.connect';
     }
+  }
+
+  private buildTooltip(linkedPlace: PlaceInfo, totalCount: number): string {
+    const lines = [
+      `⬤ ${linkedPlace.place_name}`,
+      `  PlaceId: ${linkedPlace.place_id}`,
+      `  Project: ${this.shortenPath(linkedPlace.project_dir)}`,
+      '',
+    ];
+
+    if (totalCount > 1) {
+      lines.push(`${totalCount - 1} other Studio${totalCount > 2 ? 's' : ''} connected`);
+      lines.push('');
+    }
+
+    lines.push('Click to view all connections');
+    return lines.join('\n');
+  }
+
+  private shortenPath(fullPath: string): string {
+    const home = process.env.HOME || process.env.USERPROFILE || '';
+    if (fullPath.startsWith(home)) {
+      return '~' + fullPath.slice(home.length);
+    }
+    return fullPath;
   }
 
   show(): void {
@@ -57,12 +121,25 @@ export class StatusBarManager {
     }
   }
 
-  setExtracting(current: string, progress: number): void {
-    this.statusBarItem.text = `$(sync~spin) Extracting: ${current} (${Math.round(progress * 100)}%)`;
+  setBusy(message?: string): void {
+    this.isBusy = true;
+    this.statusBarItem.text = '$(sync~spin) RbxSync';
+    this.statusBarItem.tooltip = message || 'Working...';
+    this.statusBarItem.color = new vscode.ThemeColor('charts.blue');
+  }
+
+  clearBusy(): void {
+    this.isBusy = false;
+    this.updateStatus(this.client.connectionState);
+  }
+
+  // Legacy methods for compatibility - redirect to new API
+  setExtracting(current: string, _progress: number): void {
+    this.setBusy(`Extracting ${current}`);
   }
 
   setSyncing(): void {
-    this.statusBarItem.text = '$(sync~spin) Syncing to Studio...';
+    this.setBusy('Syncing');
   }
 
   dispose(): void {

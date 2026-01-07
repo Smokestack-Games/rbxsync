@@ -3,21 +3,17 @@ import * as path from 'path';
 import * as fs from 'fs';
 import { RbxSyncClient } from './server/client';
 import { StatusBarManager } from './views/statusBar';
-import { InstanceTreeProvider } from './views/treeView';
-import { GitTreeProvider } from './views/gitView';
+import { ActivityViewProvider } from './views/activityView';
 import { connectCommand, disconnectCommand } from './commands/connect';
 import { extractCommand } from './commands/extract';
-import { syncCommand, gitStatusCommand, gitCommitCommand } from './commands/sync';
-import { runPlayTest, startTestCapture, stopTestCapture, getTestOutput, disposeTestChannel } from './commands/test';
+import { syncCommand } from './commands/sync';
+import { runPlayTest, disposeTestChannel } from './commands/test';
 
 let client: RbxSyncClient;
 let statusBar: StatusBarManager;
-let instanceTree: InstanceTreeProvider;
-let gitTree: GitTreeProvider;
+let activityView: ActivityViewProvider;
 
 export async function activate(context: vscode.ExtensionContext): Promise<void> {
-  console.log('RbxSync extension activating...');
-
   // Get configuration
   const config = vscode.workspace.getConfiguration('rbxsync');
   const port = config.get<number>('serverPort') || 44755;
@@ -25,97 +21,118 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Initialize components
   client = new RbxSyncClient(port);
-  statusBar = new StatusBarManager(client);
-  instanceTree = new InstanceTreeProvider();
-  gitTree = new GitTreeProvider();
 
-  // Register tree views
-  const instanceTreeView = vscode.window.createTreeView('rbxsync.instanceTree', {
-    treeDataProvider: instanceTree,
-    showCollapseAll: true
-  });
-
-  const gitTreeView = vscode.window.createTreeView('rbxsync.gitView', {
-    treeDataProvider: gitTree
-  });
-
-  // Set project directory if workspace exists
+  // Set project directory for multi-workspace support
   const workspaceFolders = vscode.workspace.workspaceFolders;
-  if (workspaceFolders && workspaceFolders.length > 0) {
-    const projectDir = workspaceFolders[0].uri.fsPath;
-    instanceTree.setProjectDir(projectDir);
-    gitTree.setProjectDir(projectDir);
-
-    // Load initial git status
-    updateGitStatus(projectDir);
+  if (workspaceFolders?.length) {
+    client.setProjectDir(workspaceFolders[0].uri.fsPath);
   }
+
+  statusBar = new StatusBarManager(client);
+  activityView = new ActivityViewProvider();
+
+  // Register activity view
+  const activityTreeView = vscode.window.createTreeView('rbxsync.activityView', {
+    treeDataProvider: activityView
+  });
+
+  // Listen for connection changes and fetch all places
+  client.onConnectionChange(async (state) => {
+    if (state.connected) {
+      // Fetch all connected places
+      const places = await client.getConnectedPlaces();
+      const projectDir = client.projectDir;
+
+      // Update both status bar and activity view with all places
+      statusBar.updatePlaces(places, projectDir);
+      activityView.setConnectionStatus('connected', places, projectDir);
+    } else {
+      statusBar.updatePlaces([], '');
+      activityView.setConnectionStatus('disconnected', [], '');
+    }
+  });
 
   // Register commands
   const commands = [
-    vscode.commands.registerCommand('rbxsync.connect', () =>
-      connectCommand(client, statusBar)
-    ),
-    vscode.commands.registerCommand('rbxsync.disconnect', () =>
-      disconnectCommand(client, statusBar)
-    ),
-    vscode.commands.registerCommand('rbxsync.extract', () =>
-      extractCommand(client, statusBar, instanceTree)
-    ),
-    vscode.commands.registerCommand('rbxsync.sync', () =>
-      syncCommand(client, statusBar)
-    ),
-    vscode.commands.registerCommand('rbxsync.refresh', () => {
-      instanceTree.refresh();
-      if (workspaceFolders && workspaceFolders.length > 0) {
-        updateGitStatus(workspaceFolders[0].uri.fsPath);
-      }
+    vscode.commands.registerCommand('rbxsync.connect', async () => {
+      activityView.setConnectionStatus('connecting');
+      await connectCommand(client, statusBar);
     }),
-    vscode.commands.registerCommand('rbxsync.openFile', (node: { filePath?: string }) => {
-      if (node.filePath) {
-        vscode.window.showTextDocument(vscode.Uri.file(node.filePath));
-      }
-    }),
-    vscode.commands.registerCommand('rbxsync.gitStatus', () =>
-      gitStatusCommand(client)
-    ),
-    vscode.commands.registerCommand('rbxsync.gitCommit', () =>
-      gitCommitCommand(client)
-    ),
-    // Test runner commands for AI-powered development workflows
-    vscode.commands.registerCommand('rbxsync.runTest', () =>
-      runPlayTest(client)
-    ),
-    vscode.commands.registerCommand('rbxsync.testStart', () =>
-      startTestCapture(client)
-    ),
-    vscode.commands.registerCommand('rbxsync.testStop', () =>
-      stopTestCapture(client)
-    ),
-    vscode.commands.registerCommand('rbxsync.testOutput', () =>
-      getTestOutput(client)
-    )
-  ];
 
-  // Watch for file changes
-  const fileWatcher = vscode.workspace.createFileSystemWatcher('**/*.{rbxjson,luau,lua}');
-  fileWatcher.onDidChange(() => {
-    instanceTree.refresh();
-    if (workspaceFolders && workspaceFolders.length > 0) {
-      updateGitStatus(workspaceFolders[0].uri.fsPath);
-    }
-  });
-  fileWatcher.onDidCreate(() => instanceTree.refresh());
-  fileWatcher.onDidDelete(() => instanceTree.refresh());
+    vscode.commands.registerCommand('rbxsync.disconnect', async () => {
+      await disconnectCommand(client, statusBar);
+    }),
+
+    vscode.commands.registerCommand('rbxsync.extract', async () => {
+      statusBar.setBusy('Extracting');
+      activityView.setCurrentOperation('Extracting');
+      await extractCommand(client, statusBar, activityView);
+      activityView.setCurrentOperation(null);
+      statusBar.clearBusy();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.sync', async () => {
+      statusBar.setBusy('Syncing');
+      activityView.setCurrentOperation('Syncing');
+      await syncCommand(client, statusBar);
+      activityView.setCurrentOperation(null);
+      statusBar.clearBusy();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.runTest', async () => {
+      statusBar.setBusy('Testing');
+      activityView.setCurrentOperation('Testing');
+      await runPlayTest(client);
+      activityView.setCurrentOperation(null);
+      statusBar.clearBusy();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.refresh', () => {
+      activityView.refresh();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.openMetadata', async () => {
+      const editor = vscode.window.activeTextEditor;
+      if (!editor) return;
+
+      const currentFile = editor.document.uri.fsPath;
+      const ext = path.extname(currentFile);
+
+      if (ext !== '.lua' && ext !== '.luau') return;
+
+      const baseName = path.basename(currentFile)
+        .replace('.server.luau', '')
+        .replace('.client.luau', '')
+        .replace('.luau', '')
+        .replace('.server.lua', '')
+        .replace('.client.lua', '')
+        .replace('.lua', '');
+
+      const dir = path.dirname(currentFile);
+      const metadataFile = path.join(dir, `${baseName}.rbxjson`);
+
+      if (fs.existsSync(metadataFile)) {
+        const doc = await vscode.workspace.openTextDocument(metadataFile);
+        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
+      }
+    }),
+
+    vscode.commands.registerCommand('rbxsync.toggleMetadataFiles', async () => {
+      const filesConfig = vscode.workspace.getConfiguration('files');
+      const exclude = filesConfig.get<Record<string, boolean>>('exclude') || {};
+      const isHidden = exclude['**/*.rbxjson'] === true;
+
+      exclude['**/*.rbxjson'] = !isHidden;
+      await filesConfig.update('exclude', exclude, vscode.ConfigurationTarget.Workspace);
+    })
+  ];
 
   // Add to subscriptions
   context.subscriptions.push(
     client,
     statusBar,
-    instanceTree,
-    gitTree,
-    instanceTreeView,
-    gitTreeView,
-    fileWatcher,
+    activityView,
+    activityTreeView,
     ...commands
   );
 
@@ -125,26 +142,15 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   // Auto-connect if enabled
   if (autoConnect) {
     setTimeout(async () => {
+      activityView.setConnectionStatus('connecting');
       const connected = await client.connect();
       if (connected) {
         statusBar.startPolling();
       }
     }, 1000);
   }
-
-  console.log('RbxSync extension activated');
-}
-
-async function updateGitStatus(projectDir: string): Promise<void> {
-  if (!client.connectionState.connected) return;
-
-  const status = await client.getGitStatus(projectDir);
-  if (status) {
-    gitTree.updateStatus(status);
-  }
 }
 
 export function deactivate(): void {
   disposeTestChannel();
-  console.log('RbxSync extension deactivated');
 }
