@@ -175,8 +175,14 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
           await client.registerWorkspace(client.projectDir);
           statusBar.updatePlaces([], client.projectDir); // Set currentProjectDir for polling
         }
-        statusBar.startPolling();
+      } else {
+        // Set project dir for polling even if not connected yet
+        if (client.projectDir) {
+          statusBar.updatePlaces([], client.projectDir);
+        }
       }
+      // Always start polling to detect server when it starts
+      statusBar.startPolling();
     }, 1000);
   }
 }
