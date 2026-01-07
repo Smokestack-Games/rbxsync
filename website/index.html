@@ -1,0 +1,887 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>RbxSync - Sync Roblox Games Between Studio and VS Code</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <style>
+        :root {
+            --bg-primary: #0a0a0f;
+            --bg-secondary: #12121a;
+            --bg-tertiary: #1a1a25;
+            --rbx-red: #e74c3c;
+            --rbx-red-bright: #ff5f4f;
+            --rbx-red-dark: #c0392b;
+            --text-primary: #f0f0f5;
+            --text-secondary: #8888a0;
+            --text-muted: #555570;
+            --border-color: #2a2a40;
+            --gradient-red: linear-gradient(135deg, #e74c3c 0%, #ff6b5b 100%);
+            --glow-red: 0 0 40px rgba(231, 76, 60, 0.3);
+        }
+
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+
+        html {
+            scroll-behavior: smooth;
+        }
+
+        body {
+            font-family: 'Space Grotesk', sans-serif;
+            background: var(--bg-primary);
+            color: var(--text-primary);
+            line-height: 1.6;
+            overflow-x: hidden;
+        }
+
+        /* Animated background grid */
+        .bg-grid {
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            pointer-events: none;
+            z-index: 0;
+            background-image:
+                linear-gradient(rgba(231, 76, 60, 0.03) 1px, transparent 1px),
+                linear-gradient(90deg, rgba(231, 76, 60, 0.03) 1px, transparent 1px);
+            background-size: 60px 60px;
+            animation: gridMove 20s linear infinite;
+        }
+
+        @keyframes gridMove {
+            0% { transform: translate(0, 0); }
+            100% { transform: translate(60px, 60px); }
+        }
+
+        /* Navigation */
+        nav {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            z-index: 100;
+            padding: 1.5rem 4rem;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            background: rgba(10, 10, 15, 0.8);
+            backdrop-filter: blur(20px);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .logo {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.5rem;
+            color: var(--text-primary);
+            text-decoration: none;
+        }
+
+        .logo-icon {
+            width: 36px;
+            height: 36px;
+            background: var(--gradient-red);
+            border-radius: 8px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.2rem;
+            box-shadow: var(--glow-red);
+        }
+
+        .nav-links {
+            display: flex;
+            gap: 2.5rem;
+        }
+
+        .nav-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.95rem;
+            font-weight: 500;
+            transition: color 0.2s;
+        }
+
+        .nav-links a:hover {
+            color: var(--rbx-red-bright);
+        }
+
+        .nav-cta {
+            background: var(--gradient-red);
+            color: white;
+            padding: 0.75rem 1.5rem;
+            border-radius: 8px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 0.9rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .nav-cta:hover {
+            transform: translateY(-2px);
+            box-shadow: var(--glow-red);
+        }
+
+        /* Hero Section */
+        .hero {
+            position: relative;
+            min-height: 100vh;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            padding: 8rem 4rem 6rem;
+            z-index: 1;
+        }
+
+        .hero-content {
+            max-width: 900px;
+            text-align: center;
+        }
+
+        .hero-badge {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 50px;
+            font-size: 0.85rem;
+            color: var(--text-secondary);
+            margin-bottom: 2rem;
+            animation: fadeInUp 0.6s ease-out;
+        }
+
+        .hero-badge span {
+            color: var(--rbx-red-bright);
+            font-weight: 600;
+        }
+
+        .hero h1 {
+            font-size: clamp(3rem, 8vw, 5.5rem);
+            font-weight: 700;
+            line-height: 1.1;
+            margin-bottom: 1.5rem;
+            animation: fadeInUp 0.6s ease-out 0.1s both;
+        }
+
+        .hero h1 .highlight {
+            background: var(--gradient-red);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+            background-clip: text;
+        }
+
+        .hero-description {
+            font-size: 1.25rem;
+            color: var(--text-secondary);
+            max-width: 650px;
+            margin: 0 auto 3rem;
+            animation: fadeInUp 0.6s ease-out 0.2s both;
+        }
+
+        .hero-actions {
+            display: flex;
+            gap: 1rem;
+            justify-content: center;
+            flex-wrap: wrap;
+            animation: fadeInUp 0.6s ease-out 0.3s both;
+        }
+
+        .btn-primary {
+            background: var(--gradient-red);
+            color: white;
+            padding: 1rem 2rem;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: transform 0.2s, box-shadow 0.2s;
+        }
+
+        .btn-primary:hover {
+            transform: translateY(-3px);
+            box-shadow: var(--glow-red);
+        }
+
+        .btn-secondary {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            padding: 1rem 2rem;
+            border-radius: 10px;
+            text-decoration: none;
+            font-weight: 600;
+            font-size: 1rem;
+            border: 1px solid var(--border-color);
+            display: inline-flex;
+            align-items: center;
+            gap: 0.5rem;
+            transition: all 0.2s;
+        }
+
+        .btn-secondary:hover {
+            background: var(--bg-secondary);
+            border-color: var(--rbx-red);
+        }
+
+        /* Sync Animation */
+        .sync-visual {
+            margin-top: 4rem;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            gap: 2rem;
+            animation: fadeInUp 0.6s ease-out 0.4s both;
+        }
+
+        .sync-box {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.75rem;
+            min-width: 140px;
+        }
+
+        .sync-box-icon {
+            width: 48px;
+            height: 48px;
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+        }
+
+        .sync-box-icon.studio {
+            background: linear-gradient(135deg, #00a2ff 0%, #0066cc 100%);
+        }
+
+        .sync-box-icon.vscode {
+            background: linear-gradient(135deg, #007acc 0%, #0055a4 100%);
+        }
+
+        .sync-box span {
+            font-weight: 600;
+            font-size: 0.9rem;
+        }
+
+        .sync-arrows {
+            display: flex;
+            flex-direction: column;
+            gap: 0.5rem;
+        }
+
+        .sync-arrow {
+            display: flex;
+            align-items: center;
+            gap: 0.25rem;
+            color: var(--rbx-red);
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 1.5rem;
+            font-weight: 600;
+        }
+
+        .sync-arrow.right {
+            animation: pulseRight 1.5s ease-in-out infinite;
+        }
+
+        .sync-arrow.left {
+            animation: pulseLeft 1.5s ease-in-out infinite 0.75s;
+        }
+
+        @keyframes pulseRight {
+            0%, 100% { opacity: 0.3; transform: translateX(-5px); }
+            50% { opacity: 1; transform: translateX(5px); }
+        }
+
+        @keyframes pulseLeft {
+            0%, 100% { opacity: 0.3; transform: translateX(5px); }
+            50% { opacity: 1; transform: translateX(-5px); }
+        }
+
+        @keyframes fadeInUp {
+            from {
+                opacity: 0;
+                transform: translateY(30px);
+            }
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        /* Features Section */
+        .features {
+            position: relative;
+            z-index: 1;
+            padding: 8rem 4rem;
+            background: var(--bg-secondary);
+        }
+
+        .section-header {
+            text-align: center;
+            max-width: 700px;
+            margin: 0 auto 4rem;
+        }
+
+        .section-tag {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--rbx-red);
+            text-transform: uppercase;
+            letter-spacing: 2px;
+            margin-bottom: 1rem;
+        }
+
+        .section-title {
+            font-size: 2.75rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .section-description {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+        }
+
+        .features-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+            gap: 1.5rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .feature-card {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2rem;
+            transition: all 0.3s;
+            position: relative;
+            overflow: hidden;
+        }
+
+        .feature-card::before {
+            content: '';
+            position: absolute;
+            top: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background: var(--gradient-red);
+            transform: scaleX(0);
+            transition: transform 0.3s;
+        }
+
+        .feature-card:hover {
+            border-color: var(--rbx-red);
+            transform: translateY(-5px);
+        }
+
+        .feature-card:hover::before {
+            transform: scaleX(1);
+        }
+
+        .feature-icon {
+            width: 50px;
+            height: 50px;
+            background: var(--bg-tertiary);
+            border-radius: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 1.5rem;
+            margin-bottom: 1.25rem;
+        }
+
+        .feature-card h3 {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 0.75rem;
+        }
+
+        .feature-card p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            line-height: 1.7;
+        }
+
+        /* Installation Section */
+        .installation {
+            position: relative;
+            z-index: 1;
+            padding: 8rem 4rem;
+        }
+
+        .install-content {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .install-steps {
+            display: flex;
+            flex-direction: column;
+            gap: 1.5rem;
+            margin-top: 3rem;
+        }
+
+        .install-step {
+            display: flex;
+            gap: 1.5rem;
+            align-items: flex-start;
+        }
+
+        .step-number {
+            flex-shrink: 0;
+            width: 40px;
+            height: 40px;
+            background: var(--gradient-red);
+            border-radius: 50%;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: 700;
+            font-size: 1rem;
+        }
+
+        .step-content {
+            flex: 1;
+        }
+
+        .step-content h4 {
+            font-size: 1.1rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .step-content p {
+            color: var(--text-secondary);
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .code-block {
+            background: var(--bg-secondary);
+            border: 1px solid var(--border-color);
+            border-radius: 10px;
+            padding: 1rem 1.25rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.9rem;
+            overflow-x: auto;
+            position: relative;
+        }
+
+        .code-block code {
+            color: var(--text-primary);
+        }
+
+        .code-block .comment {
+            color: var(--text-muted);
+        }
+
+        .code-block .command {
+            color: var(--rbx-red-bright);
+        }
+
+        /* MCP Section */
+        .mcp-section {
+            position: relative;
+            z-index: 1;
+            padding: 8rem 4rem;
+            background: var(--bg-secondary);
+        }
+
+        .mcp-content {
+            max-width: 1000px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: center;
+        }
+
+        .mcp-text h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1rem;
+        }
+
+        .mcp-text p {
+            color: var(--text-secondary);
+            font-size: 1.1rem;
+            margin-bottom: 1.5rem;
+        }
+
+        .mcp-tools {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 0.75rem;
+        }
+
+        .mcp-tool {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            padding: 0.5rem 1rem;
+            border-radius: 8px;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--rbx-red-bright);
+        }
+
+        .mcp-code {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .mcp-code-header {
+            background: var(--bg-tertiary);
+            padding: 0.75rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .mcp-code pre {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+
+        .mcp-code .key {
+            color: var(--rbx-red-bright);
+        }
+
+        .mcp-code .string {
+            color: #98c379;
+        }
+
+        /* Footer */
+        footer {
+            position: relative;
+            z-index: 1;
+            padding: 4rem;
+            border-top: 1px solid var(--border-color);
+            text-align: center;
+        }
+
+        .footer-logo {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.75rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-weight: 700;
+            font-size: 1.25rem;
+            color: var(--text-primary);
+            margin-bottom: 1.5rem;
+        }
+
+        .footer-links {
+            display: flex;
+            justify-content: center;
+            gap: 2rem;
+            margin-bottom: 2rem;
+        }
+
+        .footer-links a {
+            color: var(--text-secondary);
+            text-decoration: none;
+            font-size: 0.95rem;
+            transition: color 0.2s;
+        }
+
+        .footer-links a:hover {
+            color: var(--rbx-red-bright);
+        }
+
+        .footer-copy {
+            color: var(--text-muted);
+            font-size: 0.9rem;
+        }
+
+        /* Responsive */
+        @media (max-width: 900px) {
+            nav {
+                padding: 1rem 2rem;
+            }
+
+            .nav-links {
+                display: none;
+            }
+
+            .hero, .features, .installation, .mcp-section {
+                padding: 6rem 2rem;
+            }
+
+            .mcp-content {
+                grid-template-columns: 1fr;
+            }
+
+            .sync-visual {
+                flex-direction: column;
+            }
+
+            .sync-arrows {
+                transform: rotate(90deg);
+            }
+        }
+    </style>
+</head>
+<body>
+    <div class="bg-grid"></div>
+
+    <nav>
+        <a href="#" class="logo">
+            <div class="logo-icon">⟳</div>
+            RbxSync
+        </a>
+        <div class="nav-links">
+            <a href="#features">Features</a>
+            <a href="#installation">Install</a>
+            <a href="#mcp">AI Integration</a>
+            <a href="https://github.com/devmarissa/rbxsync">Docs</a>
+        </div>
+        <a href="https://github.com/devmarissa/rbxsync" class="nav-cta">
+            ★ Star on GitHub
+        </a>
+    </nav>
+
+    <section class="hero">
+        <div class="hero-content">
+            <div class="hero-badge">
+                <span>v1.0</span> Now with MCP integration for AI agents
+            </div>
+            <h1>
+                Sync Roblox Games<br>
+                <span class="highlight">Like a Pro</span>
+            </h1>
+            <p class="hero-description">
+                Professional tool for syncing Roblox games between Studio and VS Code.
+                Full property preservation, git integration, and AI-powered workflows.
+            </p>
+            <div class="hero-actions">
+                <a href="#installation" class="btn-primary">
+                    ↓ Get Started
+                </a>
+                <a href="https://github.com/devmarissa/rbxsync" class="btn-secondary">
+                    <svg width="20" height="20" viewBox="0 0 24 24" fill="currentColor">
+                        <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0024 12c0-6.63-5.37-12-12-12z"/>
+                    </svg>
+                    View on GitHub
+                </a>
+            </div>
+
+            <div class="sync-visual">
+                <div class="sync-box">
+                    <div class="sync-box-icon studio">🎮</div>
+                    <span>Roblox Studio</span>
+                </div>
+                <div class="sync-arrows">
+                    <div class="sync-arrow right">→→→</div>
+                    <div class="sync-arrow left">←←←</div>
+                </div>
+                <div class="sync-box">
+                    <div class="sync-box-icon vscode">📝</div>
+                    <span>VS Code</span>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="features" id="features">
+        <div class="section-header">
+            <div class="section-tag">Features</div>
+            <h2 class="section-title">Everything You Need</h2>
+            <p class="section-description">
+                Built for professional Roblox developers who demand the best tools.
+            </p>
+        </div>
+
+        <div class="features-grid">
+            <div class="feature-card">
+                <div class="feature-icon">📦</div>
+                <h3>Complete DataModel Extraction</h3>
+                <p>Captures ALL properties of every instance using API dump reflection. Nothing is lost in translation.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔄</div>
+                <h3>Two-Way Sync</h3>
+                <p>Push changes from VS Code to Studio and extract from Studio to files. Real-time synchronization.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">💻</div>
+                <h3>VS Code Extension</h3>
+                <p>Native integration with status bar, activity panel, and keyboard shortcuts. Feels right at home.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🤖</div>
+                <h3>MCP Integration</h3>
+                <p>AI agents can extract, sync, run code, and test games. Perfect for Claude-powered workflows.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📁</div>
+                <h3>Git-Friendly Format</h3>
+                <p>Clean file structure designed for version control. Human-readable .luau and .rbxjson files.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🎯</div>
+                <h3>Multi-Studio Support</h3>
+                <p>Work with multiple Studio instances simultaneously. Each workspace remembers its linked game.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">▶️</div>
+                <h3>Play Testing</h3>
+                <p>Run automated tests with console output capture. Perfect for CI/CD and AI-assisted development.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">⚡</div>
+                <h3>Blazing Fast</h3>
+                <p>Built with Rust for maximum performance. Handles large games with thousands of instances.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="installation" id="installation">
+        <div class="install-content">
+            <div class="section-header">
+                <div class="section-tag">Get Started</div>
+                <h2 class="section-title">Installation</h2>
+                <p class="section-description">
+                    Up and running in minutes with a few simple commands.
+                </p>
+            </div>
+
+            <div class="install-steps">
+                <div class="install-step">
+                    <div class="step-number">1</div>
+                    <div class="step-content">
+                        <h4>Build from Source</h4>
+                        <p>Clone the repository and build with Cargo.</p>
+                        <div class="code-block">
+                            <code>
+                                <span class="comment"># Clone and build</span><br>
+                                <span class="command">git clone</span> https://github.com/devmarissa/rbxsync<br>
+                                <span class="command">cd</span> rbxsync<br>
+                                <span class="command">cargo build</span> --release
+                            </code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="install-step">
+                    <div class="step-number">2</div>
+                    <div class="step-content">
+                        <h4>Install Studio Plugin</h4>
+                        <p>Build and install the Roblox Studio plugin.</p>
+                        <div class="code-block">
+                            <code>
+                                <span class="command">./target/release/rbxsync</span> build-plugin --install
+                            </code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="install-step">
+                    <div class="step-number">3</div>
+                    <div class="step-content">
+                        <h4>Initialize Project</h4>
+                        <p>Create a new project and start the server.</p>
+                        <div class="code-block">
+                            <code>
+                                <span class="command">rbxsync init</span> --name MyGame<br>
+                                <span class="command">rbxsync serve</span>
+                            </code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="install-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
+                        <h4>Connect Studio</h4>
+                        <p>Open Roblox Studio, set the project path in the RbxSync widget, and click Connect. You're ready to sync!</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <section class="mcp-section" id="mcp">
+        <div class="mcp-content">
+            <div class="mcp-text">
+                <div class="section-tag">AI Integration</div>
+                <h2>MCP for Claude</h2>
+                <p>
+                    RbxSync includes a Model Context Protocol server that lets AI agents
+                    interact with your Roblox games directly. Extract, sync, run code, and
+                    test—all through natural language.
+                </p>
+                <div class="mcp-tools">
+                    <span class="mcp-tool">extract_game</span>
+                    <span class="mcp-tool">sync_to_studio</span>
+                    <span class="mcp-tool">run_code</span>
+                    <span class="mcp-tool">run_test</span>
+                    <span class="mcp-tool">git_status</span>
+                    <span class="mcp-tool">git_commit</span>
+                </div>
+            </div>
+            <div class="mcp-code">
+                <div class="mcp-code-header">claude_desktop_config.json</div>
+                <pre>{
+  <span class="key">"mcpServers"</span>: {
+    <span class="key">"rbxsync"</span>: {
+      <span class="key">"command"</span>: <span class="string">"/path/to/rbxsync-mcp"</span>
+    }
+  }
+}</pre>
+            </div>
+        </div>
+    </section>
+
+    <footer>
+        <div class="footer-logo">
+            <div class="logo-icon" style="width: 28px; height: 28px; font-size: 1rem;">⟳</div>
+            RbxSync
+        </div>
+        <div class="footer-links">
+            <a href="https://github.com/devmarissa/rbxsync">GitHub</a>
+            <a href="https://github.com/devmarissa/rbxsync#readme">Documentation</a>
+            <a href="https://github.com/devmarissa/rbxsync/issues">Issues</a>
+            <a href="https://github.com/devmarissa/rbxsync/releases">Releases</a>
+        </div>
+        <p class="footer-copy">
+            MIT License • Built with Rust, TypeScript, and Luau
+        </p>
+    </footer>
+</body>
+</html>
