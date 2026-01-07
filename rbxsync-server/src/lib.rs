@@ -205,11 +205,13 @@ async fn handle_register(
 ) -> impl IntoResponse {
     let mut registry = state.place_registry.write().await;
 
-    // Generate unique session ID for each registration
-    let session_id = state.session_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-    let key = format!("session_{}", session_id);
+    // Use project_dir + place_name as key to avoid duplicates from same Studio
+    let key = format!("{}:{}", req.project_dir, req.place_name);
 
-    // Register this place with unique session key
+    // Track session for logging
+    let session_id = state.session_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+
+    // Register/update this place
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
         place_name: req.place_name.clone(),
