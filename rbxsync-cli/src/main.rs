@@ -57,6 +57,9 @@ enum Commands {
         port: u16,
     },
 
+    /// Stop the running sync server
+    Stop,
+
     /// Show sync status
     Status,
 
@@ -109,6 +112,9 @@ async fn main() -> Result<()> {
         }
         Commands::Serve { port } => {
             cmd_serve(port).await?;
+        }
+        Commands::Stop => {
+            cmd_stop().await?;
         }
         Commands::Status => {
             cmd_status().await?;
@@ -284,11 +290,50 @@ async fn cmd_extract(
 /// Start the sync server
 async fn cmd_serve(port: u16) -> Result<()> {
     println!("Starting RbxSync server on port {}...", port);
+    println!("Stop with: rbxsync stop");
     run_server(ServerConfig {
         port,
         ..Default::default()
     })
     .await
+}
+
+/// Stop the running sync server
+async fn cmd_stop() -> Result<()> {
+    let client = reqwest::Client::new();
+
+    match client.post("http://localhost:44755/shutdown").send().await {
+        Ok(response) if response.status().is_success() => {
+            println!("Server stopped.");
+            Ok(())
+        }
+        Ok(_) => {
+            // Try killing by port as fallback
+            println!("Server did not respond to shutdown. Trying force stop...");
+            #[cfg(unix)]
+            {
+                let output = std::process::Command::new("lsof")
+                    .args(["-ti", ":44755"])
+                    .output();
+                if let Ok(output) = output {
+                    let pids = String::from_utf8_lossy(&output.stdout);
+                    for pid in pids.lines() {
+                        if let Ok(pid) = pid.trim().parse::<i32>() {
+                            unsafe {
+                                libc::kill(pid, libc::SIGTERM);
+                            }
+                            println!("Killed process {}", pid);
+                        }
+                    }
+                }
+            }
+            Ok(())
+        }
+        Err(_) => {
+            println!("Server is not running.");
+            Ok(())
+        }
+    }
 }
 
 /// Show status

@@ -111,6 +111,15 @@ export class StatusBarManager {
     this.stopPolling();
     this.pollingInterval = setInterval(async () => {
       await this.client.checkHealth();
+      // Re-register workspace as heartbeat
+      if (this.currentProjectDir) {
+        await this.client.registerWorkspace(this.currentProjectDir);
+      }
+      // Refresh places list
+      if (this.client.connectionState.connected) {
+        const places = await this.client.getConnectedPlaces();
+        this.updatePlaces(places, this.currentProjectDir);
+      }
     }, intervalMs);
   }
 

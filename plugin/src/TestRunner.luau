@@ -53,8 +53,7 @@ function TestRunner.startCapture(): { success: boolean, message: string }
 		end
 	end)
 
-	print("[RbxSync TestRunner] Console capture started")
-	return { success = true, message = "Capture started - ready to record console output" }
+	return { success = true, message = "Capture started" }
 end
 
 -- Stop capturing and return all captured output
@@ -79,8 +78,6 @@ function TestRunner.stopCapture(): CaptureResult
 
 	local output = capturedOutput
 	capturedOutput = {}
-
-	print(string.format("[RbxSync TestRunner] Capture stopped - %d messages in %.2fs", #output, duration))
 
 	return {
 		success = true,
@@ -204,20 +201,13 @@ function TestRunner.startBackgroundTest(options: TestOptions?): { success: boole
 		return { success = false, message = captureResult.message }
 	end
 
-	print(string.format("[RbxSync TestRunner] Starting background %s test for %.1f seconds...", mode, duration))
-
 	-- Create auto-stop script that runs inside the game
-	-- This script will call EndTest() after the duration from within the play session
 	local autoStopScript = Instance.new("Script")
 	autoStopScript.Name = "_RbxSyncAutoStop"
 	autoStopScript.Source = string.format([[
--- RbxSync Auto-Stop Script (injected for automated testing)
 local StudioTestService = game:GetService("StudioTestService")
-local duration = %d
-
-task.delay(duration, function()
-	print("[RbxSync] Auto-stopping test after " .. duration .. " seconds")
-	StudioTestService:EndTest({ autoStopped = true, duration = duration })
+task.delay(%d, function()
+	StudioTestService:EndTest({ autoStopped = true })
 end)
 ]], duration)
 	autoStopScript.Parent = game:GetService("ServerScriptService")
@@ -243,10 +233,8 @@ end)
 
 		if ok then
 			testResult = result
-			print("[RbxSync TestRunner] Test completed successfully")
 		else
 			testError = tostring(result)
-			print("[RbxSync TestRunner] Test failed: " .. testError)
 		end
 
 		testComplete = true
@@ -278,16 +266,11 @@ end
 -- Stop background test and get results
 function TestRunner.stopBackgroundTest(): CaptureResult
 	-- Always try to end the test if one was in progress
-	-- RunService:IsRunning() may return false from plugin context even when game is playing
 	if testInProgress or not testComplete then
-		print("[RbxSync TestRunner] Stopping test via EndTest...")
-		local endOk, endErr = pcall(function()
+		pcall(function()
 			StudioTestService:EndTest({ stopped = true })
 		end)
-		if not endOk then
-			print("[RbxSync TestRunner] EndTest error: " .. tostring(endErr))
-		end
-		task.wait(1) -- Give more time for the test to stop
+		task.wait(1)
 	end
 
 	testInProgress = false

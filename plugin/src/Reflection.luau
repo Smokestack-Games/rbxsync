@@ -126,13 +126,8 @@ function Reflection.getPropertiesForClass(className: string): {PropertyInfo}
     return allProperties
 end
 
--- Check if a property can be serialized (read from an instance)
+-- Check if a property can be read (readable from an instance)
 function Reflection.canReadProperty(prop: PropertyInfo): boolean
-    -- Check serialization flags
-    if prop.Serialization and not prop.Serialization.CanSave then
-        return false
-    end
-
     -- Check security - allow None and PluginSecurity
     local readSecurity = prop.Security and prop.Security.Read
     if readSecurity and readSecurity ~= "None" and readSecurity ~= "PluginSecurity" then
@@ -142,12 +137,9 @@ function Reflection.canReadProperty(prop: PropertyInfo): boolean
     -- Check for problematic tags
     if prop.Tags then
         for _, tag in prop.Tags do
-            if tag == "ReadOnly" or tag == "NotScriptable" or tag == "Hidden" or tag == "Deprecated" then
-                -- ReadOnly and Deprecated are usually fine to read
-                -- NotScriptable and Hidden mean we can't access them
-                if tag == "NotScriptable" or tag == "Hidden" then
-                    return false
-                end
+            -- NotScriptable and Hidden mean we can't access them via scripts
+            if tag == "NotScriptable" or tag == "Hidden" then
+                return false
             end
         end
     end

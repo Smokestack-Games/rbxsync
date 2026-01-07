@@ -37,6 +37,14 @@ impl Default for ServerConfig {
     }
 }
 
+/// VS Code workspace registration
+#[derive(Debug, Clone, Serialize)]
+pub struct VsCodeWorkspace {
+    pub workspace_dir: String,
+    #[serde(skip)]
+    pub last_heartbeat: Option<Instant>,
+}
+
 /// Shared application state
 pub struct AppState {
     /// Queue of pending requests to send to the plugin (legacy/fallback)
@@ -47,6 +55,9 @@ pub struct AppState {
 
     /// Registry of connected Studio places (session_id → PlaceInfo)
     pub place_registry: RwLock<HashMap<String, PlaceInfo>>,
+
+    /// Registry of connected VS Code workspaces
+    pub vscode_workspaces: RwLock<HashMap<String, VsCodeWorkspace>>,
 
     /// Counter for generating unique session IDs
     pub session_counter: std::sync::atomic::AtomicU64,
@@ -71,6 +82,7 @@ impl AppState {
             request_queue: Mutex::new(VecDeque::new()),
             project_queues: RwLock::new(HashMap::new()),
             place_registry: RwLock::new(HashMap::new()),
+            vscode_workspaces: RwLock::new(HashMap::new()),
             session_counter: std::sync::atomic::AtomicU64::new(1),
             response_channels: RwLock::new(HashMap::new()),
             trigger,
@@ -124,7 +136,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rbxsync/request", get(handle_request_poll))
         .route("/rbxsync/response", post(handle_response))
         .route("/rbxsync/register", post(handle_register))
+        .route("/rbxsync/register-vscode", post(handle_register_vscode))
         .route("/rbxsync/places", get(handle_list_places))
+        .route("/rbxsync/workspaces", get(handle_list_workspaces))
         // New extraction endpoints
         .route("/extract/start", post(handle_extract_start))
         .route("/extract/chunk", post(handle_extract_chunk))
@@ -146,6 +160,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/test/stop", post(handle_test_stop))
         // Health check
         .route("/health", get(handle_health))
+        // Shutdown endpoint
+        .route("/shutdown", post(handle_shutdown))
         .with_state(state)
         // Allow large body sizes for extraction chunks (10MB limit)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))
@@ -156,6 +172,19 @@ async fn handle_health() -> impl IntoResponse {
     Json(serde_json::json!({
         "status": "ok",
         "version": env!("CARGO_PKG_VERSION")
+    }))
+}
+
+/// Shutdown endpoint - gracefully stops the server
+async fn handle_shutdown() -> impl IntoResponse {
+    tracing::info!("Shutdown requested via API");
+    // Spawn a task to exit after response is sent
+    tokio::spawn(async {
+        tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+        std::process::exit(0);
+    });
+    Json(serde_json::json!({
+        "status": "shutting_down"
     }))
 }
 
@@ -207,15 +236,115 @@ async fn handle_register(
     }))
 }
 
+/// Clean up stale registrations (no heartbeat in 30 seconds)
+/// Must be longer than long-polling timeout (15s) to avoid premature cleanup
+async fn cleanup_stale_registrations(state: &Arc<AppState>) {
+    let mut registry = state.place_registry.write().await;
+    let now = Instant::now();
+    let stale_threshold = std::time::Duration::from_secs(30);
+
+    let stale_keys: Vec<String> = registry
+        .iter()
+        .filter(|(_, info)| {
+            info.last_heartbeat
+                .map(|t| now.duration_since(t) > stale_threshold)
+                .unwrap_or(true)
+        })
+        .map(|(k, _)| k.clone())
+        .collect();
+
+    for key in &stale_keys {
+        if let Some(info) = registry.remove(key) {
+            tracing::info!("Removed stale registration: {} ({})", info.place_name, key);
+        }
+    }
+}
+
 /// List connected Studio places
 async fn handle_list_places(
     State(state): State<Arc<AppState>>,
 ) -> impl IntoResponse {
+    // Clean up stale registrations first
+    cleanup_stale_registrations(&state).await;
+
     let registry = state.place_registry.read().await;
     let places: Vec<&PlaceInfo> = registry.values().collect();
 
     Json(serde_json::json!({
         "places": places
+    }))
+}
+
+/// VS Code workspace registration request
+#[derive(Debug, Deserialize)]
+pub struct RegisterVsCodeRequest {
+    pub workspace_dir: String,
+}
+
+/// Handle VS Code workspace registration
+async fn handle_register_vscode(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RegisterVsCodeRequest>,
+) -> impl IntoResponse {
+    if req.workspace_dir.is_empty() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "Empty workspace directory"
+        }));
+    }
+
+    let mut workspaces = state.vscode_workspaces.write().await;
+    workspaces.insert(req.workspace_dir.clone(), VsCodeWorkspace {
+        workspace_dir: req.workspace_dir.clone(),
+        last_heartbeat: Some(Instant::now()),
+    });
+
+    tracing::info!("VS Code workspace registered: {}", req.workspace_dir);
+
+    Json(serde_json::json!({
+        "success": true,
+        "message": "Workspace registered"
+    }))
+}
+
+/// Clean up stale VS Code workspace registrations (no heartbeat in 30 seconds)
+async fn cleanup_stale_vscode_workspaces(state: &Arc<AppState>) {
+    let mut workspaces = state.vscode_workspaces.write().await;
+    let now = Instant::now();
+    let stale_threshold = std::time::Duration::from_secs(30);
+
+    let stale_keys: Vec<String> = workspaces
+        .iter()
+        .filter(|(_, ws)| {
+            ws.last_heartbeat
+                .map(|t| now.duration_since(t) > stale_threshold)
+                .unwrap_or(true)
+        })
+        .map(|(k, _)| k.clone())
+        .collect();
+
+    for key in &stale_keys {
+        workspaces.remove(key);
+        tracing::info!("Removed stale VS Code workspace: {}", key);
+    }
+}
+
+/// List registered VS Code workspace directories
+async fn handle_list_workspaces(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    // Clean up stale workspaces first
+    cleanup_stale_vscode_workspaces(&state).await;
+
+    let workspaces = state.vscode_workspaces.read().await;
+    let mut workspace_dirs: Vec<String> = workspaces
+        .values()
+        .map(|ws| ws.workspace_dir.clone())
+        .collect();
+    workspace_dirs.sort();
+
+    Json(serde_json::json!({
+        "workspaces": workspace_dirs
     }))
 }
 
@@ -551,6 +680,12 @@ async fn handle_extract_finalize(
 
     tracing::info!("Finalizing {} instances to {}", all_instances.len(), src_dir.display());
 
+    // Create src directory
+    let _ = std::fs::create_dir_all(&src_dir);
+
+    // Track which services we've seen to create folders for them
+    let mut service_folders: std::collections::HashSet<String> = std::collections::HashSet::new();
+
     // Write each instance to its own file using the path field
     let mut files_written = 0;
     let mut scripts_written = 0;
@@ -567,6 +702,11 @@ async fn handle_extract_finalize(
 
         // Path is already '/' delimited, use directly as filesystem path
         let full_path = src_dir.join(inst_path);
+
+        // Track service name (first segment of path) for folder creation
+        if let Some(service_name) = inst_path.split('/').next() {
+            service_folders.insert(service_name.to_string());
+        }
 
         // Create parent directories
         if let Some(parent) = full_path.parent() {
@@ -627,7 +767,14 @@ async fn handle_extract_finalize(
         }
     }
 
-    tracing::info!("Finalize complete: {} .rbxjson files, {} .luau scripts", files_written, scripts_written);
+    // Create service folders even if they're empty
+    for service in &service_folders {
+        let service_folder = src_dir.join(service);
+        // Create the folder if it doesn't exist
+        let _ = std::fs::create_dir_all(&service_folder);
+    }
+
+    tracing::info!("Finalize complete: {} .rbxjson files, {} .luau scripts, {} services", files_written, scripts_written, service_folders.len());
 
     (
         StatusCode::OK,

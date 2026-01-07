@@ -1,48 +1,56 @@
 import * as vscode from 'vscode';
+import * as http from 'http';
 import { RbxSyncClient } from '../server/client';
 import { StatusBarManager } from '../views/statusBar';
+
+let serverTerminal: vscode.Terminal | null = null;
 
 export async function connectCommand(
   client: RbxSyncClient,
   statusBar: StatusBarManager
 ): Promise<void> {
-  const connected = await vscode.window.withProgress(
-    {
-      location: vscode.ProgressLocation.Notification,
-      title: 'RbxSync: Connecting to server...',
-      cancellable: false
-    },
-    async () => {
-      return await client.connect();
-    }
-  );
+  // First check if server is already running
+  let connected = await client.connect();
 
   if (connected) {
-    const config = vscode.workspace.getConfiguration('rbxsync');
-    if (config.get('showNotifications')) {
-      vscode.window.showInformationMessage('RbxSync: Connected to Studio');
+    // Register workspace with server
+    if (client.projectDir) {
+      await client.registerWorkspace(client.projectDir);
     }
     statusBar.startPolling();
-  } else {
-    const state = client.connectionState;
-    const action = await vscode.window.showErrorMessage(
-      `RbxSync: Connection failed - ${state.lastError || 'Unknown error'}`,
-      'Retry',
-      'Start Server'
-    );
+    return;
+  }
 
-    if (action === 'Retry') {
-      await connectCommand(client, statusBar);
-    } else if (action === 'Start Server') {
-      const terminal = vscode.window.createTerminal('RbxSync Server');
-      terminal.sendText('rbxsync serve');
-      terminal.show();
+  // Server not running - start it
+  vscode.window.showInformationMessage('Starting RbxSync server...');
 
-      // Wait a bit then retry
-      await new Promise(resolve => setTimeout(resolve, 2000));
-      await connectCommand(client, statusBar);
+  // Create or reuse terminal
+  if (!serverTerminal || serverTerminal.exitStatus !== undefined) {
+    serverTerminal = vscode.window.createTerminal({
+      name: 'RbxSync Server',
+      hideFromUser: false
+    });
+  }
+
+  serverTerminal.sendText('rbxsync serve');
+  serverTerminal.show(true);  // Show but don't take focus
+
+  // Wait for server to start (poll up to 5 seconds)
+  for (let i = 0; i < 10; i++) {
+    await new Promise(resolve => setTimeout(resolve, 500));
+    connected = await client.connect();
+    if (connected) {
+      // Register workspace with server
+      if (client.projectDir) {
+        await client.registerWorkspace(client.projectDir);
+      }
+      statusBar.startPolling();
+      vscode.window.showInformationMessage('RbxSync server started');
+      return;
     }
   }
+
+  vscode.window.showErrorMessage('Failed to start server. Check the terminal for errors.');
 }
 
 export async function disconnectCommand(
@@ -50,11 +58,36 @@ export async function disconnectCommand(
   statusBar: StatusBarManager
 ): Promise<void> {
   statusBar.stopPolling();
-  // Trigger a connection state update to show disconnected
-  client['updateConnectionState']({ connected: false });
 
-  const config = vscode.workspace.getConfiguration('rbxsync');
-  if (config.get('showNotifications')) {
-    vscode.window.showInformationMessage('RbxSync: Disconnected');
+  // Send shutdown request to server
+  try {
+    const config = vscode.workspace.getConfiguration('rbxsync');
+    const port = config.get<number>('serverPort') || 44755;
+
+    await new Promise<void>((resolve, reject) => {
+      const req = http.request({
+        hostname: '127.0.0.1',
+        port,
+        path: '/shutdown',
+        method: 'POST',
+        timeout: 2000
+      }, (res) => {
+        resolve();
+      });
+
+      req.on('error', () => resolve());  // Server might close before responding
+      req.on('timeout', () => {
+        req.destroy();
+        resolve();
+      });
+
+      req.end();
+    });
+
+    vscode.window.showInformationMessage('RbxSync server stopped');
+  } catch {
+    // Ignore errors - server might already be stopped
   }
+
+  client['updateConnectionState']({ connected: false });
 }

@@ -60,6 +60,7 @@ export interface PropertyValue {
 
 export interface SyncBatchRequest {
   operations: SyncOperation[];
+  project_dir?: string;  // For routing to specific Studio
 }
 
 export interface SyncOperation {

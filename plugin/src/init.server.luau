@@ -10,6 +10,7 @@
 local HttpService = game:GetService("HttpService")
 local Selection = game:GetService("Selection")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
+local MarketplaceService = game:GetService("MarketplaceService")
 
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
@@ -30,10 +31,100 @@ Config.init(plugin)
 local isConnected = false
 local isExtracting = false
 local isSyncing = false
+local userDisconnected = false  -- True when user explicitly clicks Disconnect (prevents auto-reconnect)
+local cachedPlaceName: string? = nil
+local lastExtractTime: number? = nil  -- Track last extraction time for estimates
+local lastInstanceCount: number? = nil  -- Track last instance count
+
+-- Forward declaration for UI update function (defined later)
+local updateConnectionUI: () -> ()
+
+-- Get actual place name from MarketplaceService (or fallback)
+local function getPlaceName(): string
+    if cachedPlaceName then
+        return cachedPlaceName
+    end
+
+    local placeId = game.PlaceId
+    if placeId == 0 then
+        -- Unsaved place - use game.Name or "Untitled"
+        return game.Name ~= "Place1" and game.Name or "Untitled Place"
+    end
+
+    -- Try to get the actual place name from MarketplaceService
+    local success, info = pcall(function()
+        return MarketplaceService:GetProductInfo(placeId, Enum.InfoType.Asset)
+    end)
+
+    if success and info and info.Name then
+        cachedPlaceName = info.Name
+        return info.Name
+    end
+
+    -- Fallback to game.Name
+    return game.Name ~= "Place1" and game.Name or "Place " .. tostring(placeId)
+end
 
 -- Get current server URL from config
 local function getServerUrl(): string
     return Config.getServerUrl()
+end
+
+-- Count total instances in standard services (for estimates)
+local function countInstances(): number
+    local servicesToCount = {
+        "Workspace",
+        "ReplicatedStorage",
+        "ReplicatedFirst",
+        "ServerScriptService",
+        "ServerStorage",
+        "StarterGui",
+        "StarterPack",
+        "StarterPlayer",
+        "Lighting",
+        "SoundService",
+        "Teams",
+        "Chat",
+        "LocalizationService",
+        "TestService",
+    }
+
+    local count = 0
+    for _, serviceName in servicesToCount do
+        local service = game:FindFirstChild(serviceName)
+        if service then
+            count += 1 + #service:GetDescendants()
+        end
+    end
+    return count
+end
+
+-- Estimate extraction time based on instance count and previous extractions
+local function getExtractionEstimate(): string
+    local instanceCount = countInstances()
+
+    if lastExtractTime and lastInstanceCount and lastInstanceCount > 0 then
+        -- Estimate based on previous extraction
+        local timePerInstance = lastExtractTime / lastInstanceCount
+        local estimatedTime = instanceCount * timePerInstance
+        if estimatedTime < 5 then
+            return string.format("%d instances (~%ds)", instanceCount, math.ceil(estimatedTime))
+        elseif estimatedTime < 60 then
+            return string.format("%d instances (~%ds)", instanceCount, math.ceil(estimatedTime))
+        else
+            return string.format("%d instances (~%.1fm)", instanceCount, estimatedTime / 60)
+        end
+    else
+        -- Rough estimate: ~0.003s per instance (based on typical performance)
+        local estimatedTime = instanceCount * 0.003
+        if estimatedTime < 5 then
+            return string.format("%d instances", instanceCount)
+        elseif estimatedTime < 60 then
+            return string.format("%d instances (~%ds)", instanceCount, math.ceil(estimatedTime))
+        else
+            return string.format("%d instances (~%.1fm)", instanceCount, estimatedTime / 60)
+        end
+    end
 end
 
 -- HTTP helpers
@@ -44,10 +135,20 @@ local function httpGet(endpoint: string): (boolean, any)
     end)
 
     if success then
+        -- Handle empty responses (204 No Content)
+        if result == nil or result == "" or result == "null" then
+            return true, nil
+        end
+
         local ok, data = pcall(function()
             return HttpService:JSONDecode(result)
         end)
-        return ok, data
+        if ok then
+            return true, data
+        else
+            -- JSON decode failed but HTTP succeeded - treat as empty response
+            return true, nil
+        end
     end
 
     return false, result
@@ -109,6 +210,9 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
     return false
 end
 
+-- Forward declaration for setStatus (defined in UI section)
+local setStatus: (text: string, color: Color3?, duration: number?) -> () = function() end
+
 -- Extract full game
 local function extractGame(config: {any})
     if isExtracting then
@@ -122,6 +226,7 @@ local function extractGame(config: {any})
     end
 
     isExtracting = true
+    setStatus("Extracting...", Color3.fromRGB(100, 180, 255), 0)  -- 0 = don't auto-clear
     local startTime = os.clock()
 
     -- Initialize reflection engine with API dump
@@ -199,9 +304,16 @@ local function extractGame(config: {any})
 
     local elapsed = os.clock() - startTime
     if finalizeSuccess and finalizeResult.success then
-        print(string.format("Extracted %d instances (%.1fs)", #allInstances, elapsed))
+        -- Save timing for future estimates
+        lastExtractTime = elapsed
+        lastInstanceCount = #allInstances
+        local msg = string.format("Extracted %d instances (%.1fs)", #allInstances, elapsed)
+        print(msg)
+        setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
     else
-        warn("Extraction failed. " .. (finalizeResult and finalizeResult.error or "Try again."))
+        local errMsg = "Extraction failed"
+        warn(errMsg .. ". " .. (finalizeResult and finalizeResult.error or "Try again."))
+        setStatus(errMsg, Color3.fromRGB(255, 100, 100), 10)
     end
 
     isExtracting = false
@@ -320,6 +432,7 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     Sync.clearRecentlyCreated()
 
     isSyncing = true
+    setStatus("Syncing " .. #operations .. " changes...", Color3.fromRGB(100, 180, 255), 0)
     local results = {}
     local successCount = 0
     local failCount = 0
@@ -358,9 +471,13 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
 
     -- Summary
     if failCount > 0 then
-        print(string.format("Synced %d/%d - %d failed (see warnings above)", successCount, #operations, failCount))
+        local msg = string.format("Synced %d/%d - %d failed", successCount, #operations, failCount)
+        print(msg .. " (see warnings above)")
+        setStatus(msg, Color3.fromRGB(255, 200, 100), 10)
     else
-        print(string.format("Synced %d changes", successCount))
+        local msg = string.format("Synced %d changes", successCount)
+        print(msg)
+        setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
     end
 
     return { success = failCount == 0, results = results }
@@ -417,7 +534,12 @@ local function pollLoop()
             end
             local success, response = httpGet(endpoint)
 
-            if success and response and response.command then
+            -- Detect disconnection from failed request
+            if not success then
+                isConnected = false
+                print("Disconnected")
+                updateConnectionUI()
+            elseif response and response.command then
                 task.spawn(function()
                     local recording = ChangeHistoryService:TryBeginRecording("RbxSync")
 
@@ -454,14 +576,15 @@ local function registerWithServer()
         return false
     end
 
+    local placeName = getPlaceName()
     local success, result = httpPost("/rbxsync/register", {
         place_id = game.PlaceId,
-        place_name = game.Name or "Untitled",
+        place_name = placeName,
         project_dir = projectDir,
     })
 
     if success then
-        print(string.format("Linked to %s", projectDir))
+        print(string.format("Linked to %s (%s)", projectDir, placeName))
     end
 
     return success
@@ -578,7 +701,7 @@ local connectBtnCorner = Instance.new("UICorner")
 connectBtnCorner.CornerRadius = UDim.new(0, 4)
 connectBtnCorner.Parent = connectButton
 
-local function updateConnectionUI()
+updateConnectionUI = function()
     if isConnected then
         connectionLabel.Text = "Connected"
         connectionLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
@@ -595,25 +718,38 @@ local function updateConnectionUI()
 end
 
 connectButton.MouseButton1Click:Connect(function()
-    isConnected = not isConnected
     if isConnected then
-        -- Check connection and register with server
+        -- User clicked Disconnect
+        isConnected = false
+        userDisconnected = true  -- Prevent auto-reconnect
+        print("Disconnected by user")
+    else
+        -- User clicked Connect
+        userDisconnected = false  -- Allow reconnection
         local success, _ = httpGet("/health")
         if success then
+            isConnected = true
             registerWithServer()
         else
-            isConnected = false  -- Connection failed
+            isConnected = false
+            warn("Could not connect to server")
         end
     end
     updateConnectionUI()
 end)
 
 -- ============================================================================
--- Project Path
+-- Project Path with Workspace Dropdown
 -- ============================================================================
 
+local projectPathFrame = Instance.new("Frame")
+projectPathFrame.Size = UDim2.new(1, 0, 0, 32)
+projectPathFrame.BackgroundTransparency = 1
+projectPathFrame.LayoutOrder = 2
+projectPathFrame.Parent = mainFrame
+
 local projectDirInput = Instance.new("TextBox")
-projectDirInput.Size = UDim2.new(1, 0, 0, 32)
+projectDirInput.Size = UDim2.new(1, -36, 1, 0)
 projectDirInput.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
 projectDirInput.BorderSizePixel = 0
 projectDirInput.Text = Config.getProjectDir()
@@ -623,9 +759,8 @@ projectDirInput.TextColor3 = Color3.fromRGB(200, 200, 200)
 projectDirInput.TextSize = 12
 projectDirInput.Font = Enum.Font.Code
 projectDirInput.TextXAlignment = Enum.TextXAlignment.Left
-projectDirInput.LayoutOrder = 2
 projectDirInput.ClearTextOnFocus = false
-projectDirInput.Parent = mainFrame
+projectDirInput.Parent = projectPathFrame
 
 local inputCorner = Instance.new("UICorner")
 inputCorner.CornerRadius = UDim.new(0, 4)
@@ -636,9 +771,134 @@ inputPadding.PaddingLeft = UDim.new(0, 10)
 inputPadding.PaddingRight = UDim.new(0, 10)
 inputPadding.Parent = projectDirInput
 
+-- Dropdown toggle button
+local dropdownButton = Instance.new("TextButton")
+dropdownButton.Size = UDim2.new(0, 32, 1, 0)
+dropdownButton.Position = UDim2.new(1, -32, 0, 0)
+dropdownButton.BackgroundColor3 = Color3.fromRGB(70, 70, 70)
+dropdownButton.BorderSizePixel = 0
+dropdownButton.Text = "▼"
+dropdownButton.TextColor3 = Color3.fromRGB(180, 180, 180)
+dropdownButton.TextSize = 10
+dropdownButton.Font = Enum.Font.GothamBold
+dropdownButton.AutoButtonColor = true
+dropdownButton.Parent = projectPathFrame
+
+local dropdownBtnCorner = Instance.new("UICorner")
+dropdownBtnCorner.CornerRadius = UDim.new(0, 4)
+dropdownBtnCorner.Parent = dropdownButton
+
+-- Dropdown menu frame (hidden by default)
+local dropdownFrame = Instance.new("Frame")
+dropdownFrame.Size = UDim2.new(1, 0, 0, 0) -- Height set dynamically
+dropdownFrame.Position = UDim2.new(0, 0, 1, 4)
+dropdownFrame.BackgroundColor3 = Color3.fromRGB(50, 50, 50)
+dropdownFrame.BorderSizePixel = 0
+dropdownFrame.Visible = false
+dropdownFrame.ZIndex = 10
+dropdownFrame.Parent = projectPathFrame
+
+local dropdownCorner = Instance.new("UICorner")
+dropdownCorner.CornerRadius = UDim.new(0, 4)
+dropdownCorner.Parent = dropdownFrame
+
+local dropdownLayout = Instance.new("UIListLayout")
+dropdownLayout.SortOrder = Enum.SortOrder.LayoutOrder
+dropdownLayout.Padding = UDim.new(0, 2)
+dropdownLayout.Parent = dropdownFrame
+
+local dropdownListPadding = Instance.new("UIPadding")
+dropdownListPadding.PaddingTop = UDim.new(0, 4)
+dropdownListPadding.PaddingBottom = UDim.new(0, 4)
+dropdownListPadding.PaddingLeft = UDim.new(0, 4)
+dropdownListPadding.PaddingRight = UDim.new(0, 4)
+dropdownListPadding.Parent = dropdownFrame
+
+-- Function to update dropdown with recent projects
+local function updateRecentProjectsDropdown()
+    -- Clear existing items
+    for _, child in dropdownFrame:GetChildren() do
+        if child:IsA("TextButton") or child:IsA("TextLabel") then
+            child:Destroy()
+        end
+    end
+
+    local settings = Config.load()
+    local recentProjects = settings.recentProjects or {}
+    local currentPath = Config.getProjectDir()
+
+    if #recentProjects == 0 then
+        -- Show "No recent projects" message
+        local noProjects = Instance.new("TextLabel")
+        noProjects.Size = UDim2.new(1, -8, 0, 24)
+        noProjects.BackgroundTransparency = 1
+        noProjects.Text = "No recent projects"
+        noProjects.TextColor3 = Color3.fromRGB(120, 120, 120)
+        noProjects.TextSize = 11
+        noProjects.Font = Enum.Font.Gotham
+        noProjects.TextXAlignment = Enum.TextXAlignment.Left
+        noProjects.ZIndex = 11
+        noProjects.Parent = dropdownFrame
+
+        dropdownFrame.Size = UDim2.new(1, 0, 0, 32)
+        return
+    end
+
+    -- Create recent project option buttons
+    for i, projectPath in ipairs(recentProjects) do
+        local option = Instance.new("TextButton")
+        option.Size = UDim2.new(1, -8, 0, 24)
+        option.BackgroundColor3 = projectPath == currentPath and Color3.fromRGB(0, 100, 180) or Color3.fromRGB(60, 60, 60)
+        option.BorderSizePixel = 0
+        option.Text = "  " .. projectPath
+        option.TextColor3 = projectPath == currentPath and Color3.fromRGB(255, 255, 255) or Color3.fromRGB(180, 180, 180)
+        option.TextSize = 11
+        option.Font = Enum.Font.Code
+        option.TextXAlignment = Enum.TextXAlignment.Left
+        option.TextTruncate = Enum.TextTruncate.AtEnd
+        option.AutoButtonColor = true
+        option.LayoutOrder = i
+        option.ZIndex = 11
+        option.Parent = dropdownFrame
+
+        local optionCorner = Instance.new("UICorner")
+        optionCorner.CornerRadius = UDim.new(0, 3)
+        optionCorner.Parent = option
+
+        option.MouseButton1Click:Connect(function()
+            Config.setProjectDir(projectPath)
+            projectDirInput.Text = projectPath
+            dropdownFrame.Visible = false
+            dropdownButton.Text = "▼"
+            -- Re-register with server after path change
+            if isConnected then
+                registerWithServer()
+            end
+        end)
+    end
+
+    -- Set dropdown height based on items
+    local itemHeight = 24 + 2 -- height + padding
+    local totalHeight = #recentProjects * itemHeight + 8 -- +8 for padding
+    dropdownFrame.Size = UDim2.new(1, 0, 0, math.min(totalHeight, 150)) -- Max height 150
+end
+
+-- Toggle dropdown
+dropdownButton.MouseButton1Click:Connect(function()
+    dropdownFrame.Visible = not dropdownFrame.Visible
+    dropdownButton.Text = dropdownFrame.Visible and "▲" or "▼"
+    if dropdownFrame.Visible then
+        updateRecentProjectsDropdown()
+    end
+end)
+
 projectDirInput.FocusLost:Connect(function()
     if projectDirInput.Text ~= "" then
         Config.setProjectDir(projectDirInput.Text)
+        -- Re-register with server after path change
+        if isConnected then
+            registerWithServer()
+        end
     end
 end)
 
@@ -738,7 +998,89 @@ end)
 syncButton.Parent = actionsFrame
 
 -- ============================================================================
--- Git Status (one line)
+-- Project Info Section
+-- ============================================================================
+
+local infoFrame = Instance.new("Frame")
+infoFrame.Size = UDim2.new(1, 0, 0, 66)  -- Taller to fit status line
+infoFrame.BackgroundColor3 = Color3.fromRGB(55, 55, 55)
+infoFrame.BorderSizePixel = 0
+infoFrame.LayoutOrder = 4
+infoFrame.Parent = mainFrame
+
+local infoFrameCorner = Instance.new("UICorner")
+infoFrameCorner.CornerRadius = UDim.new(0, 4)
+infoFrameCorner.Parent = infoFrame
+
+local infoLayout = Instance.new("UIListLayout")
+infoLayout.SortOrder = Enum.SortOrder.LayoutOrder
+infoLayout.Padding = UDim.new(0, 2)
+infoLayout.Parent = infoFrame
+
+local infoPadding = Instance.new("UIPadding")
+infoPadding.PaddingTop = UDim.new(0, 6)
+infoPadding.PaddingLeft = UDim.new(0, 8)
+infoPadding.PaddingRight = UDim.new(0, 8)
+infoPadding.Parent = infoFrame
+
+-- Place name line
+local placeNameLine = Instance.new("TextLabel")
+placeNameLine.Size = UDim2.new(1, 0, 0, 16)
+placeNameLine.BackgroundTransparency = 1
+placeNameLine.Text = "Loading..."
+placeNameLine.TextColor3 = Color3.fromRGB(200, 200, 200)
+placeNameLine.TextSize = 12
+placeNameLine.Font = Enum.Font.GothamMedium
+placeNameLine.TextXAlignment = Enum.TextXAlignment.Left
+placeNameLine.LayoutOrder = 1
+placeNameLine.Parent = infoFrame
+
+-- Instance count line
+local instanceLine = Instance.new("TextLabel")
+instanceLine.Size = UDim2.new(1, 0, 0, 14)
+instanceLine.BackgroundTransparency = 1
+instanceLine.Text = "..."
+instanceLine.TextColor3 = Color3.fromRGB(140, 140, 140)
+instanceLine.TextSize = 11
+instanceLine.Font = Enum.Font.Gotham
+instanceLine.TextXAlignment = Enum.TextXAlignment.Left
+instanceLine.LayoutOrder = 2
+instanceLine.Parent = infoFrame
+
+-- Status line (dynamic updates)
+local statusLine = Instance.new("TextLabel")
+statusLine.Size = UDim2.new(1, 0, 0, 14)
+statusLine.BackgroundTransparency = 1
+statusLine.Text = ""
+statusLine.TextColor3 = Color3.fromRGB(100, 180, 255)
+statusLine.TextSize = 11
+statusLine.Font = Enum.Font.GothamMedium
+statusLine.TextXAlignment = Enum.TextXAlignment.Left
+statusLine.LayoutOrder = 3
+statusLine.Parent = infoFrame
+
+-- Status update function (updates forward declaration)
+local statusClearTimeout: thread? = nil
+setStatus = function(text: string, color: Color3?, duration: number?)
+    statusLine.Text = text
+    statusLine.TextColor3 = color or Color3.fromRGB(100, 180, 255)
+
+    -- Clear previous timeout
+    if statusClearTimeout then
+        task.cancel(statusClearTimeout)
+    end
+
+    -- Auto-clear after duration (default 5s)
+    local clearAfter = duration or 5
+    if clearAfter > 0 then
+        statusClearTimeout = task.delay(clearAfter, function()
+            statusLine.Text = ""
+        end)
+    end
+end
+
+-- ============================================================================
+-- Git Status Section
 -- ============================================================================
 
 local gitLine = Instance.new("TextLabel")
@@ -749,7 +1091,7 @@ gitLine.TextColor3 = Color3.fromRGB(140, 140, 140)
 gitLine.TextSize = 12
 gitLine.Font = Enum.Font.Gotham
 gitLine.TextXAlignment = Enum.TextXAlignment.Left
-gitLine.LayoutOrder = 4
+gitLine.LayoutOrder = 5
 gitLine.Parent = mainFrame
 
 -- ============================================================================
@@ -818,17 +1160,42 @@ commitButton.MouseButton1Click:Connect(function()
     end
 end)
 
+-- Function to update project info display
+local function updateInfoDisplay()
+    -- Update place name
+    local placeName = getPlaceName()
+    local placeId = game.PlaceId
+    if placeId > 0 then
+        placeNameLine.Text = placeName .. " (" .. tostring(placeId) .. ")"
+    else
+        placeNameLine.Text = placeName .. " (unsaved)"
+    end
+
+    -- Update instance count and estimate
+    instanceLine.Text = getExtractionEstimate()
+end
+
 -- Function to update git display
 local function updateGitDisplay()
     local ok, status = Git.getStatus()
     if ok and status then
         gitStatus = status
         local changes = Git.getChangedCount(status)
+        local branchInfo = status.branch or "unknown"
+
+        -- Add ahead/behind info if available
+        if status.ahead and status.ahead > 0 then
+            branchInfo = branchInfo .. " ↑" .. status.ahead
+        end
+        if status.behind and status.behind > 0 then
+            branchInfo = branchInfo .. " ↓" .. status.behind
+        end
+
         if changes > 0 then
-            gitLine.Text = status.branch .. " - " .. changes .. " changed"
+            gitLine.Text = branchInfo .. " • " .. changes .. " changed"
             gitLine.TextColor3 = Color3.fromRGB(255, 200, 100)
         else
-            gitLine.Text = status.branch .. " - clean"
+            gitLine.Text = branchInfo .. " • clean"
             gitLine.TextColor3 = Color3.fromRGB(100, 200, 100)
         end
     else
@@ -846,6 +1213,7 @@ panelButton.Click:Connect(function()
     panelButton:SetActive(widget.Enabled)
 
     if widget.Enabled then
+        task.spawn(updateInfoDisplay)
         task.spawn(updateGitDisplay)
     end
 end)
@@ -856,22 +1224,34 @@ end)
 
 task.spawn(pollLoop)
 
--- Connection check loop
+-- Connection check loop (respects userDisconnected flag)
 task.spawn(function()
     while true do
-        if isConnected then
+        -- Only auto-reconnect if user hasn't explicitly disconnected
+        if not userDisconnected then
+            local wasConnected = isConnected
             checkConnection()
-            updateConnectionUI()
+            -- Update UI if state changed
+            if wasConnected ~= isConnected then
+                updateConnectionUI()
+            end
         end
         task.wait(5)
     end
 end)
 
--- Git status refresh loop
+-- Info and git status refresh loop
 task.spawn(function()
+    -- Initial update
+    task.wait(1)
+    updateInfoDisplay()
+
     while true do
-        if widget.Enabled and Config.getProjectDir() ~= "" then
-            updateGitDisplay()
+        if widget.Enabled then
+            updateInfoDisplay()
+            if Config.getProjectDir() ~= "" then
+                updateGitDisplay()
+            end
         end
         task.wait(10)
     end

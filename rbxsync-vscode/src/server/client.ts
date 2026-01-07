@@ -88,7 +88,23 @@ export class RbxSyncClient {
 
   async connect(): Promise<boolean> {
     const health = await this.checkHealth();
+    if (health && this._projectDir) {
+      // Register workspace with server
+      await this.registerWorkspace(this._projectDir);
+    }
     return health !== null;
+  }
+
+  // Register VS Code workspace with server
+  async registerWorkspace(workspaceDir: string): Promise<boolean> {
+    try {
+      await this.client.post('/rbxsync/register-vscode', {
+        workspace_dir: workspaceDir
+      });
+      return true;
+    } catch (error) {
+      return false;
+    }
   }
 
   // Get all connected Studio places
@@ -160,9 +176,9 @@ export class RbxSyncClient {
     }
   }
 
-  async syncBatch(operations: SyncBatchRequest['operations']): Promise<SyncBatchResponse | null> {
+  async syncBatch(operations: SyncBatchRequest['operations'], projectDir?: string): Promise<SyncBatchResponse | null> {
     try {
-      const request: SyncBatchRequest = { operations };
+      const request: SyncBatchRequest = { operations, project_dir: projectDir };
       const response = await this.client.post<SyncBatchResponse>('/sync/batch', request);
       return response.data;
     } catch (error) {
@@ -211,7 +227,7 @@ export class RbxSyncClient {
   }
 
   // Test Runner (uses /sync/command endpoint)
-  async runTest(duration?: number, mode?: string): Promise<TestStartResponse | null> {
+  async runTest(duration?: number, mode?: string, projectDir?: string): Promise<TestStartResponse | null> {
     try {
       const payload: Record<string, unknown> = {};
       if (duration !== undefined) {
@@ -222,7 +238,8 @@ export class RbxSyncClient {
       }
       const response = await this.client.post<CommandResponse<TestStartResponse>>('/sync/command', {
         command: 'test:run',
-        payload
+        payload,
+        project_dir: projectDir
       });
       return response.data.data;
     } catch (error) {
@@ -231,11 +248,12 @@ export class RbxSyncClient {
     }
   }
 
-  async getTestStatus(): Promise<TestStatusResponse | null> {
+  async getTestStatus(projectDir?: string): Promise<TestStatusResponse | null> {
     try {
       const response = await this.client.post<CommandResponse<TestStatusResponse>>('/sync/command', {
         command: 'test:status',
-        payload: {}
+        payload: {},
+        project_dir: projectDir
       });
       return response.data.data;
     } catch (error) {
@@ -244,11 +262,12 @@ export class RbxSyncClient {
     }
   }
 
-  async finishTest(): Promise<TestFinishResponse | null> {
+  async finishTest(projectDir?: string): Promise<TestFinishResponse | null> {
     try {
       const response = await this.client.post<CommandResponse<TestFinishResponse>>('/sync/command', {
         command: 'test:finish',
-        payload: {}
+        payload: {},
+        project_dir: projectDir
       });
       return response.data.data;
     } catch (error) {

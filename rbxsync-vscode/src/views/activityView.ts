@@ -119,79 +119,89 @@ export class ActivityViewProvider implements vscode.TreeDataProvider<StatusItem>
     const connecting = this.connectionStatus === 'connecting';
 
     // ═══════════════════════════════════════════════════════════
-    // STUDIOS ONLINE SECTION
+    // LINKED STUDIO SECTION (only show place matching this workspace)
     // ═══════════════════════════════════════════════════════════
-    const studioCount = this.allPlaces.length;
     const linkedPlace = this.allPlaces.find(p => p.project_dir === this.currentProjectDir);
+    const hasLinkedPlace = linkedPlace !== undefined;
 
     items.push({
-      id: 'header-studios',
+      id: 'header-studio',
       type: 'header',
-      label: 'STUDIOS ONLINE',
-      description: connected ? String(studioCount) : connecting ? '...' : '0',
-      icon: connected ? 'broadcast' : connecting ? 'loading~spin' : 'circle-outline',
-      iconColor: connected && studioCount > 0
+      label: 'STUDIO',
+      description: hasLinkedPlace ? 'Linked' : connecting ? '...' : 'Not linked',
+      icon: hasLinkedPlace ? 'broadcast' : connecting ? 'loading~spin' : 'circle-outline',
+      iconColor: hasLinkedPlace
         ? new vscode.ThemeColor('testing.iconPassed')
         : connecting
           ? new vscode.ThemeColor('charts.blue')
           : new vscode.ThemeColor('disabledForeground')
     });
 
-    // Show each connected place
-    if (connected && studioCount > 0) {
-      // Sort: linked place first, then alphabetically
-      const sortedPlaces = [...this.allPlaces].sort((a, b) => {
-        const aLinked = a.project_dir === this.currentProjectDir;
-        const bLinked = b.project_dir === this.currentProjectDir;
-        if (aLinked && !bLinked) return -1;
-        if (!aLinked && bLinked) return 1;
-        return a.place_name.localeCompare(b.place_name);
+    // Show linked place only
+    if (connected && hasLinkedPlace) {
+      const place = linkedPlace;
+
+      // Place name row
+      items.push({
+        id: `place-${place.place_id}`,
+        type: 'place',
+        label: place.place_name,
+        description: `ID: ${place.place_id}`,
+        icon: 'circle-filled',
+        iconColor: new vscode.ThemeColor('testing.iconPassed'),
+        isLinked: true,
+        contextValue: 'place'
       });
 
-      for (const place of sortedPlaces) {
-        const isLinked = place.project_dir === this.currentProjectDir;
-
-        // Place name row
-        items.push({
-          id: `place-${place.place_id}`,
-          type: 'place',
-          label: place.place_name,
-          description: isLinked ? '← LINKED' : '',
-          icon: isLinked ? 'circle-filled' : 'circle-outline',
-          iconColor: isLinked
-            ? new vscode.ThemeColor('testing.iconPassed')
-            : new vscode.ThemeColor('foreground'),
-          isLinked,
-          contextValue: 'place'
-        });
-
-        // Place details (ID + path)
-        const shortPath = this.shortenPath(place.project_dir);
-        items.push({
-          id: `place-detail-${place.place_id}`,
-          type: 'place-detail',
-          label: `    ${place.place_id}`,
-          description: shortPath,
-          icon: 'blank',  // Indent
-          iconColor: new vscode.ThemeColor('disabledForeground')
-        });
-
-        // Quick actions for this place
-        items.push({
-          id: `place-actions-${place.place_id}`,
-          type: 'place-detail',
-          label: '    ↑ Sync',
-          description: '↓ Extract',
-          icon: 'blank',
-          command: isLinked ? { command: 'rbxsync.sync', title: 'Sync' } : undefined
-        });
-      }
-    } else if (connected) {
-      // Server connected but no Studio places
+      // Per-studio actions
       items.push({
-        id: 'no-studios',
+        id: `place-sync-${place.place_id}`,
+        type: 'action',
+        label: '    Sync to Studio',
+        icon: 'cloud-upload',
+        command: {
+          command: 'rbxsync.syncTo',
+          title: 'Sync',
+          arguments: [place.project_dir]
+        }
+      });
+
+      items.push({
+        id: `place-extract-${place.place_id}`,
+        type: 'action',
+        label: '    Extract from Studio',
+        icon: 'cloud-download',
+        command: {
+          command: 'rbxsync.extractFrom',
+          title: 'Extract',
+          arguments: [place.project_dir]
+        }
+      });
+
+      items.push({
+        id: `place-test-${place.place_id}`,
+        type: 'action',
+        label: '    Run Play Test',
+        icon: 'play',
+        command: {
+          command: 'rbxsync.runTestOn',
+          title: 'Play Test',
+          arguments: [place.project_dir]
+        }
+      });
+    } else if (connected) {
+      // Server connected but no linked Studio for this workspace
+      items.push({
+        id: 'no-linked-studio',
         type: 'place-detail',
-        label: '    Waiting for Studio...',
+        label: '    No Studio linked to this workspace',
+        icon: 'blank',
+        iconColor: new vscode.ThemeColor('disabledForeground')
+      });
+      items.push({
+        id: 'hint-open-studio',
+        type: 'place-detail',
+        label: '    Open Studio and set project path',
         icon: 'blank',
         iconColor: new vscode.ThemeColor('disabledForeground')
       });
@@ -221,60 +231,66 @@ export class ActivityViewProvider implements vscode.TreeDataProvider<StatusItem>
     }
 
     // ═══════════════════════════════════════════════════════════
-    // ACTIONS SECTION
+    // SERVER CONTROL
     // ═══════════════════════════════════════════════════════════
     items.push({
-      id: 'header-actions',
+      id: 'header-server',
       type: 'header',
-      label: 'ACTIONS',
-      icon: 'zap'
+      label: 'SERVER',
+      icon: 'server',
+      description: connected ? 'Running' : connecting ? '...' : 'Stopped',
+      iconColor: connected
+        ? new vscode.ThemeColor('testing.iconPassed')
+        : connecting
+          ? new vscode.ThemeColor('charts.blue')
+          : new vscode.ThemeColor('disabledForeground')
     });
 
-    // Connect/Disconnect
+    // Start/Stop Server
     items.push({
-      id: 'action-connect',
+      id: 'action-server',
       type: 'action',
-      label: connected ? '    Disconnect' : connecting ? '    Connecting...' : '    Connect',
-      icon: connected ? 'debug-disconnect' : connecting ? 'loading~spin' : 'plug',
-      iconColor: connecting ? new vscode.ThemeColor('charts.blue') : undefined,
+      label: connected ? '    Stop Server' : connecting ? '    Starting...' : '    Start Server',
+      icon: connected ? 'debug-stop' : connecting ? 'loading~spin' : 'play',
+      iconColor: connected
+        ? new vscode.ThemeColor('testing.iconFailed')
+        : connecting
+          ? new vscode.ThemeColor('charts.blue')
+          : new vscode.ThemeColor('testing.iconPassed'),
       command: connecting ? undefined : {
         command: connected ? 'rbxsync.disconnect' : 'rbxsync.connect',
-        title: connected ? 'Disconnect' : 'Connect'
+        title: connected ? 'Stop' : 'Start'
       }
     });
 
-    if (connected && linkedPlace) {
+    // Only show Refresh when connected
+    if (connected) {
       items.push({
-        id: 'action-sync',
+        id: 'action-refresh',
         type: 'action',
-        label: '    Sync to Studio',
-        icon: 'cloud-upload',
-        command: { command: 'rbxsync.sync', title: 'Sync' }
-      });
-
-      items.push({
-        id: 'action-extract',
-        type: 'action',
-        label: '    Extract from Studio',
-        icon: 'cloud-download',
-        command: { command: 'rbxsync.extract', title: 'Extract' }
-      });
-
-      items.push({
-        id: 'action-test',
-        type: 'action',
-        label: '    Run Play Test',
-        icon: 'play',
-        command: { command: 'rbxsync.runTest', title: 'Play Test' }
+        label: '    Refresh',
+        icon: 'refresh',
+        command: { command: 'rbxsync.refresh', title: 'Refresh' }
       });
     }
 
+    // ═══════════════════════════════════════════════════════════
+    // SETTINGS SECTION
+    // ═══════════════════════════════════════════════════════════
     items.push({
-      id: 'action-refresh',
+      id: 'header-settings',
+      type: 'header',
+      label: 'SETTINGS',
+      icon: 'gear',
+      iconColor: new vscode.ThemeColor('foreground')
+    });
+
+    items.push({
+      id: 'action-toggle-rbxjson',
       type: 'action',
-      label: '    Refresh',
-      icon: 'refresh',
-      command: { command: 'rbxsync.refresh', title: 'Refresh' }
+      label: '    Toggle .rbxjson Files',
+      icon: 'json',
+      command: { command: 'rbxsync.toggleMetadataFiles', title: 'Toggle' }
     });
 
     // ═══════════════════════════════════════════════════════════

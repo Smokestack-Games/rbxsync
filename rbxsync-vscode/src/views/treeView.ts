@@ -1,7 +1,6 @@
 import * as vscode from 'vscode';
 import * as path from 'path';
 import * as fs from 'fs';
-import { InstanceData } from '../server/types';
 
 interface TreeNode {
   name: string;
@@ -42,71 +41,119 @@ export class InstanceTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       return;
     }
 
-    // Load services as root nodes
-    const services = fs.readdirSync(srcDir, { withFileTypes: true })
-      .filter(d => d.isDirectory());
+    const entries = fs.readdirSync(srcDir, { withFileTypes: true });
 
-    for (const service of services) {
-      const serviceNode = this.loadDirectory(path.join(srcDir, service.name), service.name);
-      if (serviceNode) {
-        this.rootNodes.set(service.name, serviceNode);
+    // Group entries: find directories and their matching .rbxjson files
+    const directories = entries.filter(e => e.isDirectory() && !e.name.startsWith('.'));
+    const jsonFiles = new Map<string, string>();
+
+    for (const entry of entries) {
+      if (entry.isFile() && entry.name.endsWith('.rbxjson')) {
+        const baseName = entry.name.replace('.rbxjson', '');
+        jsonFiles.set(baseName, path.join(srcDir, entry.name));
+      }
+    }
+
+    // Process each service directory
+    for (const dir of directories) {
+      const dirPath = path.join(srcDir, dir.name);
+      const metaPath = jsonFiles.get(dir.name) || path.join(dirPath, '_meta.rbxjson');
+
+      let className = this.getDefaultServiceClass(dir.name);
+      let name = dir.name;
+
+      // Try to read metadata from .rbxjson file
+      if (fs.existsSync(metaPath)) {
+        try {
+          const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
+          className = meta.className || className;
+          name = meta.name || name;
+        } catch {}
+      }
+
+      const node: TreeNode = {
+        name,
+        className,
+        path: dir.name,
+        filePath: dirPath,
+        children: new Map()
+      };
+
+      // Load children from the directory
+      this.loadDirectoryContents(dirPath, dir.name, node);
+      this.rootNodes.set(dir.name, node);
+    }
+
+    // Also check for standalone .rbxjson files (services without folders)
+    for (const [baseName, jsonPath] of jsonFiles) {
+      if (!this.rootNodes.has(baseName)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+          this.rootNodes.set(baseName, {
+            name: data.name || baseName,
+            className: data.className || this.getDefaultServiceClass(baseName),
+            path: baseName,
+            filePath: jsonPath,
+            children: new Map()
+          });
+        } catch {}
       }
     }
   }
 
-  private loadDirectory(dirPath: string, instancePath: string): TreeNode | null {
-    if (!fs.existsSync(dirPath)) return null;
+  private loadDirectoryContents(dirPath: string, instancePath: string, parentNode: TreeNode): void {
+    if (!fs.existsSync(dirPath)) return;
 
-    // Check for _meta.rbxjson
-    const metaPath = path.join(dirPath, '_meta.rbxjson');
-    let className = 'Folder';
-    let name = path.basename(dirPath);
+    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+    const directories = entries.filter(e => e.isDirectory() && !e.name.startsWith('.'));
+    const files = entries.filter(e => e.isFile() && !e.name.startsWith('.'));
 
-    if (fs.existsSync(metaPath)) {
-      try {
-        const meta = JSON.parse(fs.readFileSync(metaPath, 'utf-8'));
-        className = meta.className || className;
-        name = meta.name || name;
-      } catch {}
+    // Create a map for .rbxjson files
+    const jsonFiles = new Map<string, string>();
+    for (const file of files) {
+      if (file.name.endsWith('.rbxjson') && file.name !== '_meta.rbxjson') {
+        const baseName = file.name.replace('.rbxjson', '');
+        jsonFiles.set(baseName, path.join(dirPath, file.name));
+      }
     }
 
-    const node: TreeNode = {
-      name,
-      className,
-      path: instancePath,
-      filePath: dirPath,
-      children: new Map()
-    };
+    // Process subdirectories
+    for (const dir of directories) {
+      const childDirPath = path.join(dirPath, dir.name);
+      const childPath = `${instancePath}.${dir.name}`;
+      const metaJsonPath = jsonFiles.get(dir.name) || path.join(childDirPath, '_meta.rbxjson');
 
-    // Load children
-    const entries = fs.readdirSync(dirPath, { withFileTypes: true });
+      let className = 'Folder';
+      let name = dir.name;
 
-    for (const entry of entries) {
-      if (entry.name === '_meta.rbxjson') continue;
-
-      const childPath = path.join(dirPath, entry.name);
-
-      if (entry.isDirectory()) {
-        const childNode = this.loadDirectory(childPath, `${instancePath}.${entry.name}`);
-        if (childNode) {
-          node.children.set(entry.name, childNode);
-        }
-      } else if (entry.name.endsWith('.rbxjson')) {
-        // Instance file
-        const baseName = entry.name.replace('.rbxjson', '');
+      if (fs.existsSync(metaJsonPath)) {
         try {
-          const data = JSON.parse(fs.readFileSync(childPath, 'utf-8'));
-          node.children.set(baseName, {
-            name: data.name || baseName,
-            className: data.className || 'Instance',
-            path: `${instancePath}.${baseName}`,
-            filePath: childPath,
-            children: new Map()
-          });
+          const meta = JSON.parse(fs.readFileSync(metaJsonPath, 'utf-8'));
+          className = meta.className || className;
+          name = meta.name || name;
         } catch {}
-      } else if (entry.name.endsWith('.luau') || entry.name.endsWith('.lua')) {
-        // Script file - check for accompanying .rbxjson
-        const baseName = entry.name
+      }
+
+      const childNode: TreeNode = {
+        name,
+        className,
+        path: childPath,
+        filePath: childDirPath,
+        children: new Map()
+      };
+
+      this.loadDirectoryContents(childDirPath, childPath, childNode);
+      parentNode.children.set(dir.name, childNode);
+
+      // Remove from jsonFiles so we don't add it again
+      jsonFiles.delete(dir.name);
+    }
+
+    // Process script files (.luau, .lua)
+    for (const file of files) {
+      if (file.name.endsWith('.luau') || file.name.endsWith('.lua')) {
+        const filePath = path.join(dirPath, file.name);
+        const baseName = file.name
           .replace('.server.luau', '')
           .replace('.client.luau', '')
           .replace('.luau', '')
@@ -115,22 +162,67 @@ export class InstanceTreeProvider implements vscode.TreeDataProvider<TreeNode> {
           .replace('.lua', '');
 
         let className = 'ModuleScript';
-        if (entry.name.includes('.server.')) className = 'Script';
-        else if (entry.name.includes('.client.')) className = 'LocalScript';
+        if (file.name.includes('.server.')) className = 'Script';
+        else if (file.name.includes('.client.')) className = 'LocalScript';
 
-        if (!node.children.has(baseName)) {
-          node.children.set(baseName, {
+        // Check if there's a matching .rbxjson with more info
+        const jsonPath = jsonFiles.get(baseName);
+        if (jsonPath) {
+          try {
+            const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+            className = data.className || className;
+          } catch {}
+          jsonFiles.delete(baseName);
+        }
+
+        if (!parentNode.children.has(baseName)) {
+          parentNode.children.set(baseName, {
             name: baseName,
             className,
             path: `${instancePath}.${baseName}`,
-            filePath: childPath,
+            filePath,
             children: new Map()
           });
         }
       }
     }
 
-    return node;
+    // Process remaining standalone .rbxjson files
+    for (const [baseName, jsonPath] of jsonFiles) {
+      if (baseName === '_meta') continue;
+      if (!parentNode.children.has(baseName)) {
+        try {
+          const data = JSON.parse(fs.readFileSync(jsonPath, 'utf-8'));
+          parentNode.children.set(baseName, {
+            name: data.name || baseName,
+            className: data.className || 'Instance',
+            path: `${instancePath}.${baseName}`,
+            filePath: jsonPath,
+            children: new Map()
+          });
+        } catch {}
+      }
+    }
+  }
+
+  private getDefaultServiceClass(name: string): string {
+    const serviceClasses: Record<string, string> = {
+      'Workspace': 'Workspace',
+      'ServerScriptService': 'ServerScriptService',
+      'ReplicatedStorage': 'ReplicatedStorage',
+      'ReplicatedFirst': 'ReplicatedFirst',
+      'StarterGui': 'StarterGui',
+      'StarterPack': 'StarterPack',
+      'StarterPlayer': 'StarterPlayer',
+      'ServerStorage': 'ServerStorage',
+      'Lighting': 'Lighting',
+      'SoundService': 'SoundService',
+      'Chat': 'Chat',
+      'Teams': 'Teams',
+      'LocalizationService': 'LocalizationService',
+      'TestService': 'TestService'
+    };
+    return serviceClasses[name] || 'Folder';
   }
 
   getTreeItem(element: TreeNode): vscode.TreeItem {
@@ -144,10 +236,20 @@ export class InstanceTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
     item.description = element.className;
     item.iconPath = this.getIconForClass(element.className);
-    item.tooltip = element.path;
+
+    // Use MarkdownString for better tooltip rendering
+    const tooltip = new vscode.MarkdownString();
+    tooltip.appendMarkdown(`**${element.name}**\n\n`);
+    tooltip.appendMarkdown(`Class: \`${element.className}\`\n\n`);
+    tooltip.appendMarkdown(`Path: \`${element.path}\``);
+    if (element.filePath) {
+      tooltip.appendMarkdown(`\n\nFile: \`${element.filePath}\``);
+    }
+    item.tooltip = tooltip;
+
     item.contextValue = 'instance';
 
-    if (element.filePath && !hasChildren) {
+    if (element.filePath) {
       item.command = {
         command: 'rbxsync.openFile',
         title: 'Open File',
@@ -160,12 +262,19 @@ export class InstanceTreeProvider implements vscode.TreeDataProvider<TreeNode> {
 
   getChildren(element?: TreeNode): TreeNode[] {
     if (!element) {
-      // Root level - return services
+      // Root level - return services sorted by standard order
       return Array.from(this.rootNodes.values())
         .sort((a, b) => this.getServiceOrder(a.name) - this.getServiceOrder(b.name));
     }
     return Array.from(element.children.values())
-      .sort((a, b) => a.name.localeCompare(b.name));
+      .sort((a, b) => {
+        // Sort scripts first, then folders, then by name
+        const aIsScript = ['Script', 'LocalScript', 'ModuleScript'].includes(a.className);
+        const bIsScript = ['Script', 'LocalScript', 'ModuleScript'].includes(b.className);
+        if (aIsScript && !bIsScript) return -1;
+        if (!aIsScript && bIsScript) return 1;
+        return a.name.localeCompare(b.name);
+      });
   }
 
   private getServiceOrder(name: string): number {
@@ -181,7 +290,8 @@ export class InstanceTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       'Lighting': 8,
       'SoundService': 9,
       'Chat': 10,
-      'Teams': 11
+      'Teams': 11,
+      'LocalizationService': 12
     };
     return order[name] ?? 99;
   }
@@ -201,14 +311,22 @@ export class InstanceTreeProvider implements vscode.TreeDataProvider<TreeNode> {
       'ImageLabel': 'file-media',
       'Camera': 'eye',
       'Sound': 'unmute',
-      'Light': 'lightbulb',
+      'PointLight': 'lightbulb',
+      'SpotLight': 'lightbulb',
+      'SurfaceLight': 'lightbulb',
       'Workspace': 'globe',
       'ServerScriptService': 'server',
       'ReplicatedStorage': 'database',
+      'ReplicatedFirst': 'zap',
       'StarterGui': 'layout',
       'StarterPack': 'package',
+      'StarterPlayer': 'person',
+      'ServerStorage': 'archive',
       'Lighting': 'lightbulb',
-      'Teams': 'organization'
+      'SoundService': 'unmute',
+      'Teams': 'organization',
+      'Chat': 'comment',
+      'LocalizationService': 'globe'
     };
     return new vscode.ThemeIcon(iconMap[className] || 'symbol-misc');
   }

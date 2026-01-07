@@ -87,6 +87,31 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       statusBar.clearBusy();
     }),
 
+    // Per-studio commands (take projectDir as argument)
+    vscode.commands.registerCommand('rbxsync.syncTo', async (projectDir: string) => {
+      statusBar.setBusy('Syncing');
+      activityView.setCurrentOperation(`Syncing to ${projectDir}`);
+      await syncCommand(client, statusBar, projectDir);
+      activityView.setCurrentOperation(null);
+      statusBar.clearBusy();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.extractFrom', async (projectDir: string) => {
+      statusBar.setBusy('Extracting');
+      activityView.setCurrentOperation(`Extracting from ${projectDir}`);
+      await extractCommand(client, statusBar, activityView, projectDir);
+      activityView.setCurrentOperation(null);
+      statusBar.clearBusy();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.runTestOn', async (projectDir: string) => {
+      statusBar.setBusy('Testing');
+      activityView.setCurrentOperation(`Testing ${projectDir}`);
+      await runPlayTest(client, projectDir);
+      activityView.setCurrentOperation(null);
+      statusBar.clearBusy();
+    }),
+
     vscode.commands.registerCommand('rbxsync.refresh', () => {
       activityView.refresh();
     }),
@@ -145,6 +170,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       activityView.setConnectionStatus('connecting');
       const connected = await client.connect();
       if (connected) {
+        // Register workspace with server immediately
+        if (client.projectDir) {
+          await client.registerWorkspace(client.projectDir);
+          statusBar.updatePlaces([], client.projectDir); // Set currentProjectDir for polling
+        }
         statusBar.startPolling();
       }
     }, 1000);

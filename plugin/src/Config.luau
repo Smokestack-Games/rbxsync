@@ -110,16 +110,40 @@ function Config.setServerUrl(url: string)
     Config.save(settings)
 end
 
--- Get current project directory
+-- Get current project directory (per-PlaceId)
 function Config.getProjectDir(): string
-    return Config.load().projectDir
+    if not pluginRef then
+        warn("[RbxSync] Config not initialized with plugin reference")
+        return ""
+    end
+
+    local placeId = tostring(game.PlaceId)
+    if placeId == "0" then
+        -- Unsaved place - use global default
+        return pluginRef:GetSetting("RbxSync_ProjectDir") or ""
+    end
+
+    -- Per-place path, with fallback to global
+    return pluginRef:GetSetting("RbxSync_ProjectDir_" .. placeId)
+        or pluginRef:GetSetting("RbxSync_ProjectDir")
+        or ""
 end
 
--- Set project directory
+-- Set project directory (per-PlaceId)
 function Config.setProjectDir(dir: string)
-    local settings = Config.load()
-    settings.projectDir = dir
-    Config.save(settings)
+    if not pluginRef then
+        warn("[RbxSync] Config not initialized with plugin reference")
+        return
+    end
+
+    local placeId = tostring(game.PlaceId)
+    if placeId ~= "0" then
+        -- Save per-place path
+        pluginRef:SetSetting("RbxSync_ProjectDir_" .. placeId, dir)
+    end
+
+    -- Also save as global default for new/unsaved places
+    pluginRef:SetSetting("RbxSync_ProjectDir", dir)
     Config.addRecentProject(dir)
 end
 
