@@ -188,6 +188,35 @@ local function decodeValue(encoded: any): any
         )
     end
 
+    -- Handle Region3
+    if valueType == "Region3" then
+        local min = Vector3.new(value.min.x, value.min.y, value.min.z)
+        local max = Vector3.new(value.max.x, value.max.y, value.max.z)
+        return Region3.new(min, max)
+    end
+
+    -- Handle Region3int16
+    if valueType == "Region3int16" then
+        local min = Vector3int16.new(value.min.x, value.min.y, value.min.z)
+        local max = Vector3int16.new(value.max.x, value.max.y, value.max.z)
+        return Region3int16.new(min, max)
+    end
+
+    -- Handle OptionalCFrame (OptionalCoordinateFrame)
+    if valueType == "OptionalCFrame" or valueType == "OptionalCoordinateFrame" then
+        if value then
+            local pos = value.position
+            local rot = value.rotation
+            return CFrame.new(
+                pos[1], pos[2], pos[3],
+                rot[1], rot[2], rot[3],
+                rot[4], rot[5], rot[6],
+                rot[7], rot[8], rot[9]
+            )
+        end
+        return nil
+    end
+
     -- Fallback - return nil for unknown types
     return nil
 end
@@ -205,14 +234,15 @@ function Sync.findInstanceAtPath(path: string): Instance?
         end
     end
 
-    local parts = string.split(path, ".")
+    -- Use '/' as delimiter to handle instance names with periods
+    local parts = string.split(path, "/")
     local current: Instance = game
 
     for i, part in parts do
         local child = current:FindFirstChild(part)
         if not child then
             -- Try to find by checking recently created with partial path
-            local partialPath = table.concat(parts, ".", 1, i)
+            local partialPath = table.concat(parts, "/", 1, i)
             if recentlyCreated[partialPath] then
                 child = recentlyCreated[partialPath]
             end
@@ -266,7 +296,6 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     end)
 
     if not ok or not instance then
-        warn("[RbxSync] Failed to create instance:", className)
         return nil
     end
 
@@ -285,12 +314,9 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
 
     -- Handle script source
     if data.source and (className == "Script" or className == "LocalScript" or className == "ModuleScript") then
-        local sourceOk = pcall(function()
+        pcall(function()
             (instance :: any).Source = data.source
         end)
-        if not sourceOk then
-            warn("[RbxSync] Could not set script source for:", name)
-        end
     end
 
     -- Apply attributes (skip reserved RBX_ attributes)

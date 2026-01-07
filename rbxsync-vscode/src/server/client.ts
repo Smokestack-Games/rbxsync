@@ -19,13 +19,16 @@ import {
   TestStartResponse,
   TestStatusResponse,
   TestFinishResponse,
-  CommandResponse
+  CommandResponse,
+  PlaceInfo,
+  PlacesResponse
 } from './types';
 
 export class RbxSyncClient {
   private client: AxiosInstance;
   private _connectionState: ConnectionState = { connected: false };
   private _onConnectionChange = new vscode.EventEmitter<ConnectionState>();
+  private _projectDir: string = '';
 
   public readonly onConnectionChange = this._onConnectionChange.event;
 
@@ -43,6 +46,14 @@ export class RbxSyncClient {
     return this._connectionState;
   }
 
+  get projectDir(): string {
+    return this._projectDir;
+  }
+
+  setProjectDir(dir: string): void {
+    this._projectDir = dir;
+  }
+
   private updateConnectionState(state: ConnectionState): void {
     this._connectionState = state;
     this._onConnectionChange.fire(state);
@@ -52,9 +63,17 @@ export class RbxSyncClient {
   async checkHealth(): Promise<HealthResponse | null> {
     try {
       const response = await this.client.get<HealthResponse>('/health');
+
+      // Fetch connected place for this project directory
+      let place: PlaceInfo | undefined;
+      if (this._projectDir) {
+        place = await this.getConnectedPlace();
+      }
+
       this.updateConnectionState({
         connected: true,
-        serverVersion: response.data.version
+        serverVersion: response.data.version,
+        place
       });
       return response.data;
     } catch (error) {
@@ -69,7 +88,25 @@ export class RbxSyncClient {
 
   async connect(): Promise<boolean> {
     const health = await this.checkHealth();
-    return health !== null && health.connected;
+    return health !== null;
+  }
+
+  // Get all connected Studio places
+  async getConnectedPlaces(): Promise<PlaceInfo[]> {
+    try {
+      const response = await this.client.get<PlacesResponse>('/rbxsync/places');
+      return response.data.places || [];
+    } catch (error) {
+      return [];
+    }
+  }
+
+  // Get the place connected to this workspace's project directory
+  async getConnectedPlace(): Promise<PlaceInfo | undefined> {
+    if (!this._projectDir) return undefined;
+
+    const places = await this.getConnectedPlaces();
+    return places.find(p => p.project_dir === this._projectDir);
   }
 
   // Extraction

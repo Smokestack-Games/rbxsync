@@ -161,9 +161,20 @@ local function encodeValue(value: any, typeName: string): any
         return { type = "NumberRange", value = { min = value.Min, max = value.Max } }
     end
 
-    -- Handle Enum
-    if Reflection.getValueTypeCategory({ ValueType = { Category = "Enum", Name = typeName } } :: any) == "Enum" or
-       string.match(typeName, "^Enum.") then
+    -- Handle Font (must be before Enum check since typeof(Font) is not "EnumItem")
+    if typeName == "Font" then
+        return {
+            type = "Font",
+            value = {
+                family = value.Family,
+                weight = tostring(value.Weight):match("%.(%w+)$") or tostring(value.Weight),
+                style = tostring(value.Style):match("%.(%w+)$") or tostring(value.Style)
+            }
+        }
+    end
+
+    -- Handle Enum - use typeof() to properly detect EnumItem values
+    if typeof(value) == "EnumItem" or string.match(typeName, "^Enum.") then
         -- Extract enum type and value
         local enumStr = tostring(value)
         local enumType = string.match(enumStr, "^Enum%.(%w+)%.")
@@ -184,18 +195,6 @@ local function encodeValue(value: any, typeName: string): any
         else
             return { type = "Ref", value = nil }
         end
-    end
-
-    -- Handle Font
-    if typeName == "Font" then
-        return {
-            type = "Font",
-            value = {
-                family = value.Family,
-                weight = tostring(value.Weight),
-                style = tostring(value.Style)
-            }
-        }
     end
 
     -- Handle Faces
@@ -380,7 +379,14 @@ function Serializer.serializeInstance(instance: Instance, apiDump: APIDump): any
 
     -- Get parent info
     local parentId = nil
-    local path = instance:GetFullName()
+    -- Build path manually using '/' delimiter to handle instance names with periods
+    local pathParts = {}
+    local current: Instance? = instance
+    while current and current ~= game do
+        table.insert(pathParts, 1, current.Name)
+        current = current.Parent
+    end
+    local path = table.concat(pathParts, "/")
     if instance.Parent then
         parentId = getInstanceUUID(instance.Parent)
     end

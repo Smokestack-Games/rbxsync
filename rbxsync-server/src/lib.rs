@@ -8,9 +8,10 @@ pub mod git;
 use std::collections::{HashMap, VecDeque};
 use std::path::PathBuf;
 use std::sync::Arc;
+use std::time::Instant;
 
 use axum::{
-    extract::{DefaultBodyLimit, State},
+    extract::{DefaultBodyLimit, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -38,8 +39,14 @@ impl Default for ServerConfig {
 
 /// Shared application state
 pub struct AppState {
-    /// Queue of pending requests to send to the plugin
+    /// Queue of pending requests to send to the plugin (legacy/fallback)
     pub request_queue: Mutex<VecDeque<PluginRequest>>,
+
+    /// Per-project request queues for multi-workspace support
+    pub project_queues: RwLock<HashMap<String, VecDeque<PluginRequest>>>,
+
+    /// Registry of connected Studio places (projectDir → PlaceInfo)
+    pub place_registry: RwLock<HashMap<String, PlaceInfo>>,
 
     /// Map of request ID to response channel
     pub response_channels: RwLock<HashMap<Uuid, mpsc::UnboundedSender<PluginResponse>>>,
@@ -59,6 +66,8 @@ impl AppState {
         let (trigger, trigger_rx) = watch::channel(());
         Arc::new(Self {
             request_queue: Mutex::new(VecDeque::new()),
+            project_queues: RwLock::new(HashMap::new()),
+            place_registry: RwLock::new(HashMap::new()),
             response_channels: RwLock::new(HashMap::new()),
             trigger,
             trigger_rx,
@@ -94,12 +103,24 @@ pub struct ExtractionSession {
     pub data: Vec<serde_json::Value>,
 }
 
+/// Connected Studio place information
+#[derive(Debug, Clone, Serialize)]
+pub struct PlaceInfo {
+    pub place_id: u64,
+    pub place_name: String,
+    pub project_dir: String,
+    #[serde(skip)]
+    pub last_heartbeat: Option<Instant>,
+}
+
 /// Create the main router
 pub fn create_router(state: Arc<AppState>) -> Router {
     Router::new()
         // RbxSync plugin communication endpoints (separate from roblox-mcp)
         .route("/rbxsync/request", get(handle_request_poll))
         .route("/rbxsync/response", post(handle_response))
+        .route("/rbxsync/register", post(handle_register))
+        .route("/rbxsync/places", get(handle_list_places))
         // New extraction endpoints
         .route("/extract/start", post(handle_extract_start))
         .route("/extract/chunk", post(handle_extract_chunk))
@@ -134,13 +155,115 @@ async fn handle_health() -> impl IntoResponse {
     }))
 }
 
-/// Long-polling endpoint for plugin to receive requests
-async fn handle_request_poll(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    // First check if there's already a request in the queue
+/// Register request from Studio plugin
+#[derive(Debug, Deserialize)]
+pub struct RegisterRequest {
+    pub place_id: u64,
+    pub place_name: String,
+    pub project_dir: String,
+}
+
+/// Handle Studio plugin registration
+async fn handle_register(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RegisterRequest>,
+) -> impl IntoResponse {
+    let mut registry = state.place_registry.write().await;
+
+    // Check if another place was connected to this project
+    let previous = registry.get(&req.project_dir).cloned();
+
+    // Register (or update) this place
+    registry.insert(req.project_dir.clone(), PlaceInfo {
+        place_id: req.place_id,
+        place_name: req.place_name.clone(),
+        project_dir: req.project_dir.clone(),
+        last_heartbeat: Some(Instant::now()),
+    });
+
+    // Create project queue if it doesn't exist
     {
+        let mut queues = state.project_queues.write().await;
+        queues.entry(req.project_dir.clone()).or_insert_with(VecDeque::new);
+    }
+
+    tracing::info!(
+        "Studio registered: {} (PlaceId: {}) -> {}",
+        req.place_name,
+        req.place_id,
+        req.project_dir
+    );
+
+    if let Some(prev) = previous {
+        if prev.place_id != req.place_id {
+            tracing::info!(
+                "Replaced previous connection from {} (PlaceId: {})",
+                prev.place_name,
+                prev.place_id
+            );
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": true,
+        "message": "Registered successfully"
+    }))
+}
+
+/// List connected Studio places
+async fn handle_list_places(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
+    let registry = state.place_registry.read().await;
+    let places: Vec<&PlaceInfo> = registry.values().collect();
+
+    Json(serde_json::json!({
+        "places": places
+    }))
+}
+
+/// Query params for request polling
+#[derive(Debug, Deserialize)]
+pub struct RequestPollQuery {
+    #[serde(rename = "projectDir")]
+    pub project_dir: Option<String>,
+}
+
+/// Long-polling endpoint for plugin to receive requests
+async fn handle_request_poll(
+    State(state): State<Arc<AppState>>,
+    Query(params): Query<RequestPollQuery>,
+) -> impl IntoResponse {
+    // Helper to check queues
+    async fn try_pop_request(
+        state: &Arc<AppState>,
+        project_dir: &Option<String>,
+    ) -> Option<PluginRequest> {
+        // First try project-specific queue if projectDir provided
+        if let Some(ref dir) = project_dir {
+            let mut queues = state.project_queues.write().await;
+            if let Some(queue) = queues.get_mut(dir) {
+                if let Some(request) = queue.pop_front() {
+                    return Some(request);
+                }
+            }
+        }
+
+        // Fall back to global queue (legacy support)
         let mut queue = state.request_queue.lock().await;
-        if let Some(request) = queue.pop_front() {
-            return (StatusCode::OK, Json(serde_json::to_value(&request).unwrap()));
+        queue.pop_front()
+    }
+
+    // First check if there's already a request
+    if let Some(request) = try_pop_request(&state, &params.project_dir).await {
+        return (StatusCode::OK, Json(serde_json::to_value(&request).unwrap()));
+    }
+
+    // Update heartbeat if projectDir provided
+    if let Some(ref dir) = params.project_dir {
+        let mut registry = state.place_registry.write().await;
+        if let Some(place) = registry.get_mut(dir) {
+            place.last_heartbeat = Some(Instant::now());
         }
     }
 
@@ -155,8 +278,7 @@ async fn handle_request_poll(State(state): State<Arc<AppState>>) -> impl IntoRes
         }
         _ = trigger_rx.changed() => {
             // Check if there's a request
-            let mut queue = state.request_queue.lock().await;
-            if let Some(request) = queue.pop_front() {
+            if let Some(request) = try_pop_request(&state, &params.project_dir).await {
                 (StatusCode::OK, Json(serde_json::to_value(&request).unwrap()))
             } else {
                 (StatusCode::NO_CONTENT, Json(serde_json::json!(null)))
@@ -437,15 +559,15 @@ async fn handle_extract_finalize(
     for inst in &all_instances {
         let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
 
-        // Use the path field from serialized instance (e.g., "StarterGui.MapSelect.TimerHandler")
+        // Use the path field from serialized instance (e.g., "StarterGui/MapSelect/TimerHandler")
+        // Paths now use '/' as delimiter to support instance names with periods
         let inst_path = inst.get("path").and_then(|v| v.as_str()).unwrap_or("");
         if inst_path.is_empty() {
             continue;
         }
 
-        // Convert dot path to filesystem path (StarterGui.MapSelect.TimerHandler -> StarterGui/MapSelect/TimerHandler)
-        let fs_path = inst_path.replace('.', "/");
-        let full_path = src_dir.join(&fs_path);
+        // Path is already '/' delimited, use directly as filesystem path
+        let full_path = src_dir.join(inst_path);
 
         // Create parent directories
         if let Some(parent) = full_path.parent() {
@@ -464,7 +586,8 @@ async fn handle_extract_finalize(
                         "LocalScript" => ".client.luau",
                         _ => ".luau",
                     };
-                    let script_path = full_path.with_extension("").to_string_lossy().to_string() + extension;
+                    // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
+                    let script_path = full_path.to_string_lossy().to_string() + extension;
                     if std::fs::write(&script_path, source).is_ok() {
                         scripts_written += 1;
                     }
@@ -473,7 +596,8 @@ async fn handle_extract_finalize(
         }
 
         // Write .rbxjson file for all instances (including scripts for metadata)
-        let json_path = full_path.with_extension("rbxjson");
+        // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
+        let json_path = full_path.to_string_lossy().to_string() + ".rbxjson";
 
         // Create a clean instance object without source (for scripts)
         let mut clean_inst = inst.clone();
@@ -698,10 +822,9 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                         // Read script source
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
                         let path_str = rel_path.to_string_lossy().to_string();
-                        // Convert filesystem path to instance path
-                        // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService.MyScript"
+                        // Keep '/' as delimiter (matches instance path format)
+                        // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService/MyScript"
                         let inst_path = path_str
-                            .replace('/', ".")
                             .trim_end_matches(".server.luau")
                             .trim_end_matches(".client.luau")
                             .trim_end_matches(".luau")
