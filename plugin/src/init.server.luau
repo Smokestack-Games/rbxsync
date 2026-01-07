@@ -4,14 +4,14 @@
 
     Extracts complete game DataModel with ALL properties using reflection.
     Communicates with local RbxSync server via HTTP.
+    Features configurable project paths and git integration.
 ]]
 
 local HttpService = game:GetService("HttpService")
 local Selection = game:GetService("Selection")
 local ChangeHistoryService = game:GetService("ChangeHistoryService")
 
--- Configuration
-local SERVER_URL = "http://localhost:44755"
+-- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 50 -- instances per chunk (Roblox HttpService has 1MB limit)
 
@@ -19,16 +19,28 @@ local CHUNK_SIZE = 50 -- instances per chunk (Roblox HttpService has 1MB limit)
 local Reflection = require(script.Reflection)
 local Serializer = require(script.Serializer)
 local Sync = require(script.Sync)
+local Config = require(script.Config)
+local Git = require(script.Git)
+local TestRunner = require(script.TestRunner)
+
+-- Initialize config with plugin reference
+Config.init(plugin)
 
 -- Plugin state
 local isConnected = false
 local isExtracting = false
 local isSyncing = false
 
+-- Get current server URL from config
+local function getServerUrl(): string
+    return Config.getServerUrl()
+end
+
 -- HTTP helpers
 local function httpGet(endpoint: string): (boolean, any)
+    local serverUrl = getServerUrl()
     local success, result = pcall(function()
-        return HttpService:GetAsync(SERVER_URL .. endpoint)
+        return HttpService:GetAsync(serverUrl .. endpoint)
     end)
 
     if success then
@@ -42,9 +54,10 @@ local function httpGet(endpoint: string): (boolean, any)
 end
 
 local function httpPost(endpoint: string, data: any): (boolean, any)
+    local serverUrl = getServerUrl()
     local success, result = pcall(function()
         local json = HttpService:JSONEncode(data)
-        return HttpService:PostAsync(SERVER_URL .. endpoint, json, Enum.HttpContentType.ApplicationJson)
+        return HttpService:PostAsync(serverUrl .. endpoint, json, Enum.HttpContentType.ApplicationJson)
     end)
 
     if success then
@@ -58,12 +71,13 @@ local function httpPost(endpoint: string, data: any): (boolean, any)
 end
 
 -- Send extraction chunk with retry logic for oversized chunks
-local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: number, instances: {any}): boolean
+local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: number, instances: {any}, projectDir: string): boolean
     local success, result = httpPost("/extract/chunk", {
         session_id = sessionId,
         chunk_index = chunkIndex,
         total_chunks = totalChunks,
         data = instances,
+        project_dir = projectDir,
     })
 
     if success then
@@ -80,6 +94,7 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
                 chunk_index = chunkIndex,
                 total_chunks = totalChunks,
                 data = {inst},
+                project_dir = projectDir,
             })
             if not singleSuccess then
                 if type(singleResult) == "string" and singleResult:find("too large") then
@@ -104,10 +119,16 @@ local function extractGame(config: {any})
         return
     end
 
+    local projectDir = Config.getProjectDir()
+    if projectDir == "" then
+        warn("[RbxSync] No project directory configured")
+        return
+    end
+
     isExtracting = true
     local startTime = os.clock()
 
-    print("[RbxSync] Starting game extraction...")
+    print("[RbxSync] Starting game extraction to:", projectDir)
 
     -- Initialize reflection engine with API dump
     local apiDump = Reflection.loadAPIDump()
@@ -173,7 +194,7 @@ local function extractGame(config: {any})
         print(string.format("[RbxSync] Sending chunk %d/%d (%d instances)",
             chunkIndex + 1, totalChunks, #chunkInstances))
 
-        local success = sendChunk(sessionId, chunkIndex, totalChunks, chunkInstances)
+        local success = sendChunk(sessionId, chunkIndex, totalChunks, chunkInstances, projectDir)
         if not success then
             warn("[RbxSync] Extraction failed at chunk", chunkIndex + 1)
             isExtracting = false
@@ -185,8 +206,24 @@ local function extractGame(config: {any})
         task.wait(0.15)
     end
 
-    local elapsed = os.clock() - startTime
-    print(string.format("[RbxSync] Extraction complete! %d instances in %.2fs", #allInstances, elapsed))
+    -- Finalize: build proper file tree from chunks
+    print("[RbxSync] Finalizing extraction...")
+    local finalizeSuccess, finalizeResult = httpPost("/extract/finalize", {
+        project_dir = projectDir,
+    })
+
+    if finalizeSuccess and finalizeResult.success then
+        local elapsed = os.clock() - startTime
+        print(string.format("[RbxSync] Extraction complete! %d instances, %d files, %d scripts in %.2fs",
+            #allInstances,
+            finalizeResult.filesWritten or 0,
+            finalizeResult.scriptsWritten or 0,
+            elapsed))
+    else
+        local elapsed = os.clock() - startTime
+        warn("[RbxSync] Finalize failed:", finalizeResult and finalizeResult.error or "Unknown error")
+        print(string.format("[RbxSync] Extraction sent %d instances in %.2fs (finalize pending)", #allInstances, elapsed))
+    end
 
     isExtracting = false
 end
@@ -336,6 +373,32 @@ local function handleCommand(command: string, payload: any)
     elseif command == "ping" then
         print("[RbxSync] Received ping")
         return { success = true }
+    -- Test runner commands for AI-powered development workflows
+    elseif command == "test:start" then
+        return TestRunner.startCapture()
+    elseif command == "test:stop" then
+        return TestRunner.stopCapture()
+    elseif command == "test:output" then
+        return TestRunner.getOutput()
+    elseif command == "test:clear" then
+        return TestRunner.clearOutput()
+    elseif command == "test:errors" then
+        return { success = true, errors = TestRunner.getErrors() }
+    elseif command == "test:history" then
+        return TestRunner.getLogHistory()
+    -- Automated play test commands (using StudioTestService ExecutePlayModeAsync)
+    elseif command == "test:run" then
+        -- Start background test (non-blocking)
+        -- payload: { duration?: number, mode?: "Play"|"Run" }
+        return TestRunner.startBackgroundTest(payload)
+    elseif command == "test:status" then
+        -- Poll for test status and output
+        return TestRunner.getTestStatus()
+    elseif command == "test:finish" then
+        -- Stop test and get final results
+        return TestRunner.stopBackgroundTest()
+    elseif command == "test:isRunning" then
+        return { success = true, running = TestRunner.isRunning() }
     else
         warn("[RbxSync] Unknown command:", command)
         return { success = false, error = "Unknown command: " .. command }
@@ -398,50 +461,436 @@ local function checkConnection()
     end
 end
 
--- Create toolbar button
+-- ============================================================================
+-- UI Creation
+-- ============================================================================
+
+-- Create toolbar
 local toolbar = plugin:CreateToolbar("RbxSync")
-local toggleButton = toolbar:CreateButton(
-    "Toggle RbxSync",
-    "Connect/disconnect from RbxSync server",
-    "" -- No icon (uses default)
+local panelButton = toolbar:CreateButton(
+    "RbxSync Panel",
+    "Open RbxSync control panel",
+    "rbxassetid://6031071053" -- Settings icon
 )
 
-local extractButton = toolbar:CreateButton(
-    "Extract Game",
-    "Extract current game to files",
-    "" -- No icon (uses default)
+-- Create dock widget
+local widgetInfo = DockWidgetPluginGuiInfo.new(
+    Enum.InitialDockState.Right,
+    false,  -- Initially hidden
+    false,  -- Override previous state
+    300,    -- Default width
+    500,    -- Default height
+    250,    -- Min width
+    300     -- Min height
 )
 
-toggleButton.Click:Connect(function()
-    isConnected = not isConnected
-    toggleButton:SetActive(isConnected)
+local widget = plugin:CreateDockWidgetPluginGui("RbxSyncPanel", widgetInfo)
+widget.Title = "RbxSync"
 
-    if isConnected then
-        print("[RbxSync] Enabled - connecting to server...")
-        checkConnection()
-    else
-        print("[RbxSync] Disabled")
+-- UI State
+local gitStatus: Git.GitStatus? = nil
+local gitCommits: {Git.GitCommit}? = nil
+
+-- Create main frame
+local mainFrame = Instance.new("ScrollingFrame")
+mainFrame.Size = UDim2.new(1, 0, 1, 0)
+mainFrame.BackgroundColor3 = Color3.fromRGB(46, 46, 46)
+mainFrame.BorderSizePixel = 0
+mainFrame.ScrollBarThickness = 6
+mainFrame.CanvasSize = UDim2.new(0, 0, 0, 600)
+mainFrame.Parent = widget
+
+local layout = Instance.new("UIListLayout")
+layout.SortOrder = Enum.SortOrder.LayoutOrder
+layout.Padding = UDim.new(0, 8)
+layout.Parent = mainFrame
+
+local padding = Instance.new("UIPadding")
+padding.PaddingTop = UDim.new(0, 12)
+padding.PaddingBottom = UDim.new(0, 12)
+padding.PaddingLeft = UDim.new(0, 12)
+padding.PaddingRight = UDim.new(0, 12)
+padding.Parent = mainFrame
+
+-- Helper to create a section header
+local function createSectionHeader(text: string, order: number): Frame
+    local frame = Instance.new("Frame")
+    frame.Size = UDim2.new(1, 0, 0, 24)
+    frame.BackgroundTransparency = 1
+    frame.LayoutOrder = order
+
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 1, 0)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(200, 200, 200)
+    label.TextSize = 14
+    label.Font = Enum.Font.GothamBold
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.Parent = frame
+
+    return frame
+end
+
+-- Helper to create a button
+local function createButton(text: string, order: number, callback: () -> ()): TextButton
+    local button = Instance.new("TextButton")
+    button.Size = UDim2.new(1, 0, 0, 32)
+    button.BackgroundColor3 = Color3.fromRGB(0, 120, 215)
+    button.BorderSizePixel = 0
+    button.Text = text
+    button.TextColor3 = Color3.fromRGB(255, 255, 255)
+    button.TextSize = 14
+    button.Font = Enum.Font.GothamMedium
+    button.LayoutOrder = order
+    button.AutoButtonColor = true
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = button
+
+    button.MouseButton1Click:Connect(callback)
+    return button
+end
+
+-- Helper to create a text input
+local function createTextInput(placeholder: string, order: number): TextBox
+    local textBox = Instance.new("TextBox")
+    textBox.Size = UDim2.new(1, 0, 0, 32)
+    textBox.BackgroundColor3 = Color3.fromRGB(60, 60, 60)
+    textBox.BorderSizePixel = 0
+    textBox.Text = ""
+    textBox.PlaceholderText = placeholder
+    textBox.PlaceholderColor3 = Color3.fromRGB(120, 120, 120)
+    textBox.TextColor3 = Color3.fromRGB(255, 255, 255)
+    textBox.TextSize = 13
+    textBox.Font = Enum.Font.Gotham
+    textBox.TextXAlignment = Enum.TextXAlignment.Left
+    textBox.LayoutOrder = order
+    textBox.ClearTextOnFocus = false
+
+    local corner = Instance.new("UICorner")
+    corner.CornerRadius = UDim.new(0, 4)
+    corner.Parent = textBox
+
+    local padding = Instance.new("UIPadding")
+    padding.PaddingLeft = UDim.new(0, 8)
+    padding.PaddingRight = UDim.new(0, 8)
+    padding.Parent = textBox
+
+    return textBox
+end
+
+-- Helper to create an info label
+local function createInfoLabel(text: string, order: number): TextLabel
+    local label = Instance.new("TextLabel")
+    label.Size = UDim2.new(1, 0, 0, 20)
+    label.BackgroundTransparency = 1
+    label.Text = text
+    label.TextColor3 = Color3.fromRGB(180, 180, 180)
+    label.TextSize = 12
+    label.Font = Enum.Font.Gotham
+    label.TextXAlignment = Enum.TextXAlignment.Left
+    label.LayoutOrder = order
+    label.TextTruncate = Enum.TextTruncate.AtEnd
+    return label
+end
+
+-- ============================================================================
+-- Project Section
+-- ============================================================================
+
+createSectionHeader("PROJECT", 10).Parent = mainFrame
+
+local projectDirLabel = createInfoLabel("No project selected", 11)
+projectDirLabel.Parent = mainFrame
+
+local projectDirInput = createTextInput("Enter project directory path...", 12)
+projectDirInput.Text = Config.getProjectDir()
+projectDirInput.Parent = mainFrame
+
+projectDirInput.FocusLost:Connect(function(enterPressed)
+    if projectDirInput.Text ~= "" then
+        Config.setProjectDir(projectDirInput.Text)
+        projectDirLabel.Text = projectDirInput.Text
+        print("[RbxSync] Project directory set to:", projectDirInput.Text)
     end
 end)
 
-extractButton.Click:Connect(function()
+-- Update label with current project
+local currentDir = Config.getProjectDir()
+if currentDir ~= "" then
+    projectDirLabel.Text = currentDir
+end
+
+-- ============================================================================
+-- Connection Section
+-- ============================================================================
+
+createSectionHeader("CONNECTION", 20).Parent = mainFrame
+
+local connectionLabel = createInfoLabel("Disconnected", 21)
+connectionLabel.Parent = mainFrame
+
+local connectButton: TextButton = nil :: any
+connectButton = createButton("Connect", 22, function()
+    isConnected = not isConnected
+
+    if isConnected then
+        print("[RbxSync] Connecting to server...")
+        checkConnection()
+        connectionLabel.Text = "Connected"
+        connectionLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
+        connectButton.Text = "Disconnect"
+    else
+        print("[RbxSync] Disconnected")
+        connectionLabel.Text = "Disconnected"
+        connectionLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+        connectButton.Text = "Connect"
+    end
+end)
+connectButton.Parent = mainFrame
+
+-- ============================================================================
+-- Actions Section
+-- ============================================================================
+
+createSectionHeader("ACTIONS", 30).Parent = mainFrame
+
+local extractButton = createButton("Extract Game", 31, function()
     if not isConnected then
-        warn("[RbxSync] Not connected to server. Click Toggle button first.")
+        warn("[RbxSync] Not connected to server")
+        return
+    end
+
+    local projectDir = Config.getProjectDir()
+    if projectDir == "" then
+        warn("[RbxSync] No project directory configured")
         return
     end
 
     extractGame({})
 end)
+extractButton.Parent = mainFrame
 
--- Start background tasks
+local syncButton = createButton("Sync to Studio", 32, function()
+    if not isConnected then
+        warn("[RbxSync] Not connected to server")
+        return
+    end
+
+    local projectDir = Config.getProjectDir()
+    if projectDir == "" then
+        warn("[RbxSync] No project directory configured")
+        return
+    end
+
+    if isSyncing then
+        warn("[RbxSync] Sync already in progress")
+        return
+    end
+
+    print("[RbxSync] Reading file tree from server...")
+
+    -- Request file tree from server
+    local success, result = httpPost("/sync/read-tree", {
+        project_dir = projectDir,
+    })
+
+    if not success or not result.success then
+        warn("[RbxSync] Failed to read file tree:", result and result.error or "Unknown error")
+        return
+    end
+
+    local instances = result.instances
+    if not instances or #instances == 0 then
+        warn("[RbxSync] No instances found in project")
+        return
+    end
+
+    print(string.format("[RbxSync] Loaded %d instances, starting sync...", #instances))
+
+    -- Convert instances to update operations
+    local operations = {}
+    for _, inst in ipairs(instances) do
+        local path = inst.path
+        if path and path ~= "" then
+            table.insert(operations, {
+                type = "update",
+                path = path,
+                data = inst,
+            })
+        end
+    end
+
+    -- Sort by path depth (parents before children)
+    table.sort(operations, function(a, b)
+        local depthA = select(2, string.gsub(a.path, "%.", ""))
+        local depthB = select(2, string.gsub(b.path, "%.", ""))
+        return depthA < depthB
+    end)
+
+    -- Apply all operations
+    local batchResult = syncBatch({ operations = operations })
+
+    if batchResult.success then
+        print("[RbxSync] Sync complete!")
+    else
+        warn("[RbxSync] Sync completed with errors")
+    end
+end)
+syncButton.BackgroundColor3 = Color3.fromRGB(80, 80, 80)
+syncButton.Parent = mainFrame
+
+-- ============================================================================
+-- Git Section
+-- ============================================================================
+
+createSectionHeader("GIT", 40).Parent = mainFrame
+
+local gitBranchLabel = createInfoLabel("Branch: (not a git repo)", 41)
+gitBranchLabel.Parent = mainFrame
+
+local gitStatusLabel = createInfoLabel("Status: Unknown", 42)
+gitStatusLabel.Parent = mainFrame
+
+local commitMessageInput = createTextInput("Commit message...", 43)
+commitMessageInput.Parent = mainFrame
+
+local commitButton = createButton("Commit All Changes", 44, function()
+    local message = commitMessageInput.Text
+    if message == "" then
+        warn("[RbxSync] Commit message cannot be empty")
+        return
+    end
+
+    local success, err = Git.commit(message, true)
+    if success then
+        print("[RbxSync] Commit successful!")
+        commitMessageInput.Text = ""
+        -- Refresh git status
+        task.spawn(function()
+            task.wait(0.5)
+            local ok, status = Git.getStatus()
+            if ok and status then
+                gitStatus = status
+                gitBranchLabel.Text = "Branch: " .. status.branch
+                gitStatusLabel.Text = "Status: " .. Git.getStatusString(status)
+            end
+        end)
+    else
+        warn("[RbxSync] Commit failed:", err or "Unknown error")
+    end
+end)
+commitButton.BackgroundColor3 = Color3.fromRGB(40, 120, 40)
+commitButton.Parent = mainFrame
+
+createSectionHeader("RECENT COMMITS", 50).Parent = mainFrame
+
+local commitsFrame = Instance.new("Frame")
+commitsFrame.Size = UDim2.new(1, 0, 0, 80)
+commitsFrame.BackgroundTransparency = 1
+commitsFrame.LayoutOrder = 51
+commitsFrame.Parent = mainFrame
+
+local commitsLayout = Instance.new("UIListLayout")
+commitsLayout.SortOrder = Enum.SortOrder.LayoutOrder
+commitsLayout.Padding = UDim.new(0, 4)
+commitsLayout.Parent = commitsFrame
+
+-- Function to update git display
+local function updateGitDisplay()
+    -- Get status
+    local ok, status = Git.getStatus()
+    if ok and status then
+        gitStatus = status
+        gitBranchLabel.Text = "Branch: " .. status.branch
+        gitStatusLabel.Text = "Status: " .. Git.getStatusString(status)
+
+        if status.is_dirty then
+            gitStatusLabel.TextColor3 = Color3.fromRGB(255, 200, 100)
+        else
+            gitStatusLabel.TextColor3 = Color3.fromRGB(100, 200, 100)
+        end
+    else
+        gitBranchLabel.Text = "Branch: (not a git repo)"
+        gitStatusLabel.Text = "Status: N/A"
+        gitStatusLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+    end
+
+    -- Get commits
+    local logOk, commits = Git.getLog(3)
+    if logOk and commits then
+        gitCommits = commits
+
+        -- Clear existing commit labels
+        for _, child in commitsFrame:GetChildren() do
+            if child:IsA("TextLabel") then
+                child:Destroy()
+            end
+        end
+
+        -- Add commit labels
+        for i, commit in commits do
+            local commitLabel = Instance.new("TextLabel")
+            commitLabel.Size = UDim2.new(1, 0, 0, 20)
+            commitLabel.BackgroundTransparency = 1
+            commitLabel.Text = commit.hash .. " - " .. commit.message
+            commitLabel.TextColor3 = Color3.fromRGB(150, 150, 150)
+            commitLabel.TextSize = 11
+            commitLabel.Font = Enum.Font.Gotham
+            commitLabel.TextXAlignment = Enum.TextXAlignment.Left
+            commitLabel.TextTruncate = Enum.TextTruncate.AtEnd
+            commitLabel.LayoutOrder = i
+            commitLabel.Parent = commitsFrame
+        end
+    end
+end
+
+-- ============================================================================
+-- Panel Button
+-- ============================================================================
+
+panelButton.Click:Connect(function()
+    widget.Enabled = not widget.Enabled
+    panelButton:SetActive(widget.Enabled)
+
+    if widget.Enabled then
+        -- Refresh git status when panel opens
+        task.spawn(updateGitDisplay)
+    end
+end)
+
+-- ============================================================================
+-- Background Tasks
+-- ============================================================================
+
+-- Start polling loop
 task.spawn(pollLoop)
+
+-- Connection check loop
 task.spawn(function()
     while true do
         if isConnected then
             checkConnection()
+            if not isConnected then
+                connectionLabel.Text = "Disconnected"
+                connectionLabel.TextColor3 = Color3.fromRGB(180, 180, 180)
+                connectButton.Text = "Connect"
+            end
         end
         task.wait(5)
     end
 end)
 
-print("[RbxSync] Plugin loaded. Click toolbar button to connect.")
+-- Git status refresh loop
+task.spawn(function()
+    while true do
+        if widget.Enabled and Config.getProjectDir() ~= "" then
+            updateGitDisplay()
+        end
+        task.wait(10) -- Refresh every 10 seconds
+    end
+end)
+
+print("[RbxSync] Plugin loaded. Click toolbar button to open panel.")

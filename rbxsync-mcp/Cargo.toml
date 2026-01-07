@@ -1,0 +1,31 @@
+[package]
+name = "rbxsync-mcp"
+version.workspace = true
+edition.workspace = true
+license.workspace = true
+authors.workspace = true
+description = "MCP server for RbxSync - integrate Roblox game extraction with Claude"
+
+[[bin]]
+name = "rbxsync-mcp"
+path = "src/main.rs"
+
+[dependencies]
+# Workspace dependencies
+serde.workspace = true
+serde_json.workspace = true
+tokio.workspace = true
+anyhow.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+dirs.workspace = true
+
+# MCP protocol
+rmcp.workspace = true
+schemars.workspace = true
+
+# HTTP client for communicating with rbxsync-server
+reqwest = { version = "0.12", features = ["json"] }
+
+# Async traits
+async-trait = "0.1"

@@ -3,7 +3,10 @@
 //! HTTP server that communicates with the Roblox Studio plugin
 //! for game extraction and synchronization.
 
+pub mod git;
+
 use std::collections::{HashMap, VecDeque};
+use std::path::PathBuf;
 use std::sync::Arc;
 
 use axum::{
@@ -102,9 +105,20 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/extract/chunk", post(handle_extract_chunk))
         .route("/extract/status", get(handle_extract_status))
         .route("/extract/export", post(handle_extract_export))
+        .route("/extract/finalize", post(handle_extract_finalize))
         // Sync endpoints
         .route("/sync/command", post(handle_sync_command))
         .route("/sync/batch", post(handle_sync_batch))
+        .route("/sync/read-tree", post(handle_sync_read_tree))
+        // Git endpoints
+        .route("/git/status", post(handle_git_status))
+        .route("/git/log", post(handle_git_log))
+        .route("/git/commit", post(handle_git_commit))
+        .route("/git/init", post(handle_git_init))
+        // Test runner endpoints (for AI-powered development workflows)
+        .route("/test/start", post(handle_test_start))
+        .route("/test/status", get(handle_test_status))
+        .route("/test/stop", post(handle_test_stop))
         // Health check
         .route("/health", get(handle_health))
         .with_state(state)
@@ -222,6 +236,7 @@ pub struct ExtractChunkRequest {
     pub chunk_index: usize,
     pub total_chunks: usize,
     pub data: serde_json::Value,
+    pub project_dir: Option<String>,
 }
 
 async fn handle_extract_chunk(
@@ -230,12 +245,22 @@ async fn handle_extract_chunk(
 ) -> impl IntoResponse {
     let mut session_guard = state.extraction_session.write().await;
 
+    // Determine output directory: use project_dir/src if provided, otherwise fallback
+    let output_dir = if let Some(ref project_dir) = req.project_dir {
+        if !project_dir.is_empty() {
+            format!("{}/src", project_dir)
+        } else {
+            format!(".rbxsync/extract_{}", &req.session_id)
+        }
+    } else {
+        format!(".rbxsync/extract_{}", &req.session_id)
+    };
+
     // Auto-create session if plugin started extraction directly
     if session_guard.is_none() {
-        tracing::info!("Auto-created extraction session: {}", &req.session_id);
+        tracing::info!("Auto-created extraction session: {} -> {}", &req.session_id, &output_dir);
 
         // Create output directory for this session
-        let output_dir = format!(".rbxsync/extract_{}", &req.session_id);
         let _ = std::fs::create_dir_all(&output_dir);
 
         *session_guard = Some(ExtractionSession {
@@ -249,13 +274,12 @@ async fn handle_extract_chunk(
     if let Some(ref mut session) = *session_guard {
         // Accept chunks from any session (plugin may have restarted)
         if session.id != req.session_id {
-            tracing::info!("Session ID changed from {} to {}, resetting", session.id, &req.session_id);
+            tracing::info!("Session ID changed from {} to {}, resetting -> {}", session.id, &req.session_id, &output_dir);
             session.id = req.session_id.clone();
             session.chunks_received = 0;
             session.data.clear();
 
             // Create new output directory
-            let output_dir = format!(".rbxsync/extract_{}", &req.session_id);
             let _ = std::fs::create_dir_all(&output_dir);
         }
 
@@ -263,7 +287,6 @@ async fn handle_extract_chunk(
         session.chunks_received += 1;
 
         // Save chunk to disk immediately
-        let output_dir = format!(".rbxsync/extract_{}", &session.id);
         let chunk_path = format!("{}/chunk_{:06}.json", output_dir, session.chunks_received);
         if let Err(e) = std::fs::write(&chunk_path, serde_json::to_string(&req.data).unwrap_or_default()) {
             tracing::warn!("Failed to save chunk to disk: {}", e);
@@ -370,6 +393,128 @@ async fn handle_extract_export(
             })),
         )
     }
+}
+
+/// Finalize extraction - build proper file tree from chunks
+#[derive(Debug, Deserialize)]
+pub struct FinalizeRequest {
+    pub project_dir: String,
+}
+
+async fn handle_extract_finalize(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<FinalizeRequest>,
+) -> impl IntoResponse {
+    let session = state.extraction_session.read().await;
+
+    if session.is_none() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "No extraction session active"
+            })),
+        );
+    }
+
+    let session = session.as_ref().unwrap();
+    let src_dir = PathBuf::from(&req.project_dir).join("src");
+
+    // Flatten all chunks into a single array of instances
+    let mut all_instances: Vec<serde_json::Value> = Vec::new();
+    for chunk in &session.data {
+        if let Some(instances) = chunk.as_array() {
+            all_instances.extend(instances.iter().cloned());
+        }
+    }
+
+    tracing::info!("Finalizing {} instances to {}", all_instances.len(), src_dir.display());
+
+    // Write each instance to its own file using the path field
+    let mut files_written = 0;
+    let mut scripts_written = 0;
+
+    for inst in &all_instances {
+        let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
+
+        // Use the path field from serialized instance (e.g., "StarterGui.MapSelect.TimerHandler")
+        let inst_path = inst.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        if inst_path.is_empty() {
+            continue;
+        }
+
+        // Convert dot path to filesystem path (StarterGui.MapSelect.TimerHandler -> StarterGui/MapSelect/TimerHandler)
+        let fs_path = inst_path.replace('.', "/");
+        let full_path = src_dir.join(&fs_path);
+
+        // Create parent directories
+        if let Some(parent) = full_path.parent() {
+            let _ = std::fs::create_dir_all(parent);
+        }
+
+        // Check if this is a script with source
+        let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
+
+        if is_script {
+            // Extract script source to .luau file
+            if let Some(props) = inst.get("properties") {
+                if let Some(source) = props.get("Source").and_then(|v| v.get("value")).and_then(|v| v.as_str()) {
+                    let extension = match class_name {
+                        "Script" => ".server.luau",
+                        "LocalScript" => ".client.luau",
+                        _ => ".luau",
+                    };
+                    let script_path = full_path.with_extension("").to_string_lossy().to_string() + extension;
+                    if std::fs::write(&script_path, source).is_ok() {
+                        scripts_written += 1;
+                    }
+                }
+            }
+        }
+
+        // Write .rbxjson file for all instances (including scripts for metadata)
+        let json_path = full_path.with_extension("rbxjson");
+
+        // Create a clean instance object without source (for scripts)
+        let mut clean_inst = inst.clone();
+        if is_script {
+            if let Some(props) = clean_inst.get_mut("properties") {
+                if let Some(obj) = props.as_object_mut() {
+                    obj.remove("Source");
+                }
+            }
+        }
+
+        if let Ok(json) = serde_json::to_string_pretty(&clean_inst) {
+            if std::fs::write(&json_path, json).is_ok() {
+                files_written += 1;
+            }
+        }
+    }
+
+    // Clean up chunk files
+    if let Ok(entries) = std::fs::read_dir(&src_dir) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                if name.starts_with("chunk_") && name.ends_with(".json") {
+                    let _ = std::fs::remove_file(path);
+                }
+            }
+        }
+    }
+
+    tracing::info!("Finalize complete: {} .rbxjson files, {} .luau scripts", files_written, scripts_written);
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "filesWritten": files_written,
+            "scriptsWritten": scripts_written,
+            "totalInstances": all_instances.len()
+        })),
+    )
 }
 
 /// Sync command request
@@ -502,6 +647,409 @@ async fn handle_sync_batch(
             (
                 StatusCode::GATEWAY_TIMEOUT,
                 Json(serde_json::json!({"error": "Timeout waiting for plugin response"})),
+            )
+        }
+    }
+}
+
+/// Read file tree for sync - returns all instances from project directory
+#[derive(Debug, Deserialize)]
+pub struct ReadTreeRequest {
+    pub project_dir: String,
+}
+
+async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoResponse {
+    let src_dir = PathBuf::from(&req.project_dir).join("src");
+
+    if !src_dir.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Source directory does not exist"
+            })),
+        );
+    }
+
+    // Recursively read all .rbxjson files
+    let mut instances: Vec<serde_json::Value> = Vec::new();
+    let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+
+    fn walk_dir(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        instances: &mut Vec<serde_json::Value>,
+        scripts: &mut std::collections::HashMap<String, String>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk_dir(&path, base, instances, scripts);
+                } else if let Some(ext) = path.extension() {
+                    if ext == "rbxjson" {
+                        // Read instance JSON
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
+                                instances.push(inst);
+                            }
+                        }
+                    } else if ext == "luau" {
+                        // Read script source
+                        let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                        let path_str = rel_path.to_string_lossy().to_string();
+                        // Convert filesystem path to instance path
+                        // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService.MyScript"
+                        let inst_path = path_str
+                            .replace('/', ".")
+                            .trim_end_matches(".server.luau")
+                            .trim_end_matches(".client.luau")
+                            .trim_end_matches(".luau")
+                            .to_string();
+                        if let Ok(source) = std::fs::read_to_string(&path) {
+                            scripts.insert(inst_path, source);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk_dir(&src_dir, &src_dir, &mut instances, &mut scripts);
+
+    // Merge script sources into their instance data
+    for inst in &mut instances {
+        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
+            if let Some(source) = scripts.get(path) {
+                // Add or update Source property
+                if let Some(props) = inst.get_mut("properties") {
+                    if let Some(obj) = props.as_object_mut() {
+                        obj.insert("Source".to_string(), serde_json::json!({
+                            "type": "string",
+                            "value": source
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    tracing::info!("Read {} instances from {}", instances.len(), src_dir.display());
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "instances": instances,
+            "count": instances.len()
+        })),
+    )
+}
+
+// ============================================================================
+// Git Endpoints
+// ============================================================================
+
+/// Git project directory request (shared by all git endpoints)
+#[derive(Debug, Deserialize)]
+pub struct GitProjectRequest {
+    pub project_dir: String,
+}
+
+/// Git status request
+#[derive(Debug, Deserialize)]
+pub struct GitStatusRequest {
+    pub project_dir: String,
+}
+
+/// Handle git status request
+async fn handle_git_status(Json(req): Json<GitStatusRequest>) -> impl IntoResponse {
+    let project_path = PathBuf::from(&req.project_dir);
+
+    match git::get_status(&project_path) {
+        Ok(status) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "data": status
+            })),
+        ),
+        Err(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": false,
+                "error": e
+            })),
+        ),
+    }
+}
+
+/// Git log request
+#[derive(Debug, Deserialize)]
+pub struct GitLogRequest {
+    pub project_dir: String,
+    pub limit: Option<usize>,
+}
+
+/// Handle git log request
+async fn handle_git_log(Json(req): Json<GitLogRequest>) -> impl IntoResponse {
+    let project_path = PathBuf::from(&req.project_dir);
+    let limit = req.limit.unwrap_or(5);
+
+    match git::get_log(&project_path, limit) {
+        Ok(commits) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "data": commits
+            })),
+        ),
+        Err(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": false,
+                "error": e
+            })),
+        ),
+    }
+}
+
+/// Git commit request
+#[derive(Debug, Deserialize)]
+pub struct GitCommitRequest {
+    pub project_dir: String,
+    pub message: String,
+    pub add_all: Option<bool>,
+}
+
+/// Handle git commit request
+async fn handle_git_commit(Json(req): Json<GitCommitRequest>) -> impl IntoResponse {
+    let project_path = PathBuf::from(&req.project_dir);
+    let add_all = req.add_all.unwrap_or(true);
+
+    match git::commit(&project_path, &req.message, add_all) {
+        Ok(output) => {
+            tracing::info!("Git commit successful in {}", req.project_dir);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "data": output
+                })),
+            )
+        }
+        Err(e) => {
+            tracing::warn!("Git commit failed: {}", e);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": e
+                })),
+            )
+        }
+    }
+}
+
+/// Handle git init request
+async fn handle_git_init(Json(req): Json<GitProjectRequest>) -> impl IntoResponse {
+    let project_path = PathBuf::from(&req.project_dir);
+
+    match git::init(&project_path) {
+        Ok(output) => {
+            tracing::info!("Git init successful in {}", req.project_dir);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "data": output
+                })),
+            )
+        }
+        Err(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": false,
+                "error": e
+            })),
+        ),
+    }
+}
+
+// =============================================================================
+// Test Runner Endpoints
+// =============================================================================
+
+/// Response from test operations
+#[derive(Debug, Serialize, Deserialize)]
+pub struct TestConsoleMessage {
+    pub message: String,
+    #[serde(rename = "type")]
+    pub msg_type: String,
+    pub timestamp: f64,
+}
+
+/// Test status response
+#[derive(Debug, Serialize)]
+pub struct TestStatusResponse {
+    pub capturing: bool,
+    pub output: Vec<TestConsoleMessage>,
+    pub total_messages: usize,
+}
+
+/// Start test capture - tells plugin to start capturing console output
+async fn handle_test_start(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Send command to plugin to start capture
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "test:start".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout
+    let timeout = tokio::time::Duration::from_secs(30);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": response.success,
+                    "message": response.data.get("message").and_then(|v| v.as_str()).unwrap_or("Capture started")
+                })),
+            )
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed unexpectedly"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Plugin response timeout - make sure Studio is connected"
+                })),
+            )
+        }
+    }
+}
+
+/// Get current test capture status and output
+async fn handle_test_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Send command to plugin to get current output
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "test:output".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout
+    let timeout = tokio::time::Duration::from_secs(10);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (StatusCode::OK, Json(response.data))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "capturing": false,
+                    "output": [],
+                    "totalMessages": 0,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "capturing": false,
+                    "output": [],
+                    "totalMessages": 0,
+                    "error": "Plugin response timeout"
+                })),
+            )
+        }
+    }
+}
+
+/// Stop test capture and return all captured output
+async fn handle_test_stop(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    // Send command to plugin to stop capture
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "test:stop".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout
+    let timeout = tokio::time::Duration::from_secs(30);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (StatusCode::OK, Json(response.data))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "output": [],
+                    "totalMessages": 0,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "output": [],
+                    "totalMessages": 0,
+                    "error": "Plugin response timeout"
+                })),
             )
         }
     }

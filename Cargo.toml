@@ -4,6 +4,7 @@ members = [
     "rbxsync-core",
     "rbxsync-server",
     "rbxsync-cli",
+    "rbxsync-mcp",
 ]
 
 [workspace.package]
@@ -52,3 +53,7 @@ rbx_types = "1.8"
 
 # Platform utilities
 dirs = "5.0"
+
+# MCP protocol
+rmcp = { version = "0.9", features = ["server", "transport-io"] }
+schemars = "1.0"
