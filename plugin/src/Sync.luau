@@ -441,10 +441,11 @@ function Sync.updateInstance(instance: Instance, data: any): boolean
 end
 
 -- Delete an instance by path
+-- Uses Parent = nil instead of Destroy() to allow undo
 function Sync.deleteInstance(path: string): boolean
     local instance = Sync.findInstanceAtPath(path)
     if instance then
-        instance:Destroy()
+        instance.Parent = nil
         return true
     end
     return false

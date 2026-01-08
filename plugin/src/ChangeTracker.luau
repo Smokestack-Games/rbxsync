@@ -45,7 +45,7 @@ local pendingChanges: {[string]: {
 
 -- Last sync time to avoid echo (changes from file watcher)
 local lastFileWatcherSync = 0
-local FILE_WATCHER_GRACE_PERIOD = 2  -- seconds
+local FILE_WATCHER_GRACE_PERIOD = 0.5  -- seconds (reduced to allow quick undo)
 
 -- Set last file watcher sync time (called when receiving sync from server)
 function ChangeTracker.setLastFileWatcherSync()
@@ -93,6 +93,7 @@ end
 local function queueChange(instance: Instance, changeType: string, data: any?)
     -- Skip if this might be from file watcher
     if shouldIgnoreChange() then
+        print("[RbxSync Debug] Ignoring change (grace period): " .. changeType .. " " .. instance:GetFullName())
         return
     end
 
@@ -100,6 +101,8 @@ local function queueChange(instance: Instance, changeType: string, data: any?)
     if not path then
         return
     end
+
+    print("[RbxSync Debug] Queueing change: " .. changeType .. " " .. path)
 
     pendingChanges[path] = {
         path = path,

@@ -8,6 +8,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
+use notify::event::{ModifyKind, DataChange};
 use tokio::sync::{mpsc, RwLock};
 
 /// File change event
@@ -109,31 +110,123 @@ pub async fn start_file_watcher(
         loop {
             match rx.recv_timeout(Duration::from_secs(1)) {
                 Ok(event) => {
-                    let kind = match event.kind {
-                        EventKind::Create(_) => Some(FileChangeKind::Create),
-                        EventKind::Modify(_) => Some(FileChangeKind::Modify),
-                        EventKind::Remove(_) => Some(FileChangeKind::Delete),
-                        _ => None,
-                    };
-
-                    if let Some(kind) = kind {
-                        for path in event.paths {
-                            // Only process .luau and .rbxjson files
-                            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                                if ext == "luau" || ext == "rbxjson" {
-                                    let change = FileChange {
-                                        path: path.clone(),
-                                        project_dir: project_dir_clone.clone(),
-                                        kind: kind.clone(),
-                                    };
-
-                                    // Send to async handler
-                                    let state = state_clone.clone();
-                                    rt.spawn(async move {
-                                        let state = state.read().await;
-                                        let _ = state.change_tx.send(change);
-                                    });
+                    // Process each path in the event with macOS-aware kind detection
+                    for path in event.paths.iter() {
+                        // Determine the event kind using Argon's macOS approach:
+                        // - Create: only if path exists
+                        // - Modify(Name): check path existence (deletion on macOS comes as rename)
+                        // - Modify(Data(Content)): actual content change
+                        // - Remove: always delete
+                        let kind = match &event.kind {
+                            EventKind::Create(_) => {
+                                // Only emit Create if the path actually exists
+                                if path.exists() {
+                                    Some(FileChangeKind::Create)
+                                } else {
+                                    None
                                 }
+                            }
+                            EventKind::Remove(_) => Some(FileChangeKind::Delete),
+                            EventKind::Modify(modify_kind) => {
+                                match modify_kind {
+                                    // Name changes (rename/move) - check if path exists
+                                    // On macOS, deletions often come through as rename events
+                                    ModifyKind::Name(_) => {
+                                        if path.exists() {
+                                            Some(FileChangeKind::Create)
+                                        } else {
+                                            Some(FileChangeKind::Delete)
+                                        }
+                                    }
+                                    // Data changes - only care about content changes
+                                    ModifyKind::Data(data_change) => {
+                                        if *data_change == DataChange::Content {
+                                            // Verify file still exists (another macOS quirk)
+                                            if path.exists() {
+                                                Some(FileChangeKind::Modify)
+                                            } else {
+                                                Some(FileChangeKind::Delete)
+                                            }
+                                        } else {
+                                            None
+                                        }
+                                    }
+                                    // Any other modify - check existence as fallback
+                                    ModifyKind::Any => {
+                                        if path.exists() {
+                                            Some(FileChangeKind::Modify)
+                                        } else {
+                                            Some(FileChangeKind::Delete)
+                                        }
+                                    }
+                                    // Ignore metadata-only changes
+                                    _ => None,
+                                }
+                            }
+                            _ => None,
+                        };
+
+                        if let Some(kind) = kind {
+                            let path = path.clone();
+                            // Check if it's a directory that was created (for undo operations)
+                            if kind == FileChangeKind::Create && path.is_dir() {
+                                // Scan directory for script files and send Create events for each
+                                if let Ok(entries) = std::fs::read_dir(&path) {
+                                    for entry in entries.flatten() {
+                                        let entry_path = entry.path();
+                                        if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
+                                            if ext == "luau" || ext == "rbxjson" {
+                                                let change = FileChange {
+                                                    path: entry_path,
+                                                    project_dir: project_dir_clone.clone(),
+                                                    kind: FileChangeKind::Create,
+                                                };
+                                                let state = state_clone.clone();
+                                                rt.spawn(async move {
+                                                    let state = state.read().await;
+                                                    let _ = state.change_tx.send(change);
+                                                });
+                                            }
+                                        }
+                                    }
+                                }
+                                continue;
+                            }
+
+                            // Check if it's a file we care about
+                            let should_process = if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                                ext == "luau" || ext == "rbxjson"
+                            } else {
+                                // For deletions, also handle directories (no extension)
+                                // Check that path is inside src (has at least one segment after src)
+                                // and doesn't have a dot in the filename (not a file without extension)
+                                if kind == FileChangeKind::Delete {
+                                    // Make sure we're deleting something INSIDE src, not src itself
+                                    let is_inside_src = path.strip_prefix(&src_dir)
+                                        .map(|rel| !rel.as_os_str().is_empty())
+                                        .unwrap_or(false);
+                                    is_inside_src && path.file_name()
+                                        .and_then(|n| n.to_str())
+                                        .map(|n| !n.contains('.'))
+                                        .unwrap_or(false)
+                                } else {
+                                    false
+                                }
+                            };
+
+                            if should_process {
+                                let change = FileChange {
+                                    path: path.clone(),
+                                    project_dir: project_dir_clone.clone(),
+                                    kind: kind.clone(),
+                                };
+
+                                // Send to async handler
+                                let state = state_clone.clone();
+                                rt.spawn(async move {
+                                    let state = state.read().await;
+                                    let _ = state.change_tx.send(change);
+                                });
                             }
                         }
                     }
@@ -167,23 +260,45 @@ pub fn process_file_change(
     };
 
     // Convert to instance path (e.g., "ServerScriptService/MyScript")
-    let inst_path = rel_path
-        .to_string_lossy()
-        .replace('\\', "/")
-        .trim_end_matches(".server.luau")
-        .trim_end_matches(".client.luau")
-        .trim_end_matches(".luau")
-        .trim_end_matches(".rbxjson")
-        .to_string();
+    // Handle _meta.rbxjson specially - it represents the parent folder
+    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+    let inst_path = if filename == "_meta.rbxjson" {
+        // _meta.rbxjson represents the parent folder
+        rel_path
+            .parent()
+            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .unwrap_or_default()
+    } else {
+        rel_path
+            .to_string_lossy()
+            .replace('\\', "/")
+            .trim_end_matches(".server.luau")
+            .trim_end_matches(".client.luau")
+            .trim_end_matches(".luau")
+            .trim_end_matches(".rbxjson")
+            .to_string()
+    };
 
     match change.kind {
         FileChangeKind::Delete => {
+            // For folder deletions, the path won't have an extension
+            // The inst_path will be the folder path in the instance tree
             Some(serde_json::json!({
                 "type": "delete",
                 "path": inst_path,
+                "isFolder": path.extension().is_none(),
             }))
         }
         FileChangeKind::Create | FileChangeKind::Modify => {
+            // Check if file still exists (macOS reports deletions as Modify events)
+            if !path.exists() {
+                // File was deleted - treat as delete
+                return Some(serde_json::json!({
+                    "type": "delete",
+                    "path": inst_path,
+                }));
+            }
+
             // Read the file content
             let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 

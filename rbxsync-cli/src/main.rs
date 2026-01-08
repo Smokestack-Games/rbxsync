@@ -1276,12 +1276,22 @@ fn build_dom_children(
         let entry_path = entry.path();
         let entry_name = entry.file_name().to_string_lossy().to_string();
 
-        // Skip init files
-        if init_files.iter().any(|&n| entry_name == n) {
+        // Skip init files and _meta.rbxjson
+        if init_files.iter().any(|&n| entry_name == n) || entry_name == "_meta.rbxjson" {
             continue;
         }
 
         if entry_path.is_dir() {
+            // Check if directory has _meta.rbxjson (contains class and properties)
+            let meta_path = entry_path.join("_meta.rbxjson");
+            let meta_data: Option<serde_json::Value> = if meta_path.exists() {
+                std::fs::read_to_string(&meta_path)
+                    .ok()
+                    .and_then(|s| serde_json::from_str(&s).ok())
+            } else {
+                None
+            };
+
             // Check if directory has init file (makes it a script)
             let has_init = init_files.iter().any(|&n| entry_path.join(n).exists());
 
@@ -1293,14 +1303,29 @@ fn build_dom_children(
                 } else {
                     "ModuleScript"
                 }
+            } else if let Some(ref meta) = meta_data {
+                // Use class from _meta.rbxjson if available
+                meta.get("className")
+                    .and_then(|c| c.as_str())
+                    .unwrap_or("Folder")
             } else {
                 "Folder"
             };
 
-            let child_ref = dom.insert(
-                parent_ref,
-                InstanceBuilder::new(class_name).with_name(&entry_name),
-            );
+            let mut builder = InstanceBuilder::new(class_name).with_name(&entry_name);
+
+            // Apply properties from _meta.rbxjson if available
+            if let Some(ref meta) = meta_data {
+                if let Some(props) = meta.get("properties").and_then(|p| p.as_object()) {
+                    for (prop_name, prop_value) in props {
+                        if let Some(value) = json_to_variant(prop_value) {
+                            builder = builder.with_property(prop_name, value);
+                        }
+                    }
+                }
+            }
+
+            let child_ref = dom.insert(parent_ref, builder);
 
             build_dom_children(dom, child_ref, &entry_path)?;
         } else if entry_path.extension().map(|e| e == "rbxjson").unwrap_or(false) {
