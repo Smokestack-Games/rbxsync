@@ -456,6 +456,14 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         return { success = false, error = "No operations to apply" }
     end
 
+    -- Set waypoint BEFORE making changes for undo support
+    local opSummary = #operations .. " operations"
+    if #operations == 1 then
+        local op = operations[1]
+        opSummary = (op.type or "sync") .. " " .. (op.path or "")
+    end
+    ChangeHistoryService:SetWaypoint("Before RbxSync: " .. opSummary)
+
     -- Mark as file watcher sync to prevent echo back
     if source == "file_watcher" then
         ChangeTracker.setLastFileWatcherSync()
@@ -553,6 +561,11 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         end
         print(msg)
         setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
+    end
+
+    -- Set waypoint AFTER changes for undo support
+    if appliedCount > 0 then
+        ChangeHistoryService:SetWaypoint("RbxSync: " .. opSummary)
     end
 
     return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount }
@@ -697,16 +710,49 @@ local function pollLoop()
                 print("Disconnected")
                 updateConnectionUI()
             elseif response and response.command then
+                print("[RbxSync Debug] Received command: " .. tostring(response.command))
                 task.spawn(function()
-                    local recording = ChangeHistoryService:TryBeginRecording("RbxSync")
+                    -- Create descriptive checkpoint name for undo
+                    local checkpointName = "RbxSync"
+                    local command = response.command
+                    local payload = response.payload
+
+                    if command == "sync:batch" and payload and payload.operations then
+                        local ops = payload.operations
+                        local opCount = #ops
+                        if opCount == 1 then
+                            local op = ops[1]
+                            checkpointName = string.format("RbxSync: %s %s", op.type or "sync", op.path or "")
+                        elseif opCount > 1 then
+                            -- Summarize batch operations
+                            local types = {}
+                            for _, op in ops do
+                                types[op.type or "sync"] = (types[op.type or "sync"] or 0) + 1
+                            end
+                            local parts = {}
+                            for t, c in types do
+                                table.insert(parts, c .. " " .. t)
+                            end
+                            checkpointName = "RbxSync: " .. table.concat(parts, ", ")
+                        end
+                    elseif command == "sync:delete" and payload then
+                        checkpointName = "RbxSync: delete " .. (payload.path or "")
+                    elseif command == "sync:create" and payload then
+                        checkpointName = "RbxSync: create " .. (payload.path or "")
+                    elseif command == "sync:update" and payload then
+                        checkpointName = "RbxSync: update " .. (payload.path or "")
+                    end
+
+                    -- Set waypoint BEFORE making changes
+                    ChangeHistoryService:SetWaypoint("Before: " .. checkpointName)
 
                     local ok, result = pcall(function()
                         return handleCommand(response.command, response.payload)
                     end)
 
-                    if recording then
-                        ChangeHistoryService:FinishRecording(recording, Enum.FinishRecordingOperation.Commit)
-                    end
+                    -- Set waypoint AFTER making changes
+                    ChangeHistoryService:SetWaypoint(checkpointName)
+                    print("[RbxSync] Waypoint set: " .. checkpointName)
 
                     -- Send response
                     if response.id then

@@ -735,6 +735,22 @@ async fn handle_extract_finalize(
     // Track which services we've seen to create folders for them
     let mut service_folders: std::collections::HashSet<String> = std::collections::HashSet::new();
 
+    // First pass: collect all instance paths to determine which are containers
+    let mut all_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    for inst in &all_instances {
+        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
+            if !path.is_empty() {
+                all_paths.insert(path.to_string());
+            }
+        }
+    }
+
+    // Helper to check if a path has children (is a container)
+    let has_children = |path: &str| -> bool {
+        let prefix = format!("{}/", path);
+        all_paths.iter().any(|p| p.starts_with(&prefix))
+    };
+
     // Write each instance to its own file using the path field
     let mut files_written = 0;
     let mut scripts_written = 0;
@@ -784,8 +800,18 @@ async fn handle_extract_finalize(
         }
 
         // Write .rbxjson file for all instances (including scripts for metadata)
-        // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
-        let json_path = full_path.to_string_lossy().to_string() + ".rbxjson";
+        // For containers (instances with children), write _meta.rbxjson inside the folder
+        // For leaf instances, write as sibling .rbxjson
+        let is_container = has_children(inst_path);
+        let json_path = if is_container {
+            // Container: create folder and put _meta.rbxjson inside
+            let _ = std::fs::create_dir_all(&full_path);
+            full_path.join("_meta.rbxjson")
+        } else {
+            // Leaf: write as sibling .rbxjson
+            // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
+            PathBuf::from(full_path.to_string_lossy().to_string() + ".rbxjson")
+        };
 
         // Create a clean instance object without source (for scripts)
         let mut clean_inst = inst.clone();
@@ -1014,13 +1040,31 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
             "delete" => {
                 // Try to delete both .luau and .rbxjson files
                 let luau_extensions = [".server.luau", ".client.luau", ".luau"];
+                let mut deleted_any = false;
                 for ext in luau_extensions {
                     let script_path = format!("{}{}", full_path.to_string_lossy(), ext);
-                    let _ = std::fs::remove_file(&script_path);
+                    if std::fs::remove_file(&script_path).is_ok() {
+                        deleted_any = true;
+                        tracing::info!("Studio sync: deleted {}", script_path);
+                    }
                 }
                 let json_path = format!("{}.rbxjson", full_path.to_string_lossy());
-                let _ = std::fs::remove_file(&json_path);
-                files_written += 1;
+                if std::fs::remove_file(&json_path).is_ok() {
+                    deleted_any = true;
+                    tracing::info!("Studio sync: deleted {}", json_path);
+                }
+
+                // Try to delete as a directory (for Folder instances)
+                if full_path.is_dir() {
+                    if std::fs::remove_dir_all(&full_path).is_ok() {
+                        deleted_any = true;
+                        tracing::info!("Studio sync: deleted folder {:?}", full_path);
+                    }
+                }
+
+                if deleted_any {
+                    files_written += 1;
+                }
             }
             "create" | "modify" => {
                 if let Some(data) = &op.data {
@@ -1651,7 +1695,10 @@ async fn process_file_changes(state: Arc<AppState>) {
                 if let Some(ref dir) = project_dir {
                     let mut queues = state.project_queues.write().await;
                     if let Some(queue) = queues.get_mut(dir) {
+                        tracing::info!("Queued {} operations for project {}", operations.len(), dir);
                         queue.push_back(plugin_request.clone());
+                    } else {
+                        tracing::warn!("No queue for project {}, available queues: {:?}", dir, queues.keys().collect::<Vec<_>>());
                     }
                 }
 
