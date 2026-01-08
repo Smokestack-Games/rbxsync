@@ -50,7 +50,16 @@ export async function syncCommand(
   if (syncResult.success) {
     const config = vscode.workspace.getConfiguration('rbxsync');
     if (config.get('showNotifications')) {
-      vscode.window.showInformationMessage(`Synced ${syncResult.applied} changes`);
+      const applied = syncResult.applied || 0;
+      const skipped = syncResult.skipped || 0;
+
+      if (applied === 0) {
+        vscode.window.showInformationMessage(`Already in sync (${skipped} instances checked)`);
+      } else if (skipped > 0) {
+        vscode.window.showInformationMessage(`Applied ${applied} changes (${skipped} unchanged)`);
+      } else {
+        vscode.window.showInformationMessage(`Applied ${applied} changes`);
+      }
     }
   } else if (syncResult.errors?.length) {
     vscode.window.showWarningMessage(`Synced with ${syncResult.errors.length} error(s)`);

@@ -37,6 +37,7 @@ local twoWaySyncEnabled = false  -- Two-way sync (Studio → files)
 local cachedPlaceName: string? = nil
 local lastExtractTime: number? = nil  -- Track last extraction time for estimates
 local lastInstanceCount: number? = nil  -- Track last instance count
+local hasLoggedLink: boolean = false  -- Prevent spam logging of "Linked to" messages
 
 -- Forward declaration for UI update function (defined later)
 local updateConnectionUI: () -> ()
@@ -400,7 +401,8 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
 end
 
 -- Sync: Update instance at path (silent)
-local function syncUpdate(payload: any): {success: boolean, error: string?}
+-- Returns: success, error, wasSkipped (true if no changes needed)
+local function syncUpdate(payload: any): {success: boolean, error: string?, skipped: boolean?}
     local path = payload.path
     local data = payload.data
 
@@ -411,6 +413,13 @@ local function syncUpdate(payload: any): {success: boolean, error: string?}
     local instance = Sync.findInstanceAtPath(path)
     if not instance then
         return syncCreate(payload)
+    end
+
+    -- Check if update is actually needed (differential sync)
+    local needsUpdate, reason = Sync.instanceNeedsUpdate(instance, data)
+    if not needsUpdate then
+        -- No changes needed - skip this update
+        return { success = true, skipped = true }
     end
 
     Sync.registerCreated(path, instance)
@@ -439,7 +448,7 @@ local function syncDelete(payload: any): {success: boolean, error: string?}
 end
 
 -- Sync: Apply batch of operations
-local function syncBatch(payload: any): {success: boolean, results: {any}?, error: string?}
+local function syncBatch(payload: any): {success: boolean, results: {any}?, error: string?, applied: number?, skipped: number?}
     local operations = payload.operations
     local source = payload.source  -- "file_watcher" if from file watcher
 
@@ -486,9 +495,10 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     Sync.clearRecentlyCreated()
 
     isSyncing = true
-    setStatus("Syncing " .. #operations .. " changes...", Color3.fromRGB(100, 180, 255), 0)
+    setStatus("Checking " .. #operations .. " instances...", Color3.fromRGB(100, 180, 255), 0)
     local results = {}
-    local successCount = 0
+    local appliedCount = 0  -- Actually modified
+    local skippedCount = 0  -- No changes needed
     local failCount = 0
 
     for i, op in ipairs(operations) do
@@ -508,7 +518,11 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         table.insert(results, result)
 
         if result.success then
-            successCount += 1
+            if result.skipped then
+                skippedCount += 1
+            else
+                appliedCount += 1
+            end
         else
             failCount += 1
             -- Log failed operations with path and error
@@ -523,18 +537,25 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
 
     isSyncing = false
 
-    -- Summary
+    -- Summary - show actual changes vs unchanged
     if failCount > 0 then
-        local msg = string.format("Synced %d/%d - %d failed", successCount, #operations, failCount)
+        local msg = string.format("Applied %d, skipped %d unchanged, %d failed", appliedCount, skippedCount, failCount)
         print(msg .. " (see warnings above)")
         setStatus(msg, Color3.fromRGB(255, 200, 100), 10)
+    elseif appliedCount == 0 then
+        local msg = "Already in sync"
+        print(msg .. " (" .. skippedCount .. " instances checked)")
+        setStatus(msg, Color3.fromRGB(100, 200, 100), 5)
     else
-        local msg = string.format("Synced %d changes", successCount)
+        local msg = string.format("Applied %d changes", appliedCount)
+        if skippedCount > 0 then
+            msg = msg .. string.format(" (%d unchanged)", skippedCount)
+        end
         print(msg)
         setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
     end
 
-    return { success = failCount == 0, results = results }
+    return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount }
 end
 
 -- Handle incoming commands from server (silent dispatch)
@@ -719,7 +740,8 @@ local function registerWithServer()
         project_dir = projectDir,
     })
 
-    if success then
+    if success and not hasLoggedLink then
+        hasLoggedLink = true
         print(string.format("Linked to %s (%s)", projectDir, placeName))
     end
 
@@ -858,6 +880,7 @@ connectButton.MouseButton1Click:Connect(function()
         -- User clicked Disconnect
         isConnected = false
         userDisconnected = true  -- Prevent auto-reconnect
+        hasLoggedLink = false  -- Reset so we log again on reconnect
         ChangeTracker.stop()  -- Stop change tracking when disconnected
         print("Disconnected by user")
     else

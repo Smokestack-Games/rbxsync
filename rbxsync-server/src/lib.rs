@@ -83,6 +83,9 @@ pub struct AppState {
 
     /// Track which VS Code workspaces we've logged (to prevent spam)
     pub logged_vscode_workspaces: RwLock<HashSet<String>>,
+
+    /// Track which Studio places we've logged (to prevent spam)
+    pub logged_studio_places: RwLock<HashSet<String>>,
 }
 
 impl AppState {
@@ -102,6 +105,7 @@ impl AppState {
             file_watcher_state: Arc::new(RwLock::new(file_watcher::FileWatcherState::new(file_change_tx))),
             file_change_rx: Mutex::new(file_change_rx),
             logged_vscode_workspaces: RwLock::new(HashSet::new()),
+            logged_studio_places: RwLock::new(HashSet::new()),
         })
     }
 }
@@ -223,9 +227,6 @@ async fn handle_register(
     // Use project_dir + place_name as key to avoid duplicates from same Studio
     let key = format!("{}:{}", req.project_dir, req.place_name);
 
-    // Track session for logging
-    let session_id = state.session_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
-
     // Register/update this place
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
@@ -233,6 +234,7 @@ async fn handle_register(
         project_dir: req.project_dir.clone(),
         last_heartbeat: Some(Instant::now()),
     });
+    drop(registry); // Release lock before acquiring another
 
     // Create project queue if it doesn't exist
     {
@@ -240,18 +242,23 @@ async fn handle_register(
         queues.entry(req.project_dir.clone()).or_insert_with(VecDeque::new);
     }
 
-    tracing::info!(
-        "Studio registered: {} (PlaceId: {}, Session: {}) -> {}",
-        req.place_name,
-        req.place_id,
-        session_id,
-        req.project_dir
-    );
+    // Only log once per session to prevent spam
+    let mut logged = state.logged_studio_places.write().await;
+    if !logged.contains(&key) {
+        logged.insert(key.clone());
+        let session_id = state.session_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
+        tracing::info!(
+            "Studio registered: {} (PlaceId: {}, Session: {}) -> {}",
+            req.place_name,
+            req.place_id,
+            session_id,
+            req.project_dir
+        );
+    }
 
     Json(serde_json::json!({
         "success": true,
-        "message": "Registered successfully",
-        "session_id": session_id
+        "message": "Registered successfully"
     }))
 }
 

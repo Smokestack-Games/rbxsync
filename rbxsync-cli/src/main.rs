@@ -655,59 +655,61 @@ async fn cmd_serve(port: u16) -> Result<()> {
 
 /// Stop the running sync server
 async fn cmd_stop() -> Result<()> {
-    let client = reqwest::Client::new();
+    // First, try to find any rbxsync server processes by port
+    #[cfg(unix)]
+    {
+        let output = std::process::Command::new("lsof")
+            .args(["-ti", ":44755"])
+            .output();
+
+        if let Ok(output) = output {
+            let pids = String::from_utf8_lossy(&output.stdout);
+            let pids: Vec<&str> = pids.lines().filter(|p| !p.is_empty()).collect();
+
+            if pids.is_empty() {
+                println!("Server is not running.");
+                return Ok(());
+            }
+
+            // Try graceful shutdown first
+            let client = reqwest::Client::builder()
+                .timeout(std::time::Duration::from_secs(2))
+                .build()?;
+
+            let graceful = client.post("http://localhost:44755/shutdown").send().await;
+
+            if graceful.is_ok() {
+                // Give it a moment to shut down
+                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                println!("Server stopped.");
+                return Ok(());
+            }
+
+            // Graceful shutdown failed, force kill
+            println!("Force stopping server...");
+            for pid in pids {
+                if let Ok(pid) = pid.trim().parse::<i32>() {
+                    unsafe {
+                        libc::kill(pid, libc::SIGKILL);
+                    }
+                    println!("Killed process {}", pid);
+                }
+            }
+            return Ok(());
+        }
+    }
+
+    // Fallback for non-unix or if lsof failed
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(2))
+        .build()?;
 
     match client.post("http://localhost:44755/shutdown").send().await {
-        Ok(response) if response.status().is_success() => {
+        Ok(_) => {
             println!("Server stopped.");
             Ok(())
         }
-        Ok(_) => {
-            // Try killing by port as fallback
-            println!("Server did not respond to shutdown. Trying force stop...");
-            #[cfg(unix)]
-            {
-                let output = std::process::Command::new("lsof")
-                    .args(["-ti", ":44755"])
-                    .output();
-                if let Ok(output) = output {
-                    let pids = String::from_utf8_lossy(&output.stdout);
-                    for pid in pids.lines() {
-                        if let Ok(pid) = pid.trim().parse::<i32>() {
-                            unsafe {
-                                libc::kill(pid, libc::SIGTERM);
-                            }
-                            println!("Killed process {}", pid);
-                        }
-                    }
-                }
-            }
-            Ok(())
-        }
         Err(_) => {
-            // Server not responding - try force kill by port
-            #[cfg(unix)]
-            {
-                let output = std::process::Command::new("lsof")
-                    .args(["-ti", ":44755"])
-                    .output();
-                if let Ok(output) = output {
-                    let pids = String::from_utf8_lossy(&output.stdout);
-                    let pids: Vec<&str> = pids.lines().collect();
-                    if !pids.is_empty() {
-                        println!("Server not responding. Force stopping...");
-                        for pid in pids {
-                            if let Ok(pid) = pid.trim().parse::<i32>() {
-                                unsafe {
-                                    libc::kill(pid, libc::SIGKILL);
-                                }
-                                println!("Killed process {}", pid);
-                            }
-                        }
-                        return Ok(());
-                    }
-                }
-            }
             println!("Server is not running.");
             Ok(())
         }
