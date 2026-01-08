@@ -88,30 +88,36 @@ pub fn get_status(project_dir: &Path) -> Result<GitStatus, String> {
         };
 
         // Determine status type
+        // First column = index (staged), Second column = working tree (unstaged)
+        // Count each separately for accurate totals
         let status = if line.starts_with("??") {
             untracked_count += 1;
             "untracked"
-        } else if first == 'A' || second == 'A' {
-            if first == 'A' { staged_count += 1; } else { unstaged_count += 1; }
-            "added"
-        } else if first == 'D' || second == 'D' {
-            if first == 'D' { staged_count += 1; } else { unstaged_count += 1; }
-            "deleted"
-        } else if first == 'R' || second == 'R' {
-            if first == 'R' { staged_count += 1; } else { unstaged_count += 1; }
-            "renamed"
-        } else if first != ' ' && first != '?' && second != ' ' && second != '?' {
-            // File is both staged AND has working tree changes
-            unstaged_count += 1;
-            "modified"
-        } else if first != ' ' && first != '?' {
-            staged_count += 1;
-            "modified"
-        } else if second != ' ' && second != '?' {
-            unstaged_count += 1;
-            "modified"
         } else {
-            continue;
+            // Check staged changes (first column)
+            let has_staged = first != ' ' && first != '?';
+            // Check unstaged changes (second column)
+            let has_unstaged = second != ' ' && second != '?';
+
+            if has_staged {
+                staged_count += 1;
+            }
+            if has_unstaged {
+                unstaged_count += 1;
+            }
+
+            // Determine display status (prioritize unstaged for UI)
+            if first == 'A' || second == 'A' {
+                "added"
+            } else if first == 'D' || second == 'D' {
+                "deleted"
+            } else if first == 'R' || second == 'R' {
+                "renamed"
+            } else if has_staged || has_unstaged {
+                "modified"
+            } else {
+                continue;
+            }
         };
 
         changed_files.push(ChangedFile {

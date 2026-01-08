@@ -450,6 +450,168 @@ function Sync.deleteInstance(path: string): boolean
     return false
 end
 
+-- Compare two encoded values for equality
+local function valuesEqual(encoded1: any, encoded2: any): boolean
+    if encoded1 == nil and encoded2 == nil then
+        return true
+    end
+    if encoded1 == nil or encoded2 == nil then
+        return false
+    end
+    if type(encoded1) ~= "table" or type(encoded2) ~= "table" then
+        return encoded1 == encoded2
+    end
+
+    -- Compare type
+    if encoded1.type ~= encoded2.type then
+        return false
+    end
+
+    local v1, v2 = encoded1.value, encoded2.value
+
+    -- Handle nil values
+    if v1 == nil and v2 == nil then
+        return true
+    end
+    if v1 == nil or v2 == nil then
+        return false
+    end
+
+    -- Primitives
+    if type(v1) ~= "table" then
+        return v1 == v2
+    end
+
+    -- Deep compare tables
+    for k, val1 in v1 do
+        local val2 = v2[k]
+        if type(val1) == "table" and type(val2) == "table" then
+            -- Recurse for nested tables
+            for kk, vv1 in val1 do
+                if val2[kk] ~= vv1 then
+                    return false
+                end
+            end
+        elseif val1 ~= val2 then
+            return false
+        end
+    end
+
+    return true
+end
+
+-- Check if an instance needs updating based on incoming data
+-- Returns: needsUpdate (boolean), reason (string or nil)
+function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, string?)
+    -- Check script source (most common change)
+    if instance:IsA("LuaSourceContainer") then
+        local currentSource = ""
+        pcall(function()
+            currentSource = (instance :: any).Source
+        end)
+
+        -- Get incoming source from data.properties.Source or data.source
+        local newSource = data.source
+        if not newSource and data.properties and data.properties.Source then
+            newSource = data.properties.Source.value
+        end
+
+        if newSource and currentSource ~= newSource then
+            return true, "source"
+        end
+    end
+
+    -- Check name
+    if data.name and instance.Name ~= data.name then
+        return true, "name"
+    end
+
+    -- Check properties (excluding Source which we already checked)
+    if data.properties then
+        for propName, propData in data.properties do
+            if propName == "Name" or propName == "Parent" or propName == "ClassName" or propName == "Source" then
+                continue
+            end
+
+            -- Get current value
+            local ok, currentValue = pcall(function()
+                return (instance :: any)[propName]
+            end)
+
+            if not ok then
+                continue  -- Can't read property, skip
+            end
+
+            -- Decode incoming value
+            local newValue = decodeValue(propData)
+
+            -- Compare values (simple comparison for now)
+            if currentValue ~= newValue then
+                -- For complex types, we need deeper comparison
+                if type(currentValue) == "userdata" or type(newValue) == "userdata" then
+                    -- Convert to string for comparison
+                    local currentStr = tostring(currentValue)
+                    local newStr = tostring(newValue)
+                    if currentStr ~= newStr then
+                        return true, "property:" .. propName
+                    end
+                else
+                    return true, "property:" .. propName
+                end
+            end
+        end
+    end
+
+    -- Check attributes
+    if data.attributes then
+        local currentAttrs = instance:GetAttributes()
+
+        -- Check for new or changed attributes
+        for attrName, attrData in data.attributes do
+            if string.sub(attrName, 1, 4) == "RBX_" then
+                continue
+            end
+            local newValue = decodeValue(attrData)
+            if currentAttrs[attrName] ~= newValue then
+                return true, "attribute:" .. attrName
+            end
+        end
+
+        -- Check for removed attributes (existing attrs not in new data)
+        for attrName, _ in currentAttrs do
+            if string.sub(attrName, 1, 4) == "RBX_" then
+                continue
+            end
+            if data.attributes[attrName] == nil then
+                return true, "attribute_removed:" .. attrName
+            end
+        end
+    end
+
+    -- Check tags
+    if data.tags then
+        local currentTags = CollectionService:GetTags(instance)
+
+        -- Quick length check
+        if #currentTags ~= #data.tags then
+            return true, "tags"
+        end
+
+        -- Check each tag
+        local tagSet = {}
+        for _, tag in currentTags do
+            tagSet[tag] = true
+        end
+        for _, tag in data.tags do
+            if not tagSet[tag] then
+                return true, "tags"
+            end
+        end
+    end
+
+    return false, nil
+end
+
 -- Clear the instance cache
 function Sync.clearCache(): ()
     table.clear(instanceCache)
