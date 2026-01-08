@@ -94,15 +94,6 @@ rbxsync sync [--path DIR]            # Sync local changes to Studio
 rbxsync build-plugin [--install]     # Build Studio plugin
 ```
 
-## Keyboard Shortcuts (VS Code)
-
-| Shortcut | Command |
-|----------|---------|
-| `Cmd+Shift+S` | Sync to Studio |
-| `Cmd+Shift+E` | Extract from Studio |
-| `Cmd+Shift+T` | Run Play Test |
-| `Cmd+Shift+M` | Open .rbxjson metadata |
-
 ## MCP Integration
 
 RbxSync includes an MCP server for AI agent integration:
