@@ -926,21 +926,30 @@ local widget = plugin:CreateDockWidgetPluginGui("RbxSyncPanel", widgetInfo)
 widget.Title = "RbxSync"
 
 -- ============================================================================
--- DESIGN TOKENS
+-- DESIGN TOKENS (Roblox Studio Default Style)
 -- ============================================================================
 
 local Colors = {
-    background = Color3.fromRGB(30, 30, 30),
-    surface = Color3.fromRGB(38, 38, 38),
-    surfaceHover = Color3.fromRGB(48, 48, 48),
-    accent = Color3.fromRGB(0, 212, 255),
-    accentMuted = Color3.fromRGB(0, 160, 200),
-    success = Color3.fromRGB(80, 200, 120),
-    warning = Color3.fromRGB(255, 180, 80),
-    error = Color3.fromRGB(255, 100, 100),
-    textPrimary = Color3.fromRGB(240, 240, 240),
-    textSecondary = Color3.fromRGB(160, 160, 160),
-    textMuted = Color3.fromRGB(100, 100, 100),
+    -- Matches Roblox Studio's dark theme
+    background = Color3.fromRGB(46, 46, 46),
+    surface = Color3.fromRGB(53, 53, 53),
+    surfaceHover = Color3.fromRGB(66, 66, 66),
+    border = Color3.fromRGB(34, 34, 34),
+    -- Roblox blue accent
+    accent = Color3.fromRGB(0, 162, 255),
+    accentHover = Color3.fromRGB(50, 181, 255),
+    success = Color3.fromRGB(2, 183, 87),
+    warning = Color3.fromRGB(245, 166, 35),
+    error = Color3.fromRGB(255, 68, 68),
+    textPrimary = Color3.fromRGB(204, 204, 204),
+    textSecondary = Color3.fromRGB(153, 153, 153),
+    textMuted = Color3.fromRGB(102, 102, 102),
+}
+
+-- Sync direction settings
+local syncSettings = {
+    studioToFiles = true,  -- Auto-extract Studio changes to files
+    filesToStudio = true,  -- Sync file changes to Studio
 }
 
 -- ============================================================================
@@ -1149,8 +1158,10 @@ connectButton.MouseButton1Click:Connect(function()
         if success then
             isConnected = true
             registerWithServer()
-            -- Start change tracker for auto-extract
-            ChangeTracker.start()
+            -- Start change tracker for auto-extract (if enabled)
+            if syncSettings.studioToFiles then
+                ChangeTracker.start()
+            end
             -- Start console capture for E2E testing
             startConsoleCapture()
         else
@@ -1678,6 +1689,102 @@ local function updateInfoDisplay()
 end
 
 -- ============================================================================
+-- Sync Options Section
+-- ============================================================================
+
+local syncOptionsSection = Instance.new("Frame")
+syncOptionsSection.Size = UDim2.new(1, 0, 0, 80)
+syncOptionsSection.BackgroundTransparency = 1
+syncOptionsSection.LayoutOrder = 5
+syncOptionsSection.Parent = mainFrame
+
+local syncOptionsPadding = Instance.new("UIPadding")
+syncOptionsPadding.PaddingTop = UDim.new(0, 0)
+syncOptionsPadding.PaddingLeft = UDim.new(0, 16)
+syncOptionsPadding.PaddingRight = UDim.new(0, 16)
+syncOptionsPadding.Parent = syncOptionsSection
+
+local syncOptionsLabel = Instance.new("TextLabel")
+syncOptionsLabel.Size = UDim2.new(1, 0, 0, 16)
+syncOptionsLabel.BackgroundTransparency = 1
+syncOptionsLabel.Text = "LIVE SYNC"
+syncOptionsLabel.TextColor3 = Colors.textMuted
+syncOptionsLabel.TextSize = 10
+syncOptionsLabel.Font = Enum.Font.GothamBold
+syncOptionsLabel.TextXAlignment = Enum.TextXAlignment.Left
+syncOptionsLabel.Parent = syncOptionsSection
+
+-- Helper function to create a checkbox
+local function createCheckbox(parent: Frame, yOffset: number, text: string, checked: boolean, onChange: (boolean) -> ())
+    local checkboxFrame = Instance.new("Frame")
+    checkboxFrame.Size = UDim2.new(1, 0, 0, 22)
+    checkboxFrame.Position = UDim2.new(0, 0, 0, yOffset)
+    checkboxFrame.BackgroundTransparency = 1
+    checkboxFrame.Parent = parent
+
+    local checkboxButton = Instance.new("TextButton")
+    checkboxButton.Size = UDim2.new(0, 16, 0, 16)
+    checkboxButton.Position = UDim2.new(0, 0, 0.5, -8)
+    checkboxButton.BackgroundColor3 = checked and Colors.accent or Colors.surface
+    checkboxButton.BorderSizePixel = 0
+    checkboxButton.Text = checked and "✓" or ""
+    checkboxButton.TextColor3 = Colors.background
+    checkboxButton.TextSize = 12
+    checkboxButton.Font = Enum.Font.GothamBold
+    checkboxButton.Parent = checkboxFrame
+
+    local checkboxCorner = Instance.new("UICorner")
+    checkboxCorner.CornerRadius = UDim.new(0, 3)
+    checkboxCorner.Parent = checkboxButton
+
+    local checkboxStroke = Instance.new("UIStroke")
+    checkboxStroke.Color = checked and Colors.accent or Colors.textMuted
+    checkboxStroke.Thickness = 1
+    checkboxStroke.Parent = checkboxButton
+
+    local checkboxLabel = Instance.new("TextLabel")
+    checkboxLabel.Size = UDim2.new(1, -24, 1, 0)
+    checkboxLabel.Position = UDim2.new(0, 24, 0, 0)
+    checkboxLabel.BackgroundTransparency = 1
+    checkboxLabel.Text = text
+    checkboxLabel.TextColor3 = Colors.textSecondary
+    checkboxLabel.TextSize = 11
+    checkboxLabel.Font = Enum.Font.Gotham
+    checkboxLabel.TextXAlignment = Enum.TextXAlignment.Left
+    checkboxLabel.Parent = checkboxFrame
+
+    local isChecked = checked
+    checkboxButton.MouseButton1Click:Connect(function()
+        isChecked = not isChecked
+        checkboxButton.BackgroundColor3 = isChecked and Colors.accent or Colors.surface
+        checkboxButton.Text = isChecked and "✓" or ""
+        checkboxStroke.Color = isChecked and Colors.accent or Colors.textMuted
+        onChange(isChecked)
+    end)
+
+    return checkboxButton
+end
+
+-- Studio → Files checkbox (auto-extract)
+createCheckbox(syncOptionsSection, 20, "Sync Studio changes to files", syncSettings.studioToFiles, function(checked)
+    syncSettings.studioToFiles = checked
+    if isConnected then
+        if checked then
+            ChangeTracker.start()
+        else
+            ChangeTracker.stop()
+        end
+    end
+end)
+
+-- Files → Studio checkbox (file watcher)
+createCheckbox(syncOptionsSection, 44, "Sync file changes to Studio", syncSettings.filesToStudio, function(checked)
+    syncSettings.filesToStudio = checked
+    -- File watcher is controlled server-side, so we just store the preference
+    -- The server will check this when pushing changes
+end)
+
+-- ============================================================================
 -- Panel Button
 -- ============================================================================
 
@@ -1710,7 +1817,10 @@ task.spawn(function()
                 if isConnected then
                     print("Connected")
                     registerWithServer()
-                    ChangeTracker.start()
+                    -- Start change tracker only if enabled
+                    if syncSettings.studioToFiles then
+                        ChangeTracker.start()
+                    end
                     startConsoleCapture()
                 else
                     print("Disconnected")

@@ -672,15 +672,15 @@
     <section class="hero">
         <div class="hero-content">
             <div class="hero-badge">
-                <span>v1.0</span> Now with MCP integration for AI agents
+                <span>NEW</span> Complete DataModel extraction + AI-powered E2E testing
             </div>
             <h1>
-                Sync Roblox Games<br>
-                <span class="highlight">Like a Pro</span>
+                Professional<br>
+                <span class="highlight">Roblox Sync</span>
             </h1>
             <p class="hero-description">
-                Professional tool for syncing Roblox games between Studio and VS Code.
-                Full property preservation, git integration, and AI-powered workflows.
+                The only tool that captures ALL instance properties using API dump reflection.
+                Plus AI agents can run real playtests and verify their code works.
             </p>
             <div class="hero-actions">
                 <a href="#installation" class="btn-primary">
@@ -716,7 +716,7 @@
             <div class="section-tag">Features</div>
             <h2 class="section-title">Everything You Need</h2>
             <p class="section-description">
-                Built for professional Roblox developers who demand the best tools.
+                Complete property preservation that other tools miss, plus AI-powered testing workflows.
             </p>
         </div>
 
@@ -740,9 +740,9 @@
             </div>
 
             <div class="feature-card">
-                <div class="feature-icon">🤖</div>
-                <h3>MCP Integration</h3>
-                <p>AI agents can extract, sync, run code, and test games. Perfect for Claude-powered workflows.</p>
+                <div class="feature-icon">🧪</div>
+                <h3>E2E Testing for AI</h3>
+                <p>AI agents can write code, run playtests, and verify output in real time. See console output streamed live.</p>
             </div>
 
             <div class="feature-card">
@@ -767,6 +767,45 @@
                 <div class="feature-icon">⚡</div>
                 <h3>Blazing Fast</h3>
                 <p>Built with Rust for maximum performance. Handles large games with thousands of instances.</p>
+            </div>
+        </div>
+    </section>
+
+    <section class="mcp-section" id="e2e">
+        <div class="mcp-content">
+            <div class="mcp-text">
+                <div class="section-tag">Game Changer</div>
+                <h2>E2E Testing for AI</h2>
+                <p>
+                    For the first time, AI agents can do more than just write code—they can
+                    <strong>run playtests in real Roblox Studio sessions</strong> and verify their work actually works.
+                    Console output streams in real-time, so AI can debug issues instantly.
+                </p>
+                <p style="margin-top: 1rem; color: var(--text-secondary);">
+                    This means AI can handle long-running development tasks autonomously:
+                    write a feature, test it, fix bugs, and iterate—all without human intervention.
+                </p>
+                <div class="mcp-tools" style="margin-top: 1.5rem;">
+                    <span class="mcp-tool">run_code</span>
+                    <span class="mcp-tool">run_test</span>
+                    <span class="mcp-tool">console streaming</span>
+                    <span class="mcp-tool">playtest control</span>
+                </div>
+            </div>
+            <div class="mcp-code">
+                <div class="mcp-code-header">AI Workflow Example</div>
+                <pre><span class="comment">// 1. AI writes a script</span>
+<span class="key">sync_to_studio</span>(<span class="string">"ServerScriptService/GameManager.luau"</span>)
+
+<span class="comment">// 2. AI runs a playtest</span>
+<span class="key">run_code</span>(<span class="string">"game:GetService('RunService'):Run()"</span>)
+
+<span class="comment">// 3. AI sees console output in real-time</span>
+<span class="string">[12:34:56] [INF] Game started!</span>
+<span class="string">[12:34:57] [INF] Player joined: TestPlayer</span>
+<span class="string">[12:34:58] [ERR] Attempt to index nil...</span>
+
+<span class="comment">// 4. AI fixes the bug and repeats</span></pre>
             </div>
         </div>
     </section>
