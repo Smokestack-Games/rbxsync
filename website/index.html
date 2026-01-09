@@ -6,21 +6,21 @@
     <title>RbxSync - Sync Roblox Games Between Studio and VS Code</title>
     <link rel="preconnect" href="https://fonts.googleapis.com">
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
-    <link href="https://fonts.googleapis.com/css2?family=JetBrains+Mono:wght@400;500;600;700&family=Space+Grotesk:wght@400;500;600;700&display=swap" rel="stylesheet">
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
     <style>
         :root {
             --bg-primary: #0a0a0f;
             --bg-secondary: #12121a;
             --bg-tertiary: #1a1a25;
-            --rbx-red: #e74c3c;
-            --rbx-red-bright: #ff5f4f;
-            --rbx-red-dark: #c0392b;
+            --rbx-red: #c23c40;
+            --rbx-red-bright: #d94a4e;
+            --rbx-red-dark: #a33236;
             --text-primary: #f0f0f5;
             --text-secondary: #8888a0;
             --text-muted: #555570;
             --border-color: #2a2a40;
-            --gradient-red: linear-gradient(135deg, #e74c3c 0%, #ff6b5b 100%);
-            --glow-red: 0 0 40px rgba(231, 76, 60, 0.3);
+            --gradient-red: linear-gradient(135deg, #c23c40 0%, #d94a4e 100%);
+            --glow-red: 0 0 40px rgba(194, 60, 64, 0.3);
             --success: #27ae60;
             --warning: #f39c12;
         }
@@ -36,7 +36,7 @@
         }
 
         body {
-            font-family: 'Space Grotesk', sans-serif;
+            font-family: 'Inter', sans-serif;
             background: var(--bg-primary);
             color: var(--text-primary);
             line-height: 1.6;
@@ -94,13 +94,15 @@
         .logo-icon {
             width: 36px;
             height: 36px;
-            background: var(--gradient-red);
-            border-radius: 8px;
             display: flex;
             align-items: center;
             justify-content: center;
-            font-size: 1.2rem;
-            box-shadow: var(--glow-red);
+        }
+
+        .logo-icon img {
+            width: 100%;
+            height: 100%;
+            object-fit: contain;
         }
 
         .nav-links {
@@ -868,7 +870,7 @@
 
     <nav>
         <a href="#" class="logo">
-            <div class="logo-icon">⟳</div>
+            <div class="logo-icon"><img src="logo.png" alt="RbxSync"></div>
             RbxSync
         </a>
         <div class="nav-links">
@@ -1335,10 +1337,16 @@
                         <p>For the best experience, install the VS Code extension.</p>
                         <div class="code-block">
                             <code>
+                                <span class="comment"># Build the extension</span><br>
                                 <span class="command">cd</span> rbxsync-vscode<br>
                                 <span class="command">npm install</span><br>
-                                <span class="command">npm run</span> build<br>
-                                <span class="comment"># Then install the .vsix file in VS Code</span>
+                                <span class="command">npm run</span> build<br><br>
+                                <span class="comment"># Install the .vsix file:</span><br>
+                                <span class="comment"># Option 1: Command line</span><br>
+                                <span class="command">code</span> --install-extension rbxsync-*.vsix<br><br>
+                                <span class="comment"># Option 2: VS Code UI</span><br>
+                                <span class="comment"># Press Cmd+Shift+P (Mac) or Ctrl+Shift+P (Win)</span><br>
+                                <span class="comment"># Type "Install from VSIX" and select the file</span>
                             </code>
                         </div>
                     </div>
@@ -1408,7 +1416,7 @@
 
     <footer>
         <div class="footer-logo">
-            <div class="logo-icon" style="width: 28px; height: 28px; font-size: 1rem;">⟳</div>
+            <div class="logo-icon" style="width: 28px; height: 28px;"><img src="logo.png" alt="RbxSync"></div>
             RbxSync
         </div>
         <div class="footer-links">
