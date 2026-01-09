@@ -131,6 +131,8 @@
   background-size: 200% auto !important;
   animation: rainbow-shift 3s linear infinite !important;
   border: none !important;
+  border-radius: 8px !important;
+  overflow: hidden !important;
 }
 
 .VPSocialLinks .VPSocialLink[href*="discord"]::before {

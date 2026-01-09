@@ -106,6 +106,7 @@ function toggleTheme() {
   padding: 0.5rem 0.85rem;
   height: 34px;
   border-radius: 8px;
+  overflow: hidden;
   font-size: 0.8rem;
   font-weight: 600;
   color: white;
