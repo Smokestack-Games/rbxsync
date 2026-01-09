@@ -67,6 +67,16 @@
   background: rgba(255, 255, 255, 0.9) !important;
 }
 
+/* Hide default VitePress appearance toggle - using custom one */
+.VPNavBarAppearance {
+  display: none !important;
+}
+
+/* Hide default social links - using custom ones */
+.VPSocialLinks {
+  display: none !important;
+}
+
 /* Nav title styling */
 .VPNavBarTitle .title {
   font-weight: 600 !important;
