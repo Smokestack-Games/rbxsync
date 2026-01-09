@@ -322,12 +322,17 @@ pub fn process_file_change(
                     "ModuleScript"
                 };
 
+                // Extract instance name from path (last segment)
+                let instance_name = inst_path.rsplit('/').next().unwrap_or(&inst_path);
+
                 Some(serde_json::json!({
                     "type": if change.kind == FileChangeKind::Create { "create" } else { "update" },
                     "path": inst_path,
                     "data": {
                         "className": class_name,
+                        "name": instance_name,
                         "path": inst_path,
+                        "source": source,
                         "properties": {
                             "Source": {
                                 "type": "string",

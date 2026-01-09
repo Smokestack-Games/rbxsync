@@ -34,6 +34,10 @@ local trackedServices = {
 -- Connections for cleanup
 local connections: {RBXScriptConnection} = {}
 
+-- Store instance paths for deletion (since parent is nil when DescendantRemoving fires)
+local instancePaths: {[Instance]: string} = {}
+setmetatable(instancePaths, { __mode = "k" })  -- Weak keys so instances can be GC'd
+
 -- Pending changes to batch send (debounce)
 local pendingChanges: {[string]: {
     path: string,
@@ -43,22 +47,53 @@ local pendingChanges: {[string]: {
     timestamp: number,
 }} = {}
 
--- Last sync time to avoid echo (changes from file watcher)
-local lastFileWatcherSync = 0
-local FILE_WATCHER_GRACE_PERIOD = 0.5  -- seconds (reduced to allow quick undo)
+-- Track paths recently synced from file watcher to avoid echo
+local recentFileWatcherPaths: {[string]: number} = {}
+local FILE_WATCHER_GRACE_PERIOD = 0.5  -- seconds
 
--- Set last file watcher sync time (called when receiving sync from server)
-function ChangeTracker.setLastFileWatcherSync()
-    lastFileWatcherSync = tick()
+-- Mark a specific path as recently synced from file watcher
+function ChangeTracker.markPathFromFileWatcher(path: string)
+    recentFileWatcherPaths[path] = tick()
 end
 
--- Check if a change should be ignored (might be from file watcher)
-local function shouldIgnoreChange(): boolean
-    return (tick() - lastFileWatcherSync) < FILE_WATCHER_GRACE_PERIOD
+-- Set last file watcher sync time (called when receiving sync from server)
+-- Now accepts optional paths array to track specific changed paths
+function ChangeTracker.setLastFileWatcherSync(paths: {string}?)
+    local now = tick()
+    if paths then
+        for _, path in paths do
+            recentFileWatcherPaths[path] = now
+        end
+    end
+end
+
+-- Clean up expired grace period entries
+local function cleanupExpiredPaths()
+    local now = tick()
+    for path, timestamp in pairs(recentFileWatcherPaths) do
+        if now - timestamp >= FILE_WATCHER_GRACE_PERIOD then
+            recentFileWatcherPaths[path] = nil
+        end
+    end
+end
+
+-- Check if a change to a specific path should be ignored (might be from file watcher)
+local function shouldIgnoreChange(path: string): boolean
+    cleanupExpiredPaths()
+    local timestamp = recentFileWatcherPaths[path]
+    if timestamp and (tick() - timestamp) < FILE_WATCHER_GRACE_PERIOD then
+        return true
+    end
+    return false
 end
 
 -- Get the instance path relative to DataModel
-local function getInstancePath(instance: Instance): string?
+local function getInstancePath(instance: Instance, forDelete: boolean?): string?
+    -- For deletes, use stored path since parent is nil when DescendantRemoving fires
+    if forDelete and instancePaths[instance] then
+        return instancePaths[instance]
+    end
+
     local parts = {}
     local current = instance
 
@@ -86,19 +121,27 @@ local function getInstancePath(instance: Instance): string?
         return nil
     end
 
-    return table.concat(parts, "/")
+    local path = table.concat(parts, "/")
+
+    -- Store the path for later (in case of deletion)
+    instancePaths[instance] = path
+
+    return path
 end
 
 -- Queue a change for batched sending
 local function queueChange(instance: Instance, changeType: string, data: any?)
-    -- Skip if this might be from file watcher
-    if shouldIgnoreChange() then
-        print("[RbxSync Debug] Ignoring change (grace period): " .. changeType .. " " .. instance:GetFullName())
+    local isDelete = changeType == "delete"
+    local path = getInstancePath(instance, isDelete)
+    if not path then
+        print("[RbxSync Debug] No path for " .. changeType .. ": " .. instance.Name)
         return
     end
 
-    local path = getInstancePath(instance)
-    if not path then
+    -- Deletes always go through - they can't be echo from file watcher
+    -- Only check grace period for create/modify operations
+    if changeType ~= "delete" and shouldIgnoreChange(path) then
+        print("[RbxSync Debug] Ignoring change (grace period): " .. changeType .. " " .. path)
         return
     end
 
@@ -239,8 +282,10 @@ end
 
 -- Set up tracking for a service
 local function setupServiceTracking(service: Instance)
-    -- Track existing descendants
+    -- Track existing descendants and store their paths
     for _, descendant in service:GetDescendants() do
+        -- Store path for deletion tracking
+        getInstancePath(descendant, false)
         trackInstanceChanges(descendant)
         if descendant:IsA("LuaSourceContainer") then
             trackScriptChanges(descendant)
@@ -268,6 +313,7 @@ local function setupServiceTracking(service: Instance)
 
     -- Track removed instances
     local removedConnection = service.DescendantRemoving:Connect(function(descendant)
+        print("[RbxSync Debug] DescendantRemoving fired: " .. descendant:GetFullName())
         queueChange(descendant, "delete", nil)
     end)
 

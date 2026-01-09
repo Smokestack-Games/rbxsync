@@ -47,6 +47,12 @@ local consoleCapture = {
     FLUSH_INTERVAL = 0.5,  -- Flush every 500ms
 }
 
+-- Sync direction settings (disabled by default for safety)
+local syncSettings = {
+    studioToFiles = false,  -- Auto-extract Studio changes to files
+    filesToStudio = false,  -- Sync file changes to Studio
+}
+
 -- Forward declaration for UI update function (defined later)
 local updateConnectionUI: () -> ()
 
@@ -125,11 +131,6 @@ local function startConsoleCapture()
 
     -- Hook into LogService to capture all console output
     consoleCapture.connection = LogService.MessageOut:Connect(function(message, messageType)
-        -- Skip RbxSync's own debug messages to avoid noise
-        if string.find(message, "%[RbxSync") then
-            return
-        end
-
         local now = os.date("%H:%M:%S")
         table.insert(consoleCapture.pendingMessages, {
             timestamp = now,
@@ -463,8 +464,11 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
     local data = payload.data
 
     if not path or not data then
+        print("[RbxSync Debug] syncCreate failed: Missing path or data")
         return { success = false, error = "Missing path or data" }
     end
+
+    print("[RbxSync Debug] syncCreate: " .. path .. " (class=" .. tostring(data.className) .. ", name=" .. tostring(data.name) .. ")")
 
     -- Find parent (use '/' delimiter to handle instance names with periods)
     local pathParts = string.split(path, "/")
@@ -475,7 +479,8 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
     if #parentPath > 0 then
         parent = Sync.findInstanceAtPath(parentPath)
         if not parent then
-            return { success = false, error = "Parent not found" }
+            print("[RbxSync Debug] syncCreate failed: Parent not found at " .. parentPath)
+            return { success = false, error = "Parent not found: " .. parentPath }
         end
     end
 
@@ -483,8 +488,10 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
     local instance = Sync.createInstance(data, parent)
     if instance then
         Sync.registerCreated(path, instance)
+        print("[RbxSync Debug] syncCreate success: created " .. instance:GetFullName())
         return { success = true }
     else
+        print("[RbxSync Debug] syncCreate failed: Sync.createInstance returned nil")
         return { success = false, error = "Can't create instance. Parent may be locked." }
     end
 end
@@ -553,9 +560,15 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     end
     ChangeHistoryService:SetWaypoint("Before RbxSync: " .. opSummary)
 
-    -- Mark as file watcher sync to prevent echo back
+    -- Mark specific paths as file watcher sync to prevent echo back
     if source == "file_watcher" then
-        ChangeTracker.setLastFileWatcherSync()
+        local paths = {}
+        for _, op in operations do
+            if op.path then
+                table.insert(paths, op.path)
+            end
+        end
+        ChangeTracker.setLastFileWatcherSync(paths)
     end
 
     -- Sort operations: creates first (by path depth), then updates, then deletes (reverse depth)
@@ -800,13 +813,29 @@ local function pollLoop()
                 updateConnectionUI()
             elseif response and response.command then
                 print("[RbxSync Debug] Received command: " .. tostring(response.command))
-                task.spawn(function()
-                    -- Create descriptive checkpoint name for undo
-                    local checkpointName = "RbxSync"
-                    local command = response.command
-                    local payload = response.payload
 
-                    if command == "sync:batch" and payload and payload.operations then
+                -- Check if this is a sync command and if files→studio sync is disabled
+                local command = response.command
+                local isSyncCommand = command == "sync:batch" or command == "sync:create" or command == "sync:update" or command == "sync:delete"
+
+                if isSyncCommand and not syncSettings.filesToStudio then
+                    -- Skip sync commands when files→studio is disabled
+                    print("[RbxSync] Skipping sync command (files→studio disabled)")
+                    -- Still send response to avoid timeout
+                    if response.id then
+                        httpPost("/rbxsync/response", {
+                            id = response.id,
+                            success = true,
+                            data = { skipped = true, reason = "files_to_studio_disabled" },
+                        })
+                    end
+                else
+                    task.spawn(function()
+                        -- Create descriptive checkpoint name for undo
+                        local checkpointName = "RbxSync"
+                        local payload = response.payload
+
+                        if command == "sync:batch" and payload and payload.operations then
                         local ops = payload.operations
                         local opCount = #ops
                         if opCount == 1 then
@@ -839,21 +868,22 @@ local function pollLoop()
                         return handleCommand(response.command, response.payload)
                     end)
 
-                    -- Set waypoint AFTER making changes
-                    ChangeHistoryService:SetWaypoint(checkpointName)
-                    print("[RbxSync] Waypoint set: " .. checkpointName)
+                        -- Set waypoint AFTER making changes
+                        ChangeHistoryService:SetWaypoint(checkpointName)
+                        print("[RbxSync] Waypoint set: " .. checkpointName)
 
-                    -- Send response
-                    if response.id then
-                        local responseData = {
-                            id = response.id,
-                            success = ok and (result == nil or result.success ~= false),
-                            data = ok and result or nil,
-                            error = (not ok and tostring(result)) or (result and result.error) or nil,
-                        }
-                        httpPost("/rbxsync/response", responseData)
-                    end
-                end)
+                        -- Send response
+                        if response.id then
+                            local responseData = {
+                                id = response.id,
+                                success = ok and (result == nil or result.success ~= false),
+                                data = ok and result or nil,
+                                error = (not ok and tostring(result)) or (result and result.error) or nil,
+                            }
+                            httpPost("/rbxsync/response", responseData)
+                        end
+                    end)
+                end
             end
         end
 
@@ -946,11 +976,14 @@ local Colors = {
     textMuted = Color3.fromRGB(102, 102, 102),
 }
 
--- Sync direction settings
-local syncSettings = {
-    studioToFiles = true,  -- Auto-extract Studio changes to files
-    filesToStudio = true,  -- Sync file changes to Studio
+-- Change tracking for button badges
+local changeTracking = {
+    studioChanges = 0,  -- Files changed in Studio (needs extract)
+    localChanges = 0,   -- Files changed locally (needs sync)
 }
+
+-- Forward declaration for button update function
+local updateButtonBadges: () -> ()
 
 -- ============================================================================
 -- BUTTON STATE MANAGEMENT
@@ -1420,6 +1453,9 @@ extractButton.MouseButton1Click:Connect(function()
         return
     end
     extractGame({})
+    -- Reset studio changes after extract
+    changeTracking.studioChanges = 0
+    updateButtonBadges()
 end)
 
 -- Sync Button (Secondary - surface with stroke)
@@ -1525,6 +1561,51 @@ updateExtractButtonState = function(connected: boolean)
     end
 end
 
+-- Update button text to show change counts
+updateButtonBadges = function()
+    -- Update Extract button
+    if changeTracking.studioChanges > 0 then
+        extractButton.Text = "⬆ Extract (" .. changeTracking.studioChanges .. ")"
+    else
+        extractButton.Text = "⬆ Extract"
+    end
+
+    -- Update Sync button (only when idle)
+    if currentSyncState == SyncButtonState.IDLE or currentSyncState == SyncButtonState.DISCONNECTED then
+        if changeTracking.localChanges > 0 then
+            syncButton.Text = "⬇ Sync (" .. changeTracking.localChanges .. ")"
+        else
+            syncButton.Text = "⬇ Sync"
+        end
+    end
+end
+
+-- Fetch pending local changes from server
+local function fetchLocalChanges()
+    if not isConnected then
+        changeTracking.localChanges = 0
+        return
+    end
+
+    local projectDir = Config.getProjectDir()
+    if projectDir == "" then
+        changeTracking.localChanges = 0
+        return
+    end
+
+    local success, result = httpPost("/sync/pending-changes", {
+        project_dir = projectDir,
+    })
+
+    if success and result and result.count then
+        changeTracking.localChanges = result.count
+    else
+        changeTracking.localChanges = 0
+    end
+
+    updateButtonBadges()
+end
+
 syncButton.MouseButton1Click:Connect(function()
     if not isConnected then
         warn("Not connected. Click Connect first.")
@@ -1573,6 +1654,10 @@ syncButton.MouseButton1Click:Connect(function()
     end)
 
     syncBatch({ operations = operations })
+
+    -- Reset local changes after sync
+    changeTracking.localChanges = 0
+    updateButtonBadges()
 
     -- Show success state
     updateSyncButtonState(SyncButtonState.SUCCESS)
@@ -1714,8 +1799,152 @@ syncOptionsLabel.Font = Enum.Font.GothamBold
 syncOptionsLabel.TextXAlignment = Enum.TextXAlignment.Left
 syncOptionsLabel.Parent = syncOptionsSection
 
--- Helper function to create a checkbox
-local function createCheckbox(parent: Frame, yOffset: number, text: string, checked: boolean, onChange: (boolean) -> ())
+-- Confirmation dialog helper
+local confirmationOverlay: Frame? = nil
+
+local function showConfirmation(title: string, message: string, onConfirm: () -> (), onCancel: () -> ())
+    -- Remove existing overlay if present
+    if confirmationOverlay then
+        confirmationOverlay:Destroy()
+    end
+
+    -- Create overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "ConfirmationOverlay"
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.Position = UDim2.new(0, 0, 0, 0)
+    overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    overlay.BackgroundTransparency = 0.4
+    overlay.ZIndex = 100
+    overlay.Parent = mainFrame
+    confirmationOverlay = overlay
+
+    -- Dialog box
+    local dialog = Instance.new("Frame")
+    dialog.Name = "Dialog"
+    dialog.Size = UDim2.new(1, -32, 0, 120)
+    dialog.Position = UDim2.new(0.5, 0, 0.5, 0)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Colors.surface
+    dialog.BorderSizePixel = 0
+    dialog.ZIndex = 101
+    dialog.Parent = overlay
+
+    local dialogCorner = Instance.new("UICorner")
+    dialogCorner.CornerRadius = UDim.new(0, 8)
+    dialogCorner.Parent = dialog
+
+    local dialogStroke = Instance.new("UIStroke")
+    dialogStroke.Color = Colors.border
+    dialogStroke.Thickness = 1
+    dialogStroke.Parent = dialog
+
+    -- Title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -16, 0, 20)
+    titleLabel.Position = UDim2.new(0, 8, 0, 8)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = title
+    titleLabel.TextColor3 = Colors.textPrimary
+    titleLabel.TextSize = 13
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.ZIndex = 102
+    titleLabel.Parent = dialog
+
+    -- Message
+    local messageLabel = Instance.new("TextLabel")
+    messageLabel.Size = UDim2.new(1, -16, 0, 36)
+    messageLabel.Position = UDim2.new(0, 8, 0, 30)
+    messageLabel.BackgroundTransparency = 1
+    messageLabel.Text = message
+    messageLabel.TextColor3 = Colors.textSecondary
+    messageLabel.TextSize = 11
+    messageLabel.Font = Enum.Font.Gotham
+    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    messageLabel.TextYAlignment = Enum.TextYAlignment.Top
+    messageLabel.TextWrapped = true
+    messageLabel.ZIndex = 102
+    messageLabel.Parent = dialog
+
+    -- Button container
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -16, 0, 28)
+    buttonContainer.Position = UDim2.new(0, 8, 1, -36)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.ZIndex = 102
+    buttonContainer.Parent = dialog
+
+    -- Cancel button
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Size = UDim2.new(0.48, 0, 1, 0)
+    cancelBtn.Position = UDim2.new(0, 0, 0, 0)
+    cancelBtn.BackgroundColor3 = Colors.surface
+    cancelBtn.BorderSizePixel = 0
+    cancelBtn.Text = "Cancel"
+    cancelBtn.TextColor3 = Colors.textSecondary
+    cancelBtn.TextSize = 11
+    cancelBtn.Font = Enum.Font.GothamMedium
+    cancelBtn.ZIndex = 103
+    cancelBtn.Parent = buttonContainer
+
+    local cancelCorner = Instance.new("UICorner")
+    cancelCorner.CornerRadius = UDim.new(0, 4)
+    cancelCorner.Parent = cancelBtn
+
+    local cancelStroke = Instance.new("UIStroke")
+    cancelStroke.Color = Colors.textMuted
+    cancelStroke.Thickness = 1
+    cancelStroke.Parent = cancelBtn
+
+    -- Confirm button
+    local confirmBtn = Instance.new("TextButton")
+    confirmBtn.Size = UDim2.new(0.48, 0, 1, 0)
+    confirmBtn.Position = UDim2.new(0.52, 0, 0, 0)
+    confirmBtn.BackgroundColor3 = Colors.accent
+    confirmBtn.BorderSizePixel = 0
+    confirmBtn.Text = "Sync Now"
+    confirmBtn.TextColor3 = Colors.background
+    confirmBtn.TextSize = 11
+    confirmBtn.Font = Enum.Font.GothamMedium
+    confirmBtn.ZIndex = 103
+    confirmBtn.Parent = buttonContainer
+
+    local confirmCorner = Instance.new("UICorner")
+    confirmCorner.CornerRadius = UDim.new(0, 4)
+    confirmCorner.Parent = confirmBtn
+
+    -- Button handlers
+    cancelBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        confirmationOverlay = nil
+        onCancel()
+    end)
+
+    confirmBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        confirmationOverlay = nil
+        onConfirm()
+    end)
+
+    -- Click outside to cancel
+    overlay.InputBegan:Connect(function(input)
+        if input.UserInputType == Enum.UserInputType.MouseButton1 then
+            local pos = input.Position
+            local dialogPos = dialog.AbsolutePosition
+            local dialogSize = dialog.AbsoluteSize
+            if pos.X < dialogPos.X or pos.X > dialogPos.X + dialogSize.X or
+               pos.Y < dialogPos.Y or pos.Y > dialogPos.Y + dialogSize.Y then
+                overlay:Destroy()
+                confirmationOverlay = nil
+                onCancel()
+            end
+        end
+    end)
+end
+
+-- Helper function to create a checkbox with confirmation support
+local function createCheckbox(parent: Frame, yOffset: number, text: string, checked: boolean, onBeforeChange: ((boolean) -> boolean)?, onChange: (boolean) -> ())
     local checkboxFrame = Instance.new("Frame")
     checkboxFrame.Size = UDim2.new(1, 0, 0, 22)
     checkboxFrame.Position = UDim2.new(0, 0, 0, yOffset)
@@ -1754,35 +1983,174 @@ local function createCheckbox(parent: Frame, yOffset: number, text: string, chec
     checkboxLabel.Parent = checkboxFrame
 
     local isChecked = checked
-    checkboxButton.MouseButton1Click:Connect(function()
-        isChecked = not isChecked
+
+    -- Function to update visual state
+    local function updateVisual(newState: boolean)
+        isChecked = newState
         checkboxButton.BackgroundColor3 = isChecked and Colors.accent or Colors.surface
         checkboxButton.Text = isChecked and "✓" or ""
         checkboxStroke.Color = isChecked and Colors.accent or Colors.textMuted
-        onChange(isChecked)
+    end
+
+    checkboxButton.MouseButton1Click:Connect(function()
+        local newState = not isChecked
+
+        -- If onBeforeChange is provided and returns false, don't change
+        if onBeforeChange then
+            -- onBeforeChange returns true if we should proceed (possibly async with confirmation)
+            local shouldProceed = onBeforeChange(newState)
+            if not shouldProceed then
+                return  -- Change will be handled by confirmation dialog
+            end
+        end
+
+        updateVisual(newState)
+        onChange(newState)
     end)
 
-    return checkboxButton
+    return {
+        button = checkboxButton,
+        setChecked = updateVisual,
+    }
 end
 
+-- Checkbox references (forward declarations for callbacks)
+local studioToFilesCheckbox: {button: TextButton, setChecked: (boolean) -> ()}
+local filesToStudioCheckbox: {button: TextButton, setChecked: (boolean) -> ()}
+
 -- Studio → Files checkbox (auto-extract)
-createCheckbox(syncOptionsSection, 20, "Sync Studio changes to files", syncSettings.studioToFiles, function(checked)
-    syncSettings.studioToFiles = checked
-    if isConnected then
-        if checked then
-            ChangeTracker.start()
-        else
-            ChangeTracker.stop()
+studioToFilesCheckbox = createCheckbox(
+    syncOptionsSection, 20,
+    "Sync Studio changes to files",
+    syncSettings.studioToFiles,
+    function(newState)
+        -- Only show confirmation when enabling
+        if newState and isConnected and Config.getProjectDir() ~= "" then
+            showConfirmation(
+                "Extract to Files",
+                "This will extract all Studio instances to your local files. Continue?",
+                function()
+                    -- User confirmed - update checkbox and run extract
+                    studioToFilesCheckbox.setChecked(true)
+                    syncSettings.studioToFiles = true
+                    ChangeTracker.start()
+                    task.spawn(function()
+                        extractGame({})
+                        changeTracking.studioChanges = 0
+                        updateButtonBadges()
+                    end)
+                end,
+                function()
+                    -- User cancelled - keep checkbox unchecked
+                end
+            )
+            return false  -- Don't proceed immediately, wait for confirmation
+        end
+        return true  -- Proceed immediately for unchecking or when not connected
+    end,
+    function(checked)
+        syncSettings.studioToFiles = checked
+        if isConnected then
+            if checked then
+                ChangeTracker.start()
+            else
+                ChangeTracker.stop()
+            end
         end
     end
-end)
+)
 
 -- Files → Studio checkbox (file watcher)
-createCheckbox(syncOptionsSection, 44, "Sync file changes to Studio", syncSettings.filesToStudio, function(checked)
-    syncSettings.filesToStudio = checked
-    -- File watcher is controlled server-side, so we just store the preference
-    -- The server will check this when pushing changes
-end)
+filesToStudioCheckbox = createCheckbox(
+    syncOptionsSection, 44,
+    "Sync file changes to Studio",
+    syncSettings.filesToStudio,
+    function(newState)
+        -- Only show confirmation when enabling
+        if newState and isConnected and Config.getProjectDir() ~= "" then
+            showConfirmation(
+                "Sync to Studio",
+                "This will sync all files to Studio, overwriting Studio instances. Continue?",
+                function()
+                    -- User confirmed - update checkbox and run sync
+                    filesToStudioCheckbox.setChecked(true)
+                    syncSettings.filesToStudio = true
+                    task.spawn(function()
+                        local projectDir = Config.getProjectDir()
+                        local success, result = httpPost("/sync/read-tree", {
+                            project_dir = projectDir,
+                        })
+                        if success and result and result.instances then
+                            -- Build set of paths that exist in files
+                            local filePaths = {}
+                            for _, inst in ipairs(result.instances) do
+                                if inst.path and inst.path ~= "" then
+                                    filePaths[inst.path] = true
+                                end
+                            end
+
+                            -- Collect paths from Studio to find what should be deleted
+                            local studioPaths = {}
+                            for _, serviceName in ipairs({"Workspace", "ReplicatedStorage", "ReplicatedFirst", "ServerScriptService", "ServerStorage", "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "SoundService"}) do
+                                local service = game:FindFirstChild(serviceName)
+                                if service then
+                                    for _, desc in service:GetDescendants() do
+                                        local parts = {}
+                                        local current = desc
+                                        while current and current ~= game do
+                                            table.insert(parts, 1, current.Name)
+                                            current = current.Parent
+                                        end
+                                        if #parts > 0 then
+                                            local path = table.concat(parts, "/")
+                                            studioPaths[path] = desc
+                                        end
+                                    end
+                                end
+                            end
+
+                            -- Build operations: updates for existing files, deletes for missing
+                            local operations = {}
+
+                            -- Add update operations for files
+                            for _, inst in ipairs(result.instances) do
+                                if inst.path and inst.path ~= "" then
+                                    table.insert(operations, { type = "update", path = inst.path, data = inst })
+                                end
+                            end
+
+                            -- Add delete operations for instances in Studio but not in files
+                            for path, instance in pairs(studioPaths) do
+                                if not filePaths[path] then
+                                    -- Check that parent path exists in files (don't delete children of deleted parents)
+                                    local parentPath = path:match("(.+)/[^/]+$")
+                                    if not parentPath or filePaths[parentPath] then
+                                        table.insert(operations, { type = "delete", path = path, className = instance.ClassName })
+                                        print("[RbxSync Debug] Will delete: " .. path)
+                                    end
+                                end
+                            end
+
+                            if #operations > 0 then
+                                syncBatch({ operations = operations })
+                            end
+                            changeTracking.localChanges = 0
+                            updateButtonBadges()
+                        end
+                    end)
+                end,
+                function()
+                    -- User cancelled - keep checkbox unchecked
+                end
+            )
+            return false  -- Don't proceed immediately, wait for confirmation
+        end
+        return true  -- Proceed immediately for unchecking or when not connected
+    end,
+    function(checked)
+        syncSettings.filesToStudio = checked
+    end
+)
 
 -- ============================================================================
 -- Panel Button
@@ -1845,7 +2213,7 @@ task.spawn(function()
     end
 end)
 
--- Info and git status refresh loop
+-- Info and change count refresh loop
 task.spawn(function()
     -- Initial update
     task.wait(1)
@@ -1854,7 +2222,11 @@ task.spawn(function()
     while true do
         if widget.Enabled then
             updateInfoDisplay()
+            -- Fetch pending local changes for button badge
+            if isConnected then
+                task.spawn(fetchLocalChanges)
+            end
         end
-        task.wait(10)
+        task.wait(5)
     end
 end)
