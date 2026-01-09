@@ -1340,13 +1340,15 @@
                                 <span class="comment"># Build the extension</span><br>
                                 <span class="command">cd</span> rbxsync-vscode<br>
                                 <span class="command">npm install</span><br>
-                                <span class="command">npm run</span> build<br><br>
-                                <span class="comment"># Install the .vsix file:</span><br>
+                                <span class="command">npm run build</span><br>
+                                <span class="command">npm run package</span><br><br>
+                                <span class="comment"># Install the .vsix file (pick one):</span><br><br>
                                 <span class="comment"># Option 1: Command line</span><br>
-                                <span class="command">code</span> --install-extension rbxsync-*.vsix<br><br>
+                                <span class="command">code</span> --install-extension rbxsync-1.0.0.vsix<br><br>
                                 <span class="comment"># Option 2: VS Code UI</span><br>
-                                <span class="comment"># Press Cmd+Shift+P (Mac) or Ctrl+Shift+P (Win)</span><br>
-                                <span class="comment"># Type "Install from VSIX" and select the file</span>
+                                <span class="comment"># 1. Press Cmd+Shift+P (Mac) or Ctrl+Shift+P (Win)</span><br>
+                                <span class="comment"># 2. Type "Install from VSIX"</span><br>
+                                <span class="comment"># 3. Select rbxsync-1.0.0.vsix</span>
                             </code>
                         </div>
                     </div>
