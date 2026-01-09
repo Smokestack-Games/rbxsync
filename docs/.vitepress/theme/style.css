@@ -287,3 +287,52 @@
 ::-webkit-scrollbar-thumb:hover {
   background: var(--vp-c-text-3);
 }
+
+/* Mobile responsive nav - match homepage */
+@media (max-width: 768px) {
+  /* Make custom nav buttons icon-only on mobile */
+  .custom-nav-buttons {
+    gap: 0.5rem;
+    margin-left: 0.5rem;
+  }
+
+  .custom-nav-buttons .discord-btn {
+    padding: 0;
+    width: 34px;
+    height: 34px;
+    justify-content: center;
+    font-size: 0;
+    gap: 0;
+  }
+
+  .custom-nav-buttons .discord-btn svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .custom-nav-buttons .github-btn {
+    padding: 0;
+    width: 34px;
+    height: 34px;
+    justify-content: center;
+  }
+
+  .custom-nav-buttons .github-btn > svg {
+    width: 18px;
+    height: 18px;
+  }
+
+  .custom-nav-buttons .github-stars {
+    display: none;
+  }
+}
+
+/* Make logo/title clickable to homepage */
+.VPNavBarTitle {
+  cursor: pointer;
+}
+
+.VPNavBarTitle a {
+  text-decoration: none;
+  color: inherit;
+}

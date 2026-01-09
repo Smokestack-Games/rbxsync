@@ -11,14 +11,14 @@ export default defineConfig({
     ['meta', { property: 'og:site_name', content: 'RbxSync' }],
     ['meta', { property: 'og:title', content: 'RbxSync Docs' }],
     ['meta', { property: 'og:description', content: 'Documentation for RbxSync – two-way sync between Roblox Studio and VS Code.' }],
-    ['meta', { property: 'og:image', content: 'https://rbxsync.dev/og-image.png' }],
+    ['meta', { property: 'og:image', content: 'https://docs.rbxsync.dev/og-image.png' }],
     ['meta', { name: 'twitter:card', content: 'summary' }],
     ['meta', { name: 'twitter:title', content: 'RbxSync Docs' }],
     ['meta', { name: 'twitter:description', content: 'Documentation for RbxSync – two-way sync between Roblox Studio and VS Code.' }],
   ],
 
   themeConfig: {
-    logo: '/logo.png',
+    logo: { src: '/logo.png', link: 'https://rbxsync.dev' },
     siteTitle: 'RbxSync Docs',
 
     nav: [

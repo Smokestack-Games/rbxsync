@@ -3,23 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>RbxSync – Sync Roblox Studio to Git</title>
-    <meta name="description" content="Two-way sync between Roblox Studio and VS Code. Full property preservation, Git integration, and AI-powered development.">
+    <title>RbxSync – Two-Way Sync Between Roblox Studio and Git</title>
+    <meta name="description" content="Two-way sync between Roblox Studio and VS Code. Full property preservation, Git integration, and real-time collaboration for professional Roblox development teams.">
     <meta name="keywords" content="roblox, rojo, sync, studio, vscode, luau, git">
     <meta name="author" content="RbxSync">
 
     <!-- Open Graph -->
     <meta property="og:type" content="website">
     <meta property="og:url" content="https://rbxsync.dev/">
-    <meta property="og:title" content="RbxSync – Sync Roblox Studio to Git">
-    <meta property="og:description" content="Two-way sync between Roblox Studio and VS Code. Full property preservation and Git integration.">
+    <meta property="og:title" content="RbxSync – Two-Way Sync Between Roblox Studio and Git">
+    <meta property="og:description" content="Two-way sync between Roblox Studio and VS Code. Full property preservation, Git integration, and real-time collaboration for professional Roblox development teams.">
     <meta property="og:image" content="https://rbxsync.dev/og-image.png">
+    <meta property="og:image:width" content="1456">
+    <meta property="og:image:height" content="816">
 
     <!-- Twitter Card -->
     <meta name="twitter:card" content="summary_large_image">
     <meta name="twitter:url" content="https://rbxsync.dev/">
-    <meta name="twitter:title" content="RbxSync – Sync Roblox Studio to Git">
-    <meta name="twitter:description" content="Two-way sync between Roblox Studio and VS Code. Full property preservation and Git integration.">
+    <meta name="twitter:title" content="RbxSync – Two-Way Sync Between Roblox Studio and Git">
+    <meta name="twitter:description" content="Two-way sync between Roblox Studio and VS Code. Full property preservation, Git integration, and real-time collaboration for professional Roblox development teams.">
     <meta name="twitter:image" content="https://rbxsync.dev/og-image.png">
 
     <!-- Favicon -->
@@ -217,6 +219,28 @@
             font-size: 0.65rem;
             font-family: 'SF Mono', monospace;
             color: var(--text-muted);
+        }
+
+        /* Mobile search button - hidden by default */
+        .nav-search-mobile {
+            display: none;
+            background: var(--bg-secondary);
+            border: 1px solid var(--border);
+            border-radius: 8px;
+            padding: 0;
+            width: 34px;
+            height: 34px;
+            cursor: pointer;
+            color: var(--text-secondary);
+            transition: all 0.2s;
+            align-items: center;
+            justify-content: center;
+        }
+
+        .nav-search-mobile:hover {
+            background: var(--bg-tertiary);
+            color: var(--text-primary);
+            border-color: var(--border-hover);
         }
 
         /* Theme toggle */
@@ -2571,7 +2595,10 @@
             .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
         }
 
-        @media (max-width: 900px) {
+        @media (max-width: 1000px) {
+            /* Hide nav links on tablet */
+            .nav-links { display: none; }
+
             .bento-grid {
                 grid-template-columns: 1fr 1fr;
             }
@@ -2591,17 +2618,240 @@
             .testimonials-grid { grid-template-columns: repeat(2, 1fr); }
         }
 
+        @media (max-width: 768px) {
+            /* Hide full search, show mobile search button */
+            .nav-search { display: none; }
+            .nav-search-mobile { display: flex; }
+
+            /* Simplify GitHub button - icon only */
+            .github-stars-btn {
+                padding: 0;
+                width: 34px;
+                height: 34px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+            }
+            .github-stars-btn svg:first-child {
+                display: block;
+                flex-shrink: 0;
+            }
+            .github-stars-btn .github-stars-count { display: none; }
+
+            /* Simplify Discord button - icon only */
+            .discord-btn {
+                padding: 0;
+                width: 34px;
+                height: 34px;
+                display: flex;
+                align-items: center;
+                justify-content: center;
+                font-size: 0;
+                gap: 0;
+            }
+            .discord-btn svg {
+                width: 18px;
+                height: 18px;
+                flex-shrink: 0;
+            }
+
+            /* Tighten nav spacing */
+            .nav-right {
+                gap: 0.5rem;
+            }
+        }
+
         @media (max-width: 600px) {
-            nav { padding: 1rem; }
-            .nav-links { display: none; }
-            .hero { padding: 7rem 1.5rem 4rem; }
-            .section { padding: 4rem 1.5rem; }
-            .sync-visual { flex-direction: column; gap: 1rem; }
-            .sync-arrows { transform: rotate(90deg); }
+            /* Navigation - clean and minimal */
+            nav {
+                padding: 0.75rem 1rem;
+            }
+
+            .nav-inner {
+                gap: 0.5rem;
+            }
+
+            .nav-right {
+                gap: 0.4rem;
+            }
+
+            .logo {
+                font-size: 1rem;
+            }
+
+            .logo img {
+                width: 22px;
+                height: 22px;
+            }
+
+            /* Hero - improved mobile layout */
+            .hero {
+                padding: 6rem 1.25rem 3rem;
+            }
+
+            /* Release badge - more compact */
+            .release-badge {
+                padding: 0.4rem 0.75rem;
+                gap: 0.4rem;
+                font-size: 0.75rem;
+                margin-bottom: 1.25rem;
+            }
+
+            .release-badge .tag {
+                padding: 0.1rem 0.4rem;
+                font-size: 0.625rem;
+            }
+
+            .release-date {
+                font-size: 0.65rem;
+                padding-left: 0.4rem;
+            }
+
+            /* Hero heading - bigger impact on mobile */
+            .hero h1 {
+                font-size: 2rem;
+                line-height: 1.3;
+                margin-bottom: 1rem;
+            }
+
+            /* Code box - better mobile sizing */
+            .code-box {
+                padding: 0.15em 0.3em;
+                border-radius: 5px;
+                margin: 0 0.1em;
+            }
+
+            /* Hero subtitle - improved readability */
+            .hero-subtitle {
+                font-size: 0.9375rem;
+                line-height: 1.6;
+                margin: 0 auto 1.5rem;
+                padding: 0 0.5rem;
+            }
+
+            .hero-subtitle br {
+                display: none;
+            }
+
+            /* Hero buttons - keep inline, just tighten spacing */
+            .hero-actions {
+                gap: 0.75rem;
+                margin-bottom: 2.5rem;
+            }
+
+            .btn-beta {
+                padding: 0.75rem 1.25rem;
+                font-size: 0.875rem;
+            }
+
+            .btn-secondary {
+                padding: 0.625rem 1rem;
+                font-size: 0.8125rem;
+            }
+
+            /* Sync visual - keep horizontal, just smaller */
+            .sync-visual {
+                gap: 0.75rem;
+                transform: scale(0.85);
+            }
+
+            .sync-node {
+                font-size: 0.75rem;
+            }
+
+            .sync-node img {
+                width: 24px;
+                height: 24px;
+            }
+
+            /* Sections - tighter on mobile */
+            .section {
+                padding: 3rem 1.25rem;
+            }
+
+            .section-header {
+                margin-bottom: 2rem;
+            }
+
+            .section-title {
+                font-size: 1.5rem;
+            }
+
+            /* Grids */
             .cli-grid { grid-template-columns: 1fr; }
-            .rotating-wrapper { min-width: 140px; }
-            .testimonials-grid { grid-template-columns: 1fr; }
             .bento-grid { grid-template-columns: 1fr; }
+
+            /* Testimonials - keep 2 columns on mobile */
+            .testimonials-grid {
+                grid-template-columns: repeat(2, 1fr);
+                gap: 1rem;
+            }
+
+            .testimonial-card {
+                padding: 1rem;
+            }
+
+            .testimonial-card::after {
+                font-size: 2.5rem;
+                right: 0.5rem;
+            }
+
+            .testimonial-avatar {
+                width: 32px;
+                height: 32px;
+            }
+
+            .testimonial-name {
+                font-size: 0.8125rem;
+            }
+
+            .testimonial-role {
+                font-size: 0.6875rem;
+            }
+
+            .testimonial-text {
+                font-size: 0.8125rem;
+                line-height: 1.5;
+            }
+
+            /* Cards - reduced padding */
+            .value-card {
+                padding: 1.25rem;
+            }
+
+            .value-card h3 {
+                font-size: 1rem;
+            }
+
+            .value-card p {
+                font-size: 0.875rem;
+            }
+        }
+
+        /* Extra small screens */
+        @media (max-width: 380px) {
+            .hero h1 {
+                font-size: 1.75rem;
+            }
+
+            .hero h1 .accent {
+                font-size: 0.9em;
+            }
+
+            .hero-subtitle {
+                font-size: 0.875rem;
+            }
+
+            .btn-beta,
+            .btn-secondary {
+                padding: 0.75rem 1.25rem;
+                font-size: 0.875rem;
+            }
+
+            .beta-tag {
+                font-size: 0.6rem;
+                padding: 0.15rem 0.4rem;
+            }
         }
     </style>
 </head>
@@ -2633,7 +2883,7 @@
                 <a href="#install">Install</a>
             </div>
             <div class="nav-right">
-                <!-- Search -->
+                <!-- Search (desktop) -->
                 <div class="nav-search">
                     <svg class="nav-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
                         <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
@@ -2641,6 +2891,13 @@
                     <input type="text" placeholder="Search docs..." id="search-input">
                     <span class="nav-search-kbd">⌘K</span>
                 </div>
+
+                <!-- Search (mobile) -->
+                <button class="nav-search-mobile" id="search-mobile-btn" aria-label="Search">
+                    <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                        <circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/>
+                    </svg>
+                </button>
 
                 <!-- Theme Toggle -->
                 <button class="theme-toggle" id="theme-toggle" aria-label="Toggle theme">
@@ -3717,6 +3974,19 @@
                     </p>
                     <span class="testimonial-date">Jan 9, 2026</span>
                 </div>
+
+                <div class="testimonial-card">
+                    <div class="testimonial-header">
+                        <img class="testimonial-avatar-img" src="fifo.png" alt="fifo">
+                        <div class="testimonial-info">
+                            <div class="testimonial-name">fifo</div>
+                        </div>
+                    </div>
+                    <p class="testimonial-text">
+                        hell yeah, let's kill Rojo and get Roblox to buy you
+                    </p>
+                    <span class="testimonial-date">Jan 9, 2026</span>
+                </div>
             </div>
         </div>
     </section>
@@ -3766,29 +4036,34 @@
         (function() {
             const wrapper = document.querySelector('.rotating-wrapper');
             const words = wrapper.querySelectorAll('.rotating-text span');
-            const widths = [];
+            let widths = [];
             const intervalMs = 2000;
             let currentIndex = 0;
             let intervalId = null;
-            let lastUpdateTime = Date.now();
+            let resizeTimeout = null;
 
-            // Measure each word
-            words.forEach((word) => {
-                const temp = document.createElement('span');
-                temp.style.cssText = 'position:absolute;visibility:hidden;font-family:JetBrains Mono,SF Mono,Fira Code,Consolas,monospace;font-size:' + getComputedStyle(word).fontSize + ';font-weight:600;';
-                temp.textContent = word.textContent;
-                document.body.appendChild(temp);
-                widths.push(temp.offsetWidth);
-                document.body.removeChild(temp);
-            });
+            // Measure all word widths
+            function measureWidths() {
+                widths = [];
+                const computedStyle = getComputedStyle(words[0]);
+                words.forEach((word) => {
+                    const temp = document.createElement('span');
+                    temp.style.cssText = 'position:absolute;visibility:hidden;white-space:nowrap;font-family:' + computedStyle.fontFamily + ';font-size:' + computedStyle.fontSize + ';font-weight:600;letter-spacing:' + computedStyle.letterSpacing + ';';
+                    temp.textContent = word.textContent;
+                    document.body.appendChild(temp);
+                    widths.push(temp.offsetWidth);
+                    document.body.removeChild(temp);
+                });
+                // Update current width
+                wrapper.style.width = widths[currentIndex] + 'px';
+            }
 
-            // Set initial width
-            wrapper.style.width = widths[0] + 'px';
+            // Initial measurement
+            measureWidths();
 
             function updateWidth() {
                 currentIndex = (currentIndex + 1) % widths.length;
                 wrapper.style.width = widths[currentIndex] + 'px';
-                lastUpdateTime = Date.now();
             }
 
             function startInterval() {
@@ -3804,18 +4079,19 @@
                 }
             }
 
+            // Recalculate on resize (debounced)
+            window.addEventListener('resize', () => {
+                clearTimeout(resizeTimeout);
+                resizeTimeout = setTimeout(measureWidths, 100);
+            });
+
             // Sync with CSS animation on visibility change
             document.addEventListener('visibilitychange', () => {
                 if (document.hidden) {
                     stopInterval();
                 } else {
-                    // Calculate which word should be showing based on CSS animation
-                    // CSS animation is 16s total, 2s per word (8 words)
-                    const animationDuration = 16000;
-                    const wordDuration = 2000;
-
                     // Reset animations on all words to sync them
-                    words.forEach((word, idx) => {
+                    words.forEach((word) => {
                         word.style.animation = 'none';
                         word.offsetHeight; // Force reflow
                         word.style.animation = '';
@@ -3823,9 +4099,7 @@
 
                     // Reset to first word
                     currentIndex = 0;
-                    wrapper.style.width = widths[0] + 'px';
-
-                    // Restart interval
+                    measureWidths();
                     startInterval();
                 }
             });
@@ -4685,6 +4959,15 @@
                 e.target.blur();
                 open();
             });
+
+            // Mobile search button
+            const mobileSearchBtn = document.getElementById('search-mobile-btn');
+            if (mobileSearchBtn) {
+                mobileSearchBtn.addEventListener('click', (e) => {
+                    e.preventDefault();
+                    open();
+                });
+            }
 
             closeBtn.addEventListener('click', close);
 

@@ -15,15 +15,19 @@ export default {
   enhanceApp({ app, router }) {
     if (typeof window !== 'undefined') {
       const setupLogoLink = () => {
-        const logo = document.querySelector('.VPNavBarTitle')
-        if (logo) {
-          logo.style.cursor = 'pointer'
-          logo.addEventListener('click', (e) => {
-            e.preventDefault()
-            e.stopPropagation()
-            window.location.href = 'https://rbxsync.dev'
-          })
-        }
+        // Handle both desktop and mobile nav title
+        const logos = document.querySelectorAll('.VPNavBarTitle, .VPNavBarTitle a, .VPNavBarTitle .title')
+        logos.forEach(logo => {
+          if (logo && !logo.dataset.homeLinked) {
+            logo.dataset.homeLinked = 'true'
+            logo.style.cursor = 'pointer'
+            logo.addEventListener('click', (e) => {
+              e.preventDefault()
+              e.stopPropagation()
+              window.location.href = 'https://rbxsync.dev'
+            })
+          }
+        })
       }
 
       // Custom copy behavior for code blocks
@@ -61,12 +65,13 @@ export default {
         })
       }
 
-      // Run on initial load and observe for new code blocks
+      // Run on initial load
       setTimeout(setupLogoLink, 100)
       setTimeout(setupSmartCopy, 500)
 
-      // Re-run on route change
+      // Re-run on route change / DOM updates
       const observer = new MutationObserver(() => {
+        setTimeout(setupLogoLink, 50)
         setTimeout(setupSmartCopy, 100)
       })
       observer.observe(document.body, { childList: true, subtree: true })

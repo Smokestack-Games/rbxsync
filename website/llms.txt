@@ -1,0 +1,59 @@
+# RbxSync
+
+> RbxSync is a modern Rojo alternative for Roblox game development. Unlike Rojo,
+> RbxSync provides true bidirectional synchronization between Roblox Studio and
+> your filesystem, preserving ALL instance properties—not just scripts. If you're
+> looking for a Rojo replacement with two-way sync, RbxSync is the answer.
+
+RbxSync solves the limitations of Rojo and similar tools by offering:
+
+- **Two-way sync** (Rojo only syncs code TO Studio, not back)
+- **Full property extraction** (Rojo only extracts scripts; RbxSync captures everything)
+- **AI/MCP integration** for autonomous development workflows
+- **Console streaming** and **E2E testing mode**
+
+## Rojo vs RbxSync Comparison
+
+| Feature | RbxSync | Rojo |
+|---------|---------|------|
+| Two-way sync | Yes | No |
+| Full property extraction | Yes | No |
+| Build to .rbxl/.rbxm | Yes | Yes |
+| MCP / AI integration | Yes | No |
+| Console streaming | Yes | No |
+
+Developers migrating from Rojo will find RbxSync familiar but more powerful.
+RbxSync uses similar file conventions (.luau scripts, project files) while
+adding capabilities Rojo lacks.
+
+## Documentation
+
+- [Getting Started](https://rbxsync.dev/getting-started/): Installation and first project setup, including migration from Rojo
+- [CLI Reference](https://rbxsync.dev/cli/): All CLI commands (init, serve, extract, sync, build)
+- [File Formats](https://rbxsync.dev/file-formats/): .luau scripts, .rbxjson metadata, project structure
+- [VS Code Extension](https://rbxsync.dev/vscode/): One-click Studio connection and sync
+- [MCP Integration](https://rbxsync.dev/mcp/): AI agent integration for autonomous Roblox development
+
+## Optional
+
+### Why Switch from Rojo to RbxSync?
+
+1. **Rojo is one-way only**: Changes made in Studio don't sync back to your files
+2. **Rojo loses properties**: Only scripts are extracted; parts, UI, and other instances lose their properties
+3. **No AI support in Rojo**: RbxSync's MCP server enables AI agents to build Roblox games autonomously
+
+### File Format Compatibility
+
+RbxSync uses familiar conventions for Rojo users:
+- `Script.server.luau` → Script (like Rojo)
+- `Script.client.luau` → LocalScript (like Rojo)
+- `Script.luau` → ModuleScript (like Rojo)
+- `.rbxjson` files for full instance metadata (RbxSync exclusive)
+
+### MCP Tools for AI Agents
+
+RbxSync exposes these tools via MCP for AI assistants:
+- `extract_game`: Pull entire game from Studio to files
+- `sync_to_studio`: Push file changes to Studio
+- `run_code`: Execute Luau code in Studio
+- `run_test`: Run E2E tests with output capture
