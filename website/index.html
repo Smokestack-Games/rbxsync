@@ -1323,10 +1323,28 @@
 
             <div class="install-steps">
                 <div class="install-step">
+                    <div class="step-number">0</div>
+                    <div class="step-content">
+                        <h4>Prerequisites</h4>
+                        <p>Install the required tools before building:</p>
+                        <div class="code-block">
+                            <code>
+                                <span class="comment"># Install Rust (if not already installed)</span><br>
+                                <span class="command">curl</span> --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh<br><br>
+                                <span class="comment"># For VS Code extension: Install Node.js from https://nodejs.org</span><br>
+                                <span class="comment"># Then verify:</span><br>
+                                <span class="command">node</span> --version<br>
+                                <span class="command">npm</span> --version
+                            </code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="install-step">
                     <div class="step-number">1</div>
                     <div class="step-content">
                         <h4>Build from Source</h4>
-                        <p>Clone the repository and build with Cargo. Requires Rust to be installed.</p>
+                        <p>Clone the repository and build with Cargo.</p>
                         <div class="code-block">
                             <code>
                                 <span class="comment"># Clone and build</span><br>
@@ -1368,12 +1386,14 @@
                                 <span class="command">npm run build</span><br>
                                 <span class="command">npm run package</span><br><br>
                                 <span class="comment"># Install the .vsix file (pick one):</span><br><br>
-                                <span class="comment"># Option 1: Command line</span><br>
-                                <span class="command">code</span> --install-extension rbxsync-1.0.0.vsix<br><br>
-                                <span class="comment"># Option 2: VS Code UI</span><br>
+                                <span class="comment"># Option 1: VS Code UI (Recommended)</span><br>
                                 <span class="comment"># 1. Press Cmd+Shift+P (Mac) or Ctrl+Shift+P (Win)</span><br>
-                                <span class="comment"># 2. Type "Install from VSIX"</span><br>
-                                <span class="comment"># 3. Select rbxsync-1.0.0.vsix</span>
+                                <span class="comment"># 2. Type "Extensions: Install from VSIX"</span><br>
+                                <span class="comment"># 3. Select rbxsync-1.0.0.vsix from the file picker</span><br><br>
+                                <span class="comment"># Option 2: Command line (requires 'code' in PATH)</span><br>
+                                <span class="comment"># If 'code' not found: In VS Code, press Cmd+Shift+P</span><br>
+                                <span class="comment"># and run "Shell Command: Install 'code' command in PATH"</span><br>
+                                <span class="command">code</span> --install-extension rbxsync-1.0.0.vsix
                             </code>
                         </div>
                     </div>
@@ -1397,7 +1417,18 @@
                     <div class="step-number">5</div>
                     <div class="step-content">
                         <h4>Connect Studio</h4>
-                        <p>Open Roblox Studio and restart it to load the plugin. Set the project path in the RbxSync widget and click Connect. You're ready to sync!</p>
+                        <p>Open Roblox Studio and restart it to load the plugin:</p>
+                        <div class="code-block">
+                            <code>
+                                <span class="comment"># 1. Restart Roblox Studio to load the plugin</span><br>
+                                <span class="comment"># 2. Go to View menu → click "RbxSync" to open the widget</span><br>
+                                <span class="comment"># 3. In the widget, enter your project's full path:</span><br>
+                                <span class="comment">#    Mac:   /Users/yourname/MyGame</span><br>
+                                <span class="comment">#    Win:   C:\Users\yourname\MyGame</span><br>
+                                <span class="comment"># 4. Click "Connect" - status should turn green</span><br>
+                                <span class="comment"># 5. Enable HttpService: Game Settings → Security → Allow HTTP Requests</span>
+                            </code>
+                        </div>
                     </div>
                 </div>
             </div>
