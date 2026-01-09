@@ -7,7 +7,7 @@
   "icon": "media/icons/rbxsync.png",
   "repository": {
     "type": "git",
-    "url": "https://github.com/rbxsync/rbxsync-vscode"
+    "url": "https://github.com/devmarissa/rbxsync"
   },
   "engines": {
     "vscode": "^1.85.0"

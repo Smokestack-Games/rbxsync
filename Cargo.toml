@@ -12,7 +12,7 @@ version = "0.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["RbxSync Team"]
-repository = "https://github.com/rbxsync/rbxsync"
+repository = "https://github.com/devmarissa/rbxsync"
 
 [workspace.dependencies]
 # Serialization

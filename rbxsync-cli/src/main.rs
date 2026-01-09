@@ -1797,7 +1797,7 @@ fn cmd_fmt_project(path: Option<PathBuf>, check: bool) -> Result<()> {
 
 /// Open documentation in browser
 fn cmd_doc() -> Result<()> {
-    let doc_url = "https://github.com/rbxsync/rbxsync#readme";
+    let doc_url = "https://github.com/devmarissa/rbxsync#readme";
 
     #[cfg(target_os = "macos")]
     {
