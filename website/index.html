@@ -3253,7 +3253,7 @@
                         <img src="logo.png" alt="RbxSync">
                     </div>
                     <h3 class="comparison-card-name">RbxSync</h3>
-                    <p class="comparison-card-tagline">Full property sync + AI</p>
+                    <p class="comparison-card-tagline">Everything, out of the box</p>
                     <div class="comparison-features">
                         <div class="comparison-feature">
                             <span class="comparison-feature-name">Two-way sync</span>
@@ -3288,15 +3288,15 @@
                     <div class="comparison-features">
                         <div class="comparison-feature">
                             <span class="comparison-feature-name">Two-way sync</span>
-                            <span class="status-icon no">✗</span>
+                            <span class="status-icon partial" title="Via syncback">⚙️</span>
                         </div>
                         <div class="comparison-feature">
                             <span class="comparison-feature-name">One-click game extraction</span>
-                            <span class="status-icon no">✗</span>
+                            <span class="status-icon partial" title="Requires manual setup">⚙️</span>
                         </div>
                         <div class="comparison-feature">
                             <span class="comparison-feature-name">Full property preservation</span>
-                            <span class="status-icon no">✗</span>
+                            <span class="status-icon partial" title="Via XML/Binary">◐</span>
                         </div>
                         <div class="comparison-feature">
                             <span class="comparison-feature-name">AI integration (MCP)</span>
@@ -3344,7 +3344,11 @@
             <div class="comparison-legend">
                 <div class="comparison-legend-item">
                     <span class="status-icon yes">✓</span>
-                    <span>Supported</span>
+                    <span>Native support</span>
+                </div>
+                <div class="comparison-legend-item">
+                    <span class="status-icon partial">⚙️</span>
+                    <span>Requires setup</span>
                 </div>
                 <div class="comparison-legend-item">
                     <span class="status-icon partial">◐</span>
@@ -3352,9 +3356,84 @@
                 </div>
                 <div class="comparison-legend-item">
                     <span class="status-icon no">✗</span>
-                    <span>Not supported</span>
+                    <span>Not available</span>
                 </div>
             </div>
+        </div>
+    </section>
+
+    <!-- Why JSON -->
+    <section class="section" id="format">
+        <div class="section-inner">
+            <div class="section-header">
+                <div class="section-tag">File Format</div>
+                <h2 class="section-title">Why <span class="rbxjson-rainbow">.rbxjson</span>?</h2>
+                <p class="section-desc">A format designed for real-world workflows.</p>
+            </div>
+
+            <div class="format-comparison-grid">
+                <div class="format-card">
+                    <h4 style="color: var(--text-primary); margin-bottom: 1rem; font-size: 1rem;">RbxSync (.rbxjson)</h4>
+                    <pre style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5;"><code style="color: var(--text-secondary);">{
+  "className": "Part",
+  "properties": {
+    "Size": {
+      "type": "Vector3",
+      "value": { "x": 4, "y": 1, "z": 2 }
+    },
+    "Anchored": {
+      "type": "bool",
+      "value": true
+    }
+  }
+}</code></pre>
+                    <ul style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem; list-style: none; padding: 0;">
+                        <li style="margin-bottom: 0.5rem;"><span style="color: var(--success);">+</span> Clean Git diffs - see exactly what changed</li>
+                        <li style="margin-bottom: 0.5rem;"><span style="color: var(--success);">+</span> Explicit types - no ambiguity</li>
+                        <li style="margin-bottom: 0.5rem;"><span style="color: var(--success);">+</span> AI/LLM readable - agents can parse and modify</li>
+                        <li><span style="color: var(--success);">+</span> Human editable - fix properties by hand if needed</li>
+                    </ul>
+                </div>
+
+                <div class="format-card">
+                    <h4 style="color: var(--text-primary); margin-bottom: 1rem; font-size: 1rem;">Traditional (.rbxmx / XML)</h4>
+                    <pre style="background: var(--bg-secondary); padding: 1rem; border-radius: 8px; overflow-x: auto; font-size: 0.8rem; line-height: 1.5;"><code style="color: var(--text-secondary);">&lt;Item class="Part"&gt;
+  &lt;Properties&gt;
+    &lt;Vector3 name="Size"&gt;
+      &lt;X&gt;4&lt;/X&gt;
+      &lt;Y&gt;1&lt;/Y&gt;
+      &lt;Z&gt;2&lt;/Z&gt;
+    &lt;/Vector3&gt;
+    &lt;bool name="Anchored"&gt;true&lt;/bool&gt;
+  &lt;/Properties&gt;
+&lt;/Item&gt;</code></pre>
+                    <ul style="margin-top: 1rem; color: var(--text-secondary); font-size: 0.875rem; list-style: none; padding: 0;">
+                        <li style="margin-bottom: 0.5rem;"><span style="color: var(--text-muted);">-</span> Verbose - more lines for same data</li>
+                        <li style="margin-bottom: 0.5rem;"><span style="color: var(--text-muted);">-</span> Noisy diffs - hard to review in PRs</li>
+                        <li style="margin-bottom: 0.5rem;"><span style="color: var(--text-muted);">-</span> Harder for AI to parse reliably</li>
+                        <li><span style="color: var(--text-muted);">-</span> Error-prone manual editing</li>
+                    </ul>
+                </div>
+            </div>
+
+            <style>
+                .format-comparison-grid {
+                    display: grid;
+                    grid-template-columns: repeat(2, 1fr);
+                    gap: 1.5rem;
+                }
+                .format-card {
+                    background: var(--bg-primary);
+                    border: 1px solid var(--border);
+                    border-radius: 12px;
+                    padding: 1.5rem;
+                }
+                @media (max-width: 768px) {
+                    .format-comparison-grid {
+                        grid-template-columns: 1fr;
+                    }
+                }
+            </style>
         </div>
     </section>
 
@@ -3992,7 +4071,7 @@
                         </div>
                     </div>
                     <p class="testimonial-text">
-                        hell yeah, let's kill Rojo and get Roblox to buy you
+                        The MCP integration changes everything for AI-assisted dev
                     </p>
                     <span class="testimonial-date">Jan 9, 2026</span>
                 </div>

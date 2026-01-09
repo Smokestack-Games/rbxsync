@@ -1,27 +1,29 @@
 # RbxSync
 
-A professional tool for syncing Roblox games between Studio and VS Code with full property preservation, git integration, and AI-powered development workflows.
+Professional-grade sync between Roblox Studio and Git with full property preservation, AI integration, and end-to-end testing.
 
 ## Why RbxSync?
 
-- **No More Workplace Discrepancies**: Everyone syncs from Git. No more "which version is the latest?"
-- **Full Property Extraction**: Captures ALL properties (not just scripts) using API dump reflection
-- **Two-Way Sync**: Changes in Studio automatically sync back to files
-- **AI-Powered Development**: MCP integration lets AI agents write, test, and debug code
+- **No More "Which Version?"**: Everyone syncs from Git. One source of truth.
+- **Full Property Preservation**: Captures ALL properties using `.rbxjson` - a JSON format with explicit type annotations, not lossy XML
+- **True Two-Way Sync**: Automatic, real-time bidirectional sync. Edit in Studio or VS Code - changes propagate instantly
+- **AI-Ready Architecture**: Native MCP integration lets AI agents read, write, test, and debug your game
+- **One-Click Extraction**: Extract any existing game to a Git repo in seconds
 
 ## Feature Comparison
 
 | Feature | RbxSync | Rojo | Argon |
 |---------|---------|------|-------|
-| Two-way sync | ✅ | ❌ | ✅ |
-| Full property extraction | ✅ | ❌ | ◐ |
+| Automatic two-way sync | ✅ | ⚙️ Syncback | ✅ |
+| One-click game extraction | ✅ | ⚙️ Manual setup | ❌ |
+| Full property serialization | ✅ JSON | ◐ XML/Binary | ◐ XML |
+| Native MCP/AI integration | ✅ | ❌ | ❌ |
+| E2E testing from CLI | ✅ | ❌ | ❌ |
+| Console streaming | ✅ | ❌ | ❌ |
 | Build to .rbxl/.rbxm | ✅ | ✅ | ✅ |
 | Build --watch mode | ✅ | ✅ | ✅ |
-| Build --plugin flag | ✅ | ✅ | ❌ |
-| XML format support | ✅ | ✅ | ✅ |
-| MCP / AI integration | ✅ | ❌ | ❌ |
-| E2E testing mode | ✅ | ❌ | ❌ |
-| Console streaming | ✅ | ❌ | ❌ |
+
+**Legend:** ✅ Native support | ⚙️ Requires setup/plugins | ◐ Partial | ❌ Not available
 
 ## Installation
 
