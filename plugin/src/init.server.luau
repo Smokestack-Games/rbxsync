@@ -42,6 +42,7 @@ local hasLoggedLink: boolean = false  -- Prevent spam logging of "Linked to" mes
 local consoleCapture = {
     enabled = false,
     connection = nil :: RBXScriptConnection?,
+    flushThread = nil :: thread?,
     pendingMessages = {} :: {{timestamp: string, message_type: string, message: string, source: string?}},
     lastFlush = 0,
     FLUSH_INTERVAL = 0.5,  -- Flush every 500ms
@@ -128,6 +129,7 @@ local function startConsoleCapture()
 
     consoleCapture.enabled = true
     consoleCapture.pendingMessages = {}
+    consoleCapture.lastFlush = tick()
 
     -- Hook into LogService to capture all console output
     consoleCapture.connection = LogService.MessageOut:Connect(function(message, messageType)
@@ -138,12 +140,15 @@ local function startConsoleCapture()
             message = message,
             source = "studio",
         })
+    end)
 
-        -- Auto-flush if we have enough messages or enough time has passed
-        local currentTime = tick()
-        if #consoleCapture.pendingMessages >= 10 or (currentTime - consoleCapture.lastFlush) >= consoleCapture.FLUSH_INTERVAL then
-            consoleCapture.lastFlush = currentTime
-            task.spawn(flushConsoleMessages)
+    -- Start a periodic flush thread to ensure messages are sent even if no new ones arrive
+    consoleCapture.flushThread = task.spawn(function()
+        while consoleCapture.enabled do
+            task.wait(consoleCapture.FLUSH_INTERVAL)
+            if #consoleCapture.pendingMessages > 0 then
+                flushConsoleMessages()
+            end
         end
     end)
 
@@ -160,6 +165,12 @@ local function stopConsoleCapture()
     if consoleCapture.connection then
         consoleCapture.connection:Disconnect()
         consoleCapture.connection = nil
+    end
+
+    -- Cancel the flush thread
+    if consoleCapture.flushThread then
+        task.cancel(consoleCapture.flushThread)
+        consoleCapture.flushThread = nil
     end
 
     -- Flush any remaining messages
