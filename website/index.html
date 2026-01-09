@@ -21,6 +21,8 @@
             --border-color: #2a2a40;
             --gradient-red: linear-gradient(135deg, #e74c3c 0%, #ff6b5b 100%);
             --glow-red: 0 0 40px rgba(231, 76, 60, 0.3);
+            --success: #27ae60;
+            --warning: #f39c12;
         }
 
         * {
@@ -329,11 +331,14 @@
             }
         }
 
-        /* Features Section */
-        .features {
+        /* Section styles */
+        .section {
             position: relative;
             z-index: 1;
             padding: 8rem 4rem;
+        }
+
+        .section-alt {
             background: var(--bg-secondary);
         }
 
@@ -363,6 +368,7 @@
             font-size: 1.1rem;
         }
 
+        /* Features Grid */
         .features-grid {
             display: grid;
             grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
@@ -426,13 +432,227 @@
             line-height: 1.7;
         }
 
-        /* Installation Section */
-        .installation {
-            position: relative;
-            z-index: 1;
-            padding: 8rem 4rem;
+        /* Use Cases Section */
+        .use-cases-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(350px, 1fr));
+            gap: 2rem;
+            max-width: 1200px;
+            margin: 0 auto;
         }
 
+        .use-case-card {
+            background: var(--bg-tertiary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            padding: 2.5rem;
+        }
+
+        .use-case-card h3 {
+            font-size: 1.5rem;
+            margin-bottom: 1rem;
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .use-case-card p {
+            color: var(--text-secondary);
+            margin-bottom: 1.5rem;
+            line-height: 1.8;
+        }
+
+        .use-case-card ul {
+            list-style: none;
+            color: var(--text-secondary);
+        }
+
+        .use-case-card li {
+            padding: 0.5rem 0;
+            padding-left: 1.5rem;
+            position: relative;
+        }
+
+        .use-case-card li::before {
+            content: '✓';
+            position: absolute;
+            left: 0;
+            color: var(--success);
+            font-weight: bold;
+        }
+
+        /* rbxjson Section */
+        .rbxjson-content {
+            max-width: 1100px;
+            margin: 0 auto;
+            display: grid;
+            grid-template-columns: 1fr 1fr;
+            gap: 4rem;
+            align-items: start;
+        }
+
+        .rbxjson-text h2 {
+            font-size: 2.5rem;
+            font-weight: 700;
+            margin-bottom: 1.5rem;
+        }
+
+        .rbxjson-text p {
+            color: var(--text-secondary);
+            font-size: 1.05rem;
+            margin-bottom: 1.25rem;
+            line-height: 1.8;
+        }
+
+        .rbxjson-text .highlight-box {
+            background: var(--bg-tertiary);
+            border-left: 3px solid var(--rbx-red);
+            padding: 1rem 1.25rem;
+            border-radius: 0 8px 8px 0;
+            margin: 1.5rem 0;
+        }
+
+        .rbxjson-text .highlight-box p {
+            margin: 0;
+            font-size: 0.95rem;
+        }
+
+        .code-example {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 16px;
+            overflow: hidden;
+        }
+
+        .code-example-header {
+            background: var(--bg-tertiary);
+            padding: 0.75rem 1rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            color: var(--text-muted);
+            border-bottom: 1px solid var(--border-color);
+            display: flex;
+            align-items: center;
+            gap: 0.5rem;
+        }
+
+        .code-example pre {
+            padding: 1.5rem;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 0.85rem;
+            line-height: 1.8;
+            overflow-x: auto;
+        }
+
+        .code-example .key { color: var(--rbx-red-bright); }
+        .code-example .string { color: #98c379; }
+        .code-example .number { color: #d19a66; }
+        .code-example .comment { color: var(--text-muted); }
+
+        /* CLI Commands Section */
+        .cli-grid {
+            display: grid;
+            grid-template-columns: repeat(auto-fit, minmax(280px, 1fr));
+            gap: 1.25rem;
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+
+        .cli-card {
+            background: var(--bg-primary);
+            border: 1px solid var(--border-color);
+            border-radius: 12px;
+            padding: 1.5rem;
+        }
+
+        .cli-card code {
+            font-family: 'JetBrains Mono', monospace;
+            background: var(--bg-tertiary);
+            padding: 0.5rem 0.75rem;
+            border-radius: 6px;
+            font-size: 0.9rem;
+            color: var(--rbx-red-bright);
+            display: inline-block;
+            margin-bottom: 0.75rem;
+        }
+
+        .cli-card p {
+            color: var(--text-secondary);
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+
+        .cli-card.new::after {
+            content: 'NEW';
+            background: var(--gradient-red);
+            color: white;
+            font-size: 0.7rem;
+            font-weight: 700;
+            padding: 0.25rem 0.5rem;
+            border-radius: 4px;
+            position: absolute;
+            top: 1rem;
+            right: 1rem;
+        }
+
+        .cli-card {
+            position: relative;
+        }
+
+        /* Comparison Table */
+        .comparison-container {
+            max-width: 1000px;
+            margin: 0 auto;
+            overflow-x: auto;
+        }
+
+        .comparison-table {
+            width: 100%;
+            border-collapse: collapse;
+            background: var(--bg-primary);
+            border-radius: 16px;
+            overflow: hidden;
+            border: 1px solid var(--border-color);
+        }
+
+        .comparison-table th,
+        .comparison-table td {
+            padding: 1rem 1.5rem;
+            text-align: left;
+            border-bottom: 1px solid var(--border-color);
+        }
+
+        .comparison-table th {
+            background: var(--bg-tertiary);
+            font-weight: 600;
+            font-size: 0.95rem;
+        }
+
+        .comparison-table th:first-child {
+            text-align: left;
+        }
+
+        .comparison-table th:not(:first-child) {
+            text-align: center;
+        }
+
+        .comparison-table td:not(:first-child) {
+            text-align: center;
+        }
+
+        .comparison-table tr:last-child td {
+            border-bottom: none;
+        }
+
+        .comparison-table .feature-name {
+            font-weight: 500;
+        }
+
+        .check { color: var(--success); font-size: 1.25rem; }
+        .cross { color: var(--text-muted); font-size: 1.25rem; }
+        .partial { color: var(--warning); font-size: 1.25rem; }
+
+        /* Installation Section */
         .install-content {
             max-width: 900px;
             margin: 0 auto;
@@ -494,22 +714,10 @@
             color: var(--text-primary);
         }
 
-        .code-block .comment {
-            color: var(--text-muted);
-        }
-
-        .code-block .command {
-            color: var(--rbx-red-bright);
-        }
+        .code-block .comment { color: var(--text-muted); }
+        .code-block .command { color: var(--rbx-red-bright); }
 
         /* MCP Section */
-        .mcp-section {
-            position: relative;
-            z-index: 1;
-            padding: 8rem 4rem;
-            background: var(--bg-secondary);
-        }
-
         .mcp-content {
             max-width: 1000px;
             margin: 0 auto;
@@ -571,13 +779,8 @@
             overflow-x: auto;
         }
 
-        .mcp-code .key {
-            color: var(--rbx-red-bright);
-        }
-
-        .mcp-code .string {
-            color: #98c379;
-        }
+        .mcp-code .key { color: var(--rbx-red-bright); }
+        .mcp-code .string { color: #98c379; }
 
         /* Footer */
         footer {
@@ -632,11 +835,12 @@
                 display: none;
             }
 
-            .hero, .features, .installation, .mcp-section {
+            .section {
                 padding: 6rem 2rem;
             }
 
-            .mcp-content {
+            .mcp-content,
+            .rbxjson-content {
                 grid-template-columns: 1fr;
             }
 
@@ -646,6 +850,15 @@
 
             .sync-arrows {
                 transform: rotate(90deg);
+            }
+
+            .comparison-table {
+                font-size: 0.85rem;
+            }
+
+            .comparison-table th,
+            .comparison-table td {
+                padding: 0.75rem 1rem;
             }
         }
     </style>
@@ -660,9 +873,10 @@
         </a>
         <div class="nav-links">
             <a href="#features">Features</a>
+            <a href="#rbxjson">rbxjson</a>
+            <a href="#cli">CLI</a>
+            <a href="#comparison">Compare</a>
             <a href="#installation">Install</a>
-            <a href="#mcp">AI Integration</a>
-            <a href="https://github.com/devmarissa/rbxsync">Docs</a>
         </div>
         <a href="https://github.com/devmarissa/rbxsync" class="nav-cta">
             ★ Star on GitHub
@@ -672,7 +886,7 @@
     <section class="hero">
         <div class="hero-content">
             <div class="hero-badge">
-                <span>NEW</span> Complete DataModel extraction + AI-powered E2E testing
+                <span>NEW</span> Build command with --watch, --plugin, and XML formats
             </div>
             <h1>
                 Professional<br>
@@ -680,7 +894,7 @@
             </h1>
             <p class="hero-description">
                 The only tool that captures ALL instance properties using API dump reflection.
-                Plus AI agents can run real playtests and verify their code works.
+                Full Rojo feature parity plus AI-powered testing and intelligent autocomplete.
             </p>
             <div class="hero-actions">
                 <a href="#installation" class="btn-primary">
@@ -711,12 +925,68 @@
         </div>
     </section>
 
-    <section class="features" id="features">
+    <!-- Use Cases Section -->
+    <section class="section section-alt" id="use-cases">
+        <div class="section-header">
+            <div class="section-tag">Why RbxSync?</div>
+            <h2 class="section-title">Solve Real Problems</h2>
+            <p class="section-description">
+                Eliminate workplace discrepancies and collaborate seamlessly across your team.
+            </p>
+        </div>
+
+        <div class="use-cases-grid">
+            <div class="use-case-card">
+                <h3>🏗️ For Builders & Modelers</h3>
+                <p>
+                    Build in Studio, extract to files, version control with Git. No more "which version is the latest?"
+                    Every team member works from the same source of truth.
+                </p>
+                <ul>
+                    <li>Extract ALL properties (not just scripts)</li>
+                    <li>Parts, Models, MeshParts with full fidelity</li>
+                    <li>Merge changes from multiple builders</li>
+                    <li>Roll back to any previous version</li>
+                </ul>
+            </div>
+
+            <div class="use-case-card">
+                <h3>👥 For Teams</h3>
+                <p>
+                    End the chaos of Team Create conflicts and workplace discrepancies.
+                    Everyone syncs from Git, and conflicts are resolved with standard merge tools.
+                </p>
+                <ul>
+                    <li>No more "my changes disappeared"</li>
+                    <li>Clear history of who changed what</li>
+                    <li>Branch and merge workflows</li>
+                    <li>Code review for game changes</li>
+                </ul>
+            </div>
+
+            <div class="use-case-card">
+                <h3>🤖 For AI Development</h3>
+                <p>
+                    Let AI agents write code, run playtests, and verify their work actually functions.
+                    Full E2E testing with real Studio sessions.
+                </p>
+                <ul>
+                    <li>MCP integration for Claude</li>
+                    <li>Real-time console streaming</li>
+                    <li>Automated playtest control</li>
+                    <li>AI can debug its own code</li>
+                </ul>
+            </div>
+        </div>
+    </section>
+
+    <!-- Features Section -->
+    <section class="section" id="features">
         <div class="section-header">
             <div class="section-tag">Features</div>
             <h2 class="section-title">Everything You Need</h2>
             <p class="section-description">
-                Complete property preservation that other tools miss, plus AI-powered testing workflows.
+                Complete property preservation that other tools miss, plus powerful CLI commands.
             </p>
         </div>
 
@@ -724,7 +994,7 @@
             <div class="feature-card">
                 <div class="feature-icon">📦</div>
                 <h3>100% Complete Sync</h3>
-                <p>Every instance, every property, every attribute. Sync a repo into a blank place and get your entire game instantly. No more workplace discrepancies.</p>
+                <p>Every instance, every property, every attribute. Uses Roblox's API dump for complete reflection coverage.</p>
             </div>
 
             <div class="feature-card">
@@ -734,33 +1004,33 @@
             </div>
 
             <div class="feature-card">
-                <div class="feature-icon">💻</div>
-                <h3>VS Code Extension</h3>
-                <p>Native integration with status bar, activity panel, and keyboard shortcuts. Feels right at home.</p>
+                <div class="feature-icon">👁️</div>
+                <h3>Watch Mode</h3>
+                <p>Use <code>--watch</code> to auto-rebuild on file changes. Perfect for rapid iteration.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">🔌</div>
+                <h3>Plugin Output</h3>
+                <p>Build directly to Studio's plugins folder with <code>--plugin</code>. No manual copying.</p>
+            </div>
+
+            <div class="feature-card">
+                <div class="feature-icon">📄</div>
+                <h3>XML & Binary Formats</h3>
+                <p>Export to .rbxl, .rbxm, .rbxlx, or .rbxmx. Full format flexibility.</p>
             </div>
 
             <div class="feature-card">
                 <div class="feature-icon">🧪</div>
-                <h3>E2E Testing for AI</h3>
-                <p>AI agents can write code, run playtests, and verify output in real time. See console output streamed live.</p>
+                <h3>E2E Testing</h3>
+                <p>AI agents can run playtests and see console output in real-time. Verify code actually works.</p>
             </div>
 
             <div class="feature-card">
                 <div class="feature-icon">📁</div>
                 <h3>Git-Friendly Format</h3>
-                <p>Clean file structure designed for version control. Human-readable .luau and .rbxjson files.</p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">🎯</div>
-                <h3>Multi-Studio Support</h3>
-                <p>Work with multiple Studio instances simultaneously. Each workspace remembers its linked game.</p>
-            </div>
-
-            <div class="feature-card">
-                <div class="feature-icon">📺</div>
-                <h3>E2E Testing Mode</h3>
-                <p>Stream Studio console output to VS Code in real-time. See print, warn, and error messages instantly.</p>
+                <p>Human-readable .luau and .rbxjson files. Perfect for version control and code review.</p>
             </div>
 
             <div class="feature-card">
@@ -771,50 +1041,254 @@
         </div>
     </section>
 
-    <section class="mcp-section" id="e2e">
-        <div class="mcp-content">
-            <div class="mcp-text">
-                <div class="section-tag">Game Changer</div>
-                <h2>E2E Testing for AI</h2>
+    <!-- rbxjson Section -->
+    <section class="section section-alt" id="rbxjson">
+        <div class="rbxjson-content">
+            <div class="rbxjson-text">
+                <div class="section-tag">File Format</div>
+                <h2>The rbxjson Format</h2>
                 <p>
-                    For the first time, AI agents can do more than just write code—they can
-                    <strong>run playtests in real Roblox Studio sessions</strong> and verify their work actually works.
-                    Console output streams in real-time, so AI can debug issues instantly.
+                    RbxSync uses <strong>.rbxjson</strong> files to represent non-script instances like Parts,
+                    Models, Frames, and more. Each file contains the className, instance name, and all properties
+                    with their types and values.
                 </p>
-                <p style="margin-top: 1rem; color: var(--text-secondary);">
-                    This means AI can handle long-running development tasks autonomously:
-                    write a feature, test it, fix bugs, and iterate—all without human intervention.
+                <p>
+                    Our interpreter understands every property type: Vector3, CFrame, Color3, UDim2, Enums,
+                    and more. Properties are stored with explicit types so nothing is lost in translation.
                 </p>
-                <div class="mcp-tools" style="margin-top: 1.5rem;">
-                    <span class="mcp-tool">run_code</span>
-                    <span class="mcp-tool">run_test</span>
-                    <span class="mcp-tool">console streaming</span>
-                    <span class="mcp-tool">playtest control</span>
+
+                <div class="highlight-box">
+                    <p>
+                        <strong>Coming Soon:</strong> Full LSP support with autocomplete for every class, property,
+                        and value based on the Roblox API documentation. Create instances with intelligent suggestions.
+                    </p>
                 </div>
+
+                <p>
+                    <strong>Supported property types:</strong> String, Int, Float, Bool, Vector2, Vector3, CFrame,
+                    Color3, Color3uint8, BrickColor, UDim, UDim2, Rect, NumberRange, Font, Enum, Content, and more.
+                </p>
             </div>
-            <div class="mcp-code">
-                <div class="mcp-code-header">AI Workflow Example</div>
-                <pre><span class="comment">// 1. AI writes a script</span>
-<span class="key">sync_to_studio</span>(<span class="string">"ServerScriptService/GameManager.luau"</span>)
 
-<span class="comment">// 2. AI runs a playtest</span>
-<span class="key">run_code</span>(<span class="string">"game:GetService('RunService'):Run()"</span>)
-
-<span class="comment">// 3. AI sees console output in real-time</span>
-<span class="string">[12:34:56] [INF] Game started!</span>
-<span class="string">[12:34:57] [INF] Player joined: TestPlayer</span>
-<span class="string">[12:34:58] [ERR] Attempt to index nil...</span>
-
-<span class="comment">// 4. AI fixes the bug and repeats</span></pre>
+            <div class="code-example">
+                <div class="code-example-header">
+                    📄 Workspace/Baseplate.rbxjson
+                </div>
+                <pre>{
+  <span class="key">"className"</span>: <span class="string">"Part"</span>,
+  <span class="key">"name"</span>: <span class="string">"Baseplate"</span>,
+  <span class="key">"properties"</span>: {
+    <span class="key">"Anchored"</span>: {
+      <span class="key">"type"</span>: <span class="string">"bool"</span>,
+      <span class="key">"value"</span>: <span class="number">true</span>
+    },
+    <span class="key">"Size"</span>: {
+      <span class="key">"type"</span>: <span class="string">"Vector3"</span>,
+      <span class="key">"value"</span>: {
+        <span class="key">"x"</span>: <span class="number">512</span>,
+        <span class="key">"y"</span>: <span class="number">20</span>,
+        <span class="key">"z"</span>: <span class="number">512</span>
+      }
+    },
+    <span class="key">"Color"</span>: {
+      <span class="key">"type"</span>: <span class="string">"Color3"</span>,
+      <span class="key">"value"</span>: {
+        <span class="key">"r"</span>: <span class="number">0.388</span>,
+        <span class="key">"g"</span>: <span class="number">0.372</span>,
+        <span class="key">"b"</span>: <span class="number">0.384</span>
+      }
+    },
+    <span class="key">"Material"</span>: {
+      <span class="key">"type"</span>: <span class="string">"Enum"</span>,
+      <span class="key">"value"</span>: {
+        <span class="key">"enumType"</span>: <span class="string">"Material"</span>,
+        <span class="key">"value"</span>: <span class="string">"Grass"</span>
+      }
+    }
+  }
+}</pre>
             </div>
         </div>
     </section>
 
-    <section class="installation" id="installation">
+    <!-- CLI Commands Section -->
+    <section class="section" id="cli">
+        <div class="section-header">
+            <div class="section-tag">Command Line</div>
+            <h2 class="section-title">Powerful CLI</h2>
+            <p class="section-description">
+                Full-featured command line interface with all the commands you need.
+            </p>
+        </div>
+
+        <div class="cli-grid">
+            <div class="cli-card">
+                <code>rbxsync init</code>
+                <p>Initialize a new RbxSync project with standard directory structure.</p>
+            </div>
+            <div class="cli-card">
+                <code>rbxsync serve</code>
+                <p>Start the sync server. Connects to Studio plugin for live sync.</p>
+            </div>
+            <div class="cli-card">
+                <code>rbxsync build</code>
+                <p>Build project to .rbxl or .rbxm file. Supports all property types.</p>
+            </div>
+            <div class="cli-card new">
+                <code>rbxsync build --watch</code>
+                <p>Watch for file changes and auto-rebuild. Great for rapid iteration.</p>
+            </div>
+            <div class="cli-card new">
+                <code>rbxsync build --plugin</code>
+                <p>Output directly to Studio's plugins folder. Auto-installs on build.</p>
+            </div>
+            <div class="cli-card new">
+                <code>rbxsync build -f rbxmx</code>
+                <p>Build to XML format (.rbxlx, .rbxmx). Human-readable output.</p>
+            </div>
+            <div class="cli-card">
+                <code>rbxsync build-plugin</code>
+                <p>Build the Studio plugin from source. Use --install to auto-install.</p>
+            </div>
+            <div class="cli-card">
+                <code>rbxsync sourcemap</code>
+                <p>Generate sourcemap.json for Luau LSP integration.</p>
+            </div>
+            <div class="cli-card new">
+                <code>rbxsync fmt-project</code>
+                <p>Format all .rbxjson files with consistent style. Use --check for CI.</p>
+            </div>
+            <div class="cli-card new">
+                <code>rbxsync doc</code>
+                <p>Open RbxSync documentation in your browser.</p>
+            </div>
+            <div class="cli-card">
+                <code>rbxsync studio</code>
+                <p>Launch Roblox Studio with optional place file.</p>
+            </div>
+            <div class="cli-card">
+                <code>rbxsync extract</code>
+                <p>Extract game from connected Studio to local files.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Comparison Section -->
+    <section class="section section-alt" id="comparison">
+        <div class="section-header">
+            <div class="section-tag">Feature Comparison</div>
+            <h2 class="section-title">RbxSync vs Alternatives</h2>
+            <p class="section-description">
+                See how RbxSync stacks up against Rojo and Argon.
+            </p>
+        </div>
+
+        <div class="comparison-container">
+            <table class="comparison-table">
+                <thead>
+                    <tr>
+                        <th>Feature</th>
+                        <th>RbxSync</th>
+                        <th>Rojo</th>
+                        <th>Argon</th>
+                    </tr>
+                </thead>
+                <tbody>
+                    <tr>
+                        <td class="feature-name">Two-way sync</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Full property extraction</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                        <td><span class="partial">◐</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">API dump reflection</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Build to .rbxl/.rbxm</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Build --watch mode</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Build --plugin flag</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">XML format support</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Sourcemap generation</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">VS Code extension</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">MCP / AI integration</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                        <td><span class="cross">✗</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">E2E testing mode</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                        <td><span class="cross">✗</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Console streaming</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                        <td><span class="cross">✗</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">fmt-project command</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="cross">✗</span></td>
+                    </tr>
+                    <tr>
+                        <td class="feature-name">Built with Rust</td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                        <td><span class="check">✓</span></td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </section>
+
+    <!-- Installation Section -->
+    <section class="section" id="installation">
         <div class="install-content">
             <div class="section-header">
                 <div class="section-tag">Get Started</div>
-                <h2 class="section-title">Installation</h2>
+                <h2 class="section-title">Installation Guide</h2>
                 <p class="section-description">
                     Up and running in minutes with a few simple commands.
                 </p>
@@ -825,13 +1299,15 @@
                     <div class="step-number">1</div>
                     <div class="step-content">
                         <h4>Build from Source</h4>
-                        <p>Clone the repository and build with Cargo.</p>
+                        <p>Clone the repository and build with Cargo. Requires Rust to be installed.</p>
                         <div class="code-block">
                             <code>
                                 <span class="comment"># Clone and build</span><br>
                                 <span class="command">git clone</span> https://github.com/devmarissa/rbxsync<br>
                                 <span class="command">cd</span> rbxsync<br>
-                                <span class="command">cargo build</span> --release
+                                <span class="command">cargo build</span> --release<br><br>
+                                <span class="comment"># Add to PATH (optional)</span><br>
+                                <span class="command">cp</span> target/release/rbxsync /usr/local/bin/
                             </code>
                         </div>
                     </div>
@@ -844,7 +1320,9 @@
                         <p>Build and install the Roblox Studio plugin.</p>
                         <div class="code-block">
                             <code>
-                                <span class="command">./target/release/rbxsync</span> build-plugin --install
+                                <span class="command">rbxsync</span> build-plugin --install<br><br>
+                                <span class="comment"># Or manually: the plugin will be at</span><br>
+                                <span class="comment"># ~/Documents/Roblox/Plugins/RbxSync.rbxm</span>
                             </code>
                         </div>
                     </div>
@@ -853,8 +1331,24 @@
                 <div class="install-step">
                     <div class="step-number">3</div>
                     <div class="step-content">
+                        <h4>Install VS Code Extension (Optional)</h4>
+                        <p>For the best experience, install the VS Code extension.</p>
+                        <div class="code-block">
+                            <code>
+                                <span class="command">cd</span> rbxsync-vscode<br>
+                                <span class="command">npm install</span><br>
+                                <span class="command">npm run</span> build<br>
+                                <span class="comment"># Then install the .vsix file in VS Code</span>
+                            </code>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="install-step">
+                    <div class="step-number">4</div>
+                    <div class="step-content">
                         <h4>Initialize Project</h4>
-                        <p>Create a new project and start the server.</p>
+                        <p>Create a new project or use an existing directory.</p>
                         <div class="code-block">
                             <code>
                                 <span class="command">rbxsync init</span> --name MyGame<br>
@@ -865,17 +1359,18 @@
                 </div>
 
                 <div class="install-step">
-                    <div class="step-number">4</div>
+                    <div class="step-number">5</div>
                     <div class="step-content">
                         <h4>Connect Studio</h4>
-                        <p>Open Roblox Studio, set the project path in the RbxSync widget, and click Connect. You're ready to sync!</p>
+                        <p>Open Roblox Studio and restart it to load the plugin. Set the project path in the RbxSync widget and click Connect. You're ready to sync!</p>
                     </div>
                 </div>
             </div>
         </div>
     </section>
 
-    <section class="mcp-section" id="mcp">
+    <!-- MCP Section -->
+    <section class="section section-alt" id="mcp">
         <div class="mcp-content">
             <div class="mcp-text">
                 <div class="section-tag">AI Integration</div>
@@ -884,6 +1379,10 @@
                     RbxSync includes a Model Context Protocol server that lets AI agents
                     interact with your Roblox games directly. Extract, sync, run code, and
                     test—all through natural language.
+                </p>
+                <p>
+                    AI can run playtests, see console output in real-time, debug issues,
+                    and iterate autonomously. A game-changer for AI-assisted development.
                 </p>
                 <div class="mcp-tools">
                     <span class="mcp-tool">extract_game</span>
