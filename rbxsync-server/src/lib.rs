@@ -189,6 +189,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/sync/batch", post(handle_sync_batch))
         .route("/sync/read-tree", post(handle_sync_read_tree))
         .route("/sync/from-studio", post(handle_sync_from_studio))
+        .route("/sync/pending-changes", post(handle_sync_pending_changes))
         // Git endpoints
         .route("/git/status", post(handle_git_status))
         .route("/git/log", post(handle_git_log))
@@ -1280,6 +1281,35 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
             "success": true,
             "instances": instances,
             "count": instances.len()
+        })),
+    )
+}
+
+/// Request to check pending changes count
+#[derive(Debug, Deserialize)]
+pub struct PendingChangesRequest {
+    pub project_dir: String,
+}
+
+/// Handle pending changes request - returns count of files waiting to sync
+async fn handle_sync_pending_changes(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PendingChangesRequest>,
+) -> impl IntoResponse {
+    // Check pending changes in file watcher
+    let file_watcher = state.file_watcher_state.read().await;
+
+    // Filter pending changes by project directory
+    let src_prefix = PathBuf::from(&req.project_dir).join("src");
+    let count = file_watcher.pending_changes.iter()
+        .filter(|(path, _)| path.starts_with(&src_prefix))
+        .count();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "count": count
         })),
     )
 }

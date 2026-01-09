@@ -269,8 +269,16 @@ end
 -- Create an instance from serialized data
 function Sync.createInstance(data: any, parent: Instance?): Instance?
     local className = data.className
-    local name = data.name
     local referenceId = data.referenceId
+
+    -- Derive name from path if not provided
+    local name = data.name
+    if not name and data.path then
+        -- Extract last segment of path as name
+        local parts = string.split(data.path, "/")
+        name = parts[#parts]
+    end
+    name = name or className or "Instance"
 
     -- Don't create services, just find them
     local services = {
