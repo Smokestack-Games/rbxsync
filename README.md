@@ -111,6 +111,37 @@ rbxsync doc                          # Open documentation in browser
 rbxsync studio [file.rbxl]           # Launch Roblox Studio
 ```
 
+### Update Commands
+
+```bash
+rbxsync version                      # Show version and git commit
+rbxsync update                       # Pull latest, rebuild CLI + plugin
+rbxsync update --vscode              # Also rebuild VS Code extension
+rbxsync update --no-pull             # Just rebuild (skip git pull)
+```
+
+## Updating
+
+When new fixes are released, update with a single command:
+
+```bash
+rbxsync update
+```
+
+This will:
+1. Pull the latest changes from GitHub
+2. Rebuild the CLI
+3. Rebuild and install the Studio plugin
+
+Then restart Roblox Studio to load the updated plugin.
+
+**For VS Code extension updates:**
+```bash
+rbxsync update --vscode
+code --install-extension rbxsync-vscode/rbxsync-1.0.0.vsix
+```
+Then restart VS Code.
+
 ## File Format
 
 ### Script Files (`.luau`)

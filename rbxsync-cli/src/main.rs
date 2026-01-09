@@ -172,6 +172,20 @@ enum Commands {
 
     /// Open RbxSync documentation in browser
     Doc,
+
+    /// Update RbxSync (pull latest, rebuild CLI and plugin)
+    Update {
+        /// Skip git pull (just rebuild)
+        #[arg(long)]
+        no_pull: bool,
+
+        /// Also rebuild VS Code extension
+        #[arg(long)]
+        vscode: bool,
+    },
+
+    /// Show current version and check for updates
+    Version,
 }
 
 #[derive(Subcommand)]
@@ -287,6 +301,12 @@ async fn main() -> Result<()> {
         }
         Commands::Doc => {
             cmd_doc()?;
+        }
+        Commands::Update { no_pull, vscode } => {
+            cmd_update(no_pull, vscode)?;
+        }
+        Commands::Version => {
+            cmd_version()?;
         }
     }
 
@@ -1824,5 +1844,166 @@ fn cmd_doc() -> Result<()> {
     }
 
     println!("Opening documentation: {}", doc_url);
+    Ok(())
+}
+
+/// Update RbxSync - pull latest changes, rebuild CLI and plugin
+fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
+    // Find the rbxsync repo directory (where this binary was built from)
+    let exe_path = std::env::current_exe().context("Failed to get executable path")?;
+
+    // Try to find the repo root by looking for Cargo.toml
+    let mut repo_dir = exe_path.parent().map(|p| p.to_path_buf());
+
+    // Walk up from the executable to find the repo root
+    // Typical paths: target/release/rbxsync or target/debug/rbxsync
+    for _ in 0..5 {
+        if let Some(ref dir) = repo_dir {
+            if dir.join("Cargo.toml").exists() && dir.join("plugin").exists() {
+                break;
+            }
+            repo_dir = dir.parent().map(|p| p.to_path_buf());
+        }
+    }
+
+    let repo_dir = repo_dir.context("Could not find RbxSync repository. Make sure you're running from a git clone.")?;
+
+    if !repo_dir.join("Cargo.toml").exists() {
+        bail!("Could not find RbxSync repository. Run this from within the cloned repo.");
+    }
+
+    println!("RbxSync Update");
+    println!("==============");
+    println!("Repository: {}", repo_dir.display());
+    println!();
+
+    // Step 1: Git pull (unless --no-pull)
+    if !no_pull {
+        println!("1. Pulling latest changes...");
+        let status = std::process::Command::new("git")
+            .args(["pull", "--ff-only"])
+            .current_dir(&repo_dir)
+            .status()
+            .context("Failed to run git pull")?;
+
+        if !status.success() {
+            println!("   Warning: git pull failed. You may have local changes.");
+            println!("   Run with --no-pull to skip this step.");
+        } else {
+            println!("   Done!");
+        }
+        println!();
+    }
+
+    // Step 2: Rebuild CLI
+    println!("2. Rebuilding CLI...");
+    let status = std::process::Command::new("cargo")
+        .args(["build", "--release", "-p", "rbxsync"])
+        .current_dir(&repo_dir)
+        .status()
+        .context("Failed to build CLI")?;
+
+    if !status.success() {
+        bail!("Failed to build CLI");
+    }
+    println!("   Done!");
+    println!();
+
+    // Step 3: Rebuild and install plugin
+    println!("3. Rebuilding and installing plugin...");
+    let plugin_config = PluginBuildConfig {
+        source_dir: repo_dir.join("plugin/src"),
+        output_path: repo_dir.join("build/RbxSync.rbxm"),
+        plugin_name: "RbxSync".to_string(),
+    };
+
+    build_plugin(&plugin_config).context("Failed to build plugin")?;
+    install_plugin(&repo_dir.join("build/RbxSync.rbxm"), "RbxSync")
+        .context("Failed to install plugin")?;
+    println!("   Done!");
+    println!();
+
+    // Step 4: VS Code extension (optional)
+    if vscode {
+        println!("4. Rebuilding VS Code extension...");
+        let vscode_dir = repo_dir.join("rbxsync-vscode");
+
+        if vscode_dir.exists() {
+            // npm install
+            let status = std::process::Command::new("npm")
+                .args(["install"])
+                .current_dir(&vscode_dir)
+                .status()
+                .context("Failed to run npm install")?;
+
+            if !status.success() {
+                println!("   Warning: npm install failed");
+            }
+
+            // npm run build
+            let status = std::process::Command::new("npm")
+                .args(["run", "build"])
+                .current_dir(&vscode_dir)
+                .status()
+                .context("Failed to run npm build")?;
+
+            if !status.success() {
+                println!("   Warning: npm build failed");
+            }
+
+            // npm run package
+            let status = std::process::Command::new("npm")
+                .args(["run", "package"])
+                .current_dir(&vscode_dir)
+                .status()
+                .context("Failed to run npm package")?;
+
+            if !status.success() {
+                println!("   Warning: npm package failed");
+            } else {
+                println!("   Built: rbxsync-vscode/rbxsync-1.0.0.vsix");
+                println!("   Install with: code --install-extension rbxsync-vscode/rbxsync-1.0.0.vsix");
+            }
+        } else {
+            println!("   Warning: VS Code extension directory not found");
+        }
+        println!();
+    }
+
+    println!("Update complete!");
+    println!();
+    println!("Next steps:");
+    println!("  1. Restart Roblox Studio to load the updated plugin");
+    if vscode {
+        println!("  2. Install the VS Code extension: code --install-extension rbxsync-vscode/rbxsync-1.0.0.vsix");
+        println!("  3. Restart VS Code");
+    }
+
+    Ok(())
+}
+
+/// Show version information
+fn cmd_version() -> Result<()> {
+    let version = env!("CARGO_PKG_VERSION");
+
+    println!("RbxSync v{}", version);
+    println!();
+
+    // Try to get git info
+    if let Ok(output) = std::process::Command::new("git")
+        .args(["rev-parse", "--short", "HEAD"])
+        .output()
+    {
+        if output.status.success() {
+            let commit = String::from_utf8_lossy(&output.stdout).trim().to_string();
+            println!("Git commit: {}", commit);
+        }
+    }
+
+    // Check if there are updates available
+    println!();
+    println!("To update: rbxsync update");
+    println!("Documentation: https://rbxsync.dev");
+
     Ok(())
 }
