@@ -13,6 +13,9 @@ local Reflection = require(script.Parent.Reflection)
 
 local Sync = {}
 
+-- Attribute name used to track source file path
+local SOURCE_ATTR = "_rbxsync_source"
+
 -- Cache of referenceId -> Instance for resolving references
 local instanceCache: {[string]: Instance} = {}
 
@@ -234,10 +237,43 @@ function Sync.findInstanceAtPath(path: string): Instance?
         end
     end
 
-    -- Use '/' as delimiter to handle instance names with periods
+    -- Search for instance by source attribute (allows name to differ from path)
+    -- Get the parent path to narrow the search
     local parts = string.split(path, "/")
-    local current: Instance = game
+    local parentPath = table.concat(parts, "/", 1, #parts - 1)
+    local parent: Instance? = nil
 
+    if #parts > 1 then
+        -- Find parent by walking tree
+        local current: Instance = game
+        for i = 1, #parts - 1 do
+            local child = current:FindFirstChild(parts[i])
+            if not child then
+                break
+            end
+            current = child
+        end
+        parent = current
+    else
+        -- Top-level service
+        parent = game:FindFirstChild(parts[1])
+        if parent then
+            return parent  -- Services don't need attribute tracking
+        end
+    end
+
+    -- Search children of parent for matching source attribute
+    if parent then
+        for _, child in parent:GetChildren() do
+            local sourceAttr = child:GetAttribute(SOURCE_ATTR)
+            if sourceAttr == path then
+                return child
+            end
+        end
+    end
+
+    -- Fallback: try traditional path-based lookup
+    local current: Instance = game
     for i, part in parts do
         local child = current:FindFirstChild(part)
         if not child then
@@ -350,6 +386,13 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
         end
     end
 
+    -- Set source tracking attribute (links instance to file path)
+    if data.path then
+        pcall(function()
+            instance:SetAttribute(SOURCE_ATTR, data.path)
+        end)
+    end
+
     -- Set parent last (triggers instance creation in workspace)
     if parent then
         instance.Parent = parent
@@ -388,7 +431,14 @@ end
 
 -- Update an existing instance with new data
 function Sync.updateInstance(instance: Instance, data: any): boolean
-    -- Update name if changed
+    -- Ensure source tracking attribute is set (for older instances)
+    if data.path then
+        pcall(function()
+            instance:SetAttribute(SOURCE_ATTR, data.path)
+        end)
+    end
+
+    -- Update name if provided (use JSON name, not file name)
     if data.name and instance.Name ~= data.name then
         instance.Name = data.name
     end
@@ -405,11 +455,11 @@ function Sync.updateInstance(instance: Instance, data: any): boolean
         end)
     end
 
-    -- Update attributes (clear and re-apply, skip reserved RBX_ attributes)
+    -- Update attributes (clear and re-apply, skip reserved RBX_ attributes and source tracking)
     if data.attributes then
         -- Remove existing non-reserved attributes
         for name, _ in instance:GetAttributes() do
-            if string.sub(name, 1, 4) ~= "RBX_" then
+            if string.sub(name, 1, 4) ~= "RBX_" and name ~= SOURCE_ATTR then
                 instance:SetAttribute(name, nil)
             end
         end

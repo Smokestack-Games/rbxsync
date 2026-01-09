@@ -46,8 +46,9 @@ flate2 = "1.0"
 # HTTP client (for API dump)
 reqwest = { version = "0.11", features = ["json"] }
 
-# Roblox binary format (for plugin bundling)
+# Roblox binary/XML format (for plugin bundling)
 rbx_binary = "0.7"
+rbx_xml = "0.13"
 rbx_dom_weak = "2.7"
 rbx_types = "1.8"
 

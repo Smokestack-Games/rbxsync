@@ -351,13 +351,24 @@ pub fn process_file_change(
                     }
                 };
 
-                let data: serde_json::Value = match serde_json::from_str(&content) {
+                let mut data: serde_json::Value = match serde_json::from_str(&content) {
                     Ok(d) => d,
                     Err(e) => {
                         tracing::warn!("Failed to parse JSON {:?}: {}", path, e);
                         return None;
                     }
                 };
+
+                // Ensure path is set from file location (used for tracking, not naming)
+                if let Some(obj) = data.as_object_mut() {
+                    obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
+                    // If no name provided, derive from path
+                    if !obj.contains_key("name") {
+                        if let Some(name) = inst_path.rsplit('/').next() {
+                            obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                        }
+                    }
+                }
 
                 Some(serde_json::json!({
                     "type": if change.kind == FileChangeKind::Create { "create" } else { "update" },

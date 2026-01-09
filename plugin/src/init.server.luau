@@ -511,6 +511,25 @@ local function syncUpdate(payload: any): {success: boolean, error: string?, skip
         return syncCreate(payload)
     end
 
+    -- If className changed, we need to replace the instance entirely
+    if data.className and instance.ClassName ~= data.className then
+        print("[RbxSync Debug] className changed from " .. instance.ClassName .. " to " .. data.className .. ", replacing instance")
+        -- Get parent before destroying
+        local parent = instance.Parent
+
+        -- Remove old instance
+        instance.Parent = nil
+
+        -- Create new instance with correct className
+        local newInstance = Sync.createInstance(data, parent)
+        if newInstance then
+            Sync.registerCreated(path, newInstance)
+            return { success = true }
+        else
+            return { success = false, error = "Can't create replacement instance" }
+        end
+    end
+
     -- Check if update is actually needed (differential sync)
     local needsUpdate, reason = Sync.instanceNeedsUpdate(instance, data)
     if not needsUpdate then

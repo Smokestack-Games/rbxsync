@@ -1230,7 +1230,26 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                     if ext == "rbxjson" {
                         // Read instance JSON
                         if let Ok(content) = std::fs::read_to_string(&path) {
-                            if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
+                            if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
+                                // Derive path from file system if not present in JSON
+                                let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                                let path_str = rel_path.to_string_lossy();
+                                // Convert file path to instance path:
+                                // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
+                                let inst_path = path_str.trim_end_matches(".rbxjson").to_string();
+
+                                // Set path from file location (used for tracking, not naming)
+                                if let Some(obj) = inst.as_object_mut() {
+                                    // Always set path from file location
+                                    obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
+
+                                    // Only set name if not provided in JSON
+                                    if !obj.contains_key("name") {
+                                        if let Some(name) = inst_path.rsplit('/').next() {
+                                            obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                                        }
+                                    }
+                                }
                                 instances.push(inst);
                             }
                         }

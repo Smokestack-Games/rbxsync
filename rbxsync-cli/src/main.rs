@@ -5,9 +5,12 @@
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
+use std::sync::mpsc::channel;
+use std::time::Duration;
 
-use anyhow::{Context, Result};
+use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
+use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rbx_dom_weak::types::Variant;
 use rbx_dom_weak::{InstanceBuilder, WeakDom};
 use rbxsync_core::{build_plugin, get_studio_plugins_folder, install_plugin, PluginBuildConfig, ProjectConfig};
@@ -143,10 +146,32 @@ enum Commands {
         #[arg(short, long)]
         output: Option<PathBuf>,
 
-        /// Output format: rbxl (place) or rbxm (model)
+        /// Output format: rbxl, rbxm, rbxlx (XML place), or rbxmx (XML model)
         #[arg(short, long, default_value = "rbxl")]
         format: String,
+
+        /// Watch for file changes and rebuild automatically
+        #[arg(short, long)]
+        watch: bool,
+
+        /// Output to Studio plugins folder with this filename (e.g., MyPlugin.rbxm)
+        #[arg(long)]
+        plugin: Option<String>,
     },
+
+    /// Format project JSON files with consistent style
+    FmtProject {
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+
+        /// Check formatting without writing (exit 1 if unformatted)
+        #[arg(long)]
+        check: bool,
+    },
+
+    /// Open RbxSync documentation in browser
+    Doc,
 }
 
 #[derive(Subcommand)]
@@ -252,8 +277,16 @@ async fn main() -> Result<()> {
             path,
             output,
             format,
+            watch,
+            plugin,
         } => {
-            cmd_build(path, output, format)?;
+            cmd_build(path, output, format, watch, plugin).await?;
+        }
+        Commands::FmtProject { path, check } => {
+            cmd_fmt_project(path, check)?;
+        }
+        Commands::Doc => {
+            cmd_doc()?;
         }
     }
 
@@ -1118,30 +1151,108 @@ fn parse_script_name(filename: &str) -> (String, &'static str) {
 }
 
 /// Build a .rbxl or .rbxm file from project files
-fn cmd_build(path: Option<PathBuf>, output: Option<PathBuf>, format: String) -> Result<()> {
+async fn cmd_build(
+    path: Option<PathBuf>,
+    output: Option<PathBuf>,
+    format: String,
+    watch: bool,
+    plugin: Option<String>,
+) -> Result<()> {
     let project_dir = path.unwrap_or_else(|| std::env::current_dir().unwrap());
     let src_dir = project_dir.join("src");
 
     if !src_dir.exists() {
-        anyhow::bail!("Source directory not found: {}", src_dir.display());
+        bail!("Source directory not found: {}", src_dir.display());
     }
 
+    // Parse format and determine if XML
     let format = format.to_lowercase();
-    let extension = match format.as_str() {
-        "rbxl" | "place" => "rbxl",
-        "rbxm" | "model" => "rbxm",
-        _ => anyhow::bail!("Unknown format: {}. Use 'rbxl' or 'rbxm'", format),
+    let (extension, is_xml) = match format.as_str() {
+        "rbxl" | "place" => ("rbxl", false),
+        "rbxm" | "model" => ("rbxm", false),
+        "rbxlx" | "place-xml" => ("rbxlx", true),
+        "rbxmx" | "model-xml" => ("rbxmx", true),
+        _ => bail!("Unknown format: {}. Use rbxl, rbxm, rbxlx, or rbxmx", format),
     };
 
-    let output_path = output.unwrap_or_else(|| {
+    // Determine output path
+    let output_path = if let Some(plugin_name) = &plugin {
+        // Output to Studio plugins folder
+        let plugins_folder = get_studio_plugins_folder()
+            .context("Could not determine Studio plugins folder")?;
+        std::fs::create_dir_all(&plugins_folder).ok();
+        plugins_folder.join(plugin_name)
+    } else if let Some(out) = output {
+        out
+    } else {
         std::fs::create_dir_all(project_dir.join("build")).ok();
         project_dir.join(format!("build/game.{}", extension))
-    });
+    };
+
+    // Initial build
+    do_build(&src_dir, &output_path, extension, is_xml)?;
+
+    // If not watch mode, we're done
+    if !watch {
+        return Ok(());
+    }
+
+    // Watch mode
+    println!("\nWatching for changes... (Ctrl+C to stop)");
+
+    let (tx, rx) = channel();
+
+    let mut watcher = RecommendedWatcher::new(
+        move |res| {
+            if let Ok(event) = res {
+                let _ = tx.send(event);
+            }
+        },
+        Config::default().with_poll_interval(Duration::from_millis(500)),
+    )
+    .context("Failed to create file watcher")?;
+
+    watcher
+        .watch(&src_dir, RecursiveMode::Recursive)
+        .context("Failed to watch source directory")?;
+
+    // Debounce tracking
+    let mut last_build = std::time::Instant::now();
+    let debounce = Duration::from_millis(500);
+
+    loop {
+        match rx.recv_timeout(Duration::from_secs(1)) {
+            Ok(_event) => {
+                // Debounce: only rebuild if enough time has passed
+                if last_build.elapsed() >= debounce {
+                    println!("\nChange detected, rebuilding...");
+                    match do_build(&src_dir, &output_path, extension, is_xml) {
+                        Ok(()) => last_build = std::time::Instant::now(),
+                        Err(e) => println!("Build error: {}", e),
+                    }
+                }
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Timeout) => {
+                // Continue watching
+            }
+            Err(std::sync::mpsc::RecvTimeoutError::Disconnected) => {
+                println!("Watcher disconnected");
+                break;
+            }
+        }
+    }
+
+    Ok(())
+}
+
+/// Perform the actual build operation
+fn do_build(src_dir: &PathBuf, output_path: &PathBuf, extension: &str, is_xml: bool) -> Result<()> {
+    let is_place = extension == "rbxl" || extension == "rbxlx";
 
     println!("Building {} from {:?}...", extension, src_dir);
 
     // Build the DOM
-    let dom = build_dom_from_src(&src_dir, extension == "rbxl")?;
+    let dom = build_dom_from_src(src_dir, is_place)?;
 
     // Ensure output directory exists
     if let Some(parent) = output_path.parent() {
@@ -1150,17 +1261,27 @@ fn cmd_build(path: Option<PathBuf>, output: Option<PathBuf>, format: String) -> 
 
     // Write to file
     let output_file = BufWriter::new(
-        File::create(&output_path).context("Failed to create output file")?,
+        File::create(output_path).context("Failed to create output file")?,
     );
 
-    let root_refs = vec![dom.root_ref()];
-    rbx_binary::to_writer(output_file, &dom, &root_refs)
-        .context("Failed to write output file")?;
+    // Export the children (services/instances) directly, not the root wrapper
+    // For places: services should have null parent referent (top-level in file)
+    // For models: instances should be top-level items
+    // The rbx_binary crate handles service detection based on class names
+    let refs_to_export: Vec<_> = dom.root().children().to_vec();
+
+    if is_xml {
+        rbx_xml::to_writer_default(output_file, &dom, &refs_to_export)
+            .context("Failed to write XML output file")?;
+    } else {
+        rbx_binary::to_writer(output_file, &dom, &refs_to_export)
+            .context("Failed to write binary output file")?;
+    }
 
     println!("Built successfully: {}", output_path.display());
 
     // Show file size
-    if let Ok(metadata) = std::fs::metadata(&output_path) {
+    if let Ok(metadata) = std::fs::metadata(output_path) {
         println!("Size: {:.1} KB", metadata.len() as f64 / 1024.0);
     }
 
@@ -1395,18 +1516,170 @@ fn service_class_name(name: &str) -> &'static str {
 
 /// Convert JSON property value to rbx_dom Variant
 fn json_to_variant(value: &serde_json::Value) -> Option<Variant> {
+    use rbx_dom_weak::types::*;
+
     // Check if it has a type field (our format)
     if let Some(obj) = value.as_object() {
         if let Some(type_str) = obj.get("type").and_then(|t| t.as_str()) {
-            let val = obj.get("value")?;
+            let val = obj.get("value");
             return match type_str {
-                "string" => val.as_str().map(|s| Variant::String(s.to_string())),
-                "int" | "int32" => val.as_i64().map(|n| Variant::Int32(n as i32)),
-                "int64" => val.as_i64().map(Variant::Int64),
-                "float" | "float32" => val.as_f64().map(|n| Variant::Float32(n as f32)),
-                "float64" => val.as_f64().map(Variant::Float64),
-                "bool" => val.as_bool().map(Variant::Bool),
-                _ => None,
+                // Basic types
+                "string" => val?.as_str().map(|s| Variant::String(s.to_string())),
+                "int" | "int32" => val?.as_i64().map(|n| Variant::Int32(n as i32)),
+                "int64" => val?.as_i64().map(Variant::Int64),
+                "float" | "float32" => val?.as_f64().map(|n| Variant::Float32(n as f32)),
+                "float64" | "double" => val?.as_f64().map(Variant::Float64),
+                "bool" => val?.as_bool().map(Variant::Bool),
+
+                // nil means "use default" - skip the property entirely
+                "nil" => None,
+
+                // Vector types
+                "Vector2" => {
+                    let v = val?.as_object()?;
+                    Some(Variant::Vector2(Vector2::new(
+                        v.get("x")?.as_f64()? as f32,
+                        v.get("y")?.as_f64()? as f32,
+                    )))
+                }
+                "Vector3" => {
+                    let v = val?.as_object()?;
+                    Some(Variant::Vector3(Vector3::new(
+                        v.get("x")?.as_f64()? as f32,
+                        v.get("y")?.as_f64()? as f32,
+                        v.get("z")?.as_f64()? as f32,
+                    )))
+                }
+
+                // Color types
+                "Color3" => {
+                    let v = val?.as_object()?;
+                    Some(Variant::Color3(Color3::new(
+                        v.get("r")?.as_f64()? as f32,
+                        v.get("g")?.as_f64()? as f32,
+                        v.get("b")?.as_f64()? as f32,
+                    )))
+                }
+                "Color3uint8" => {
+                    let v = val?.as_object()?;
+                    Some(Variant::Color3uint8(Color3uint8::new(
+                        v.get("r")?.as_u64()? as u8,
+                        v.get("g")?.as_u64()? as u8,
+                        v.get("b")?.as_u64()? as u8,
+                    )))
+                }
+                "BrickColor" => {
+                    val?.as_u64().map(|n| Variant::BrickColor(BrickColor::from_number(n as u16).unwrap_or(BrickColor::MediumStoneGrey)))
+                }
+
+                // UDim types
+                "UDim" => {
+                    let v = val?.as_object()?;
+                    Some(Variant::UDim(UDim::new(
+                        v.get("scale")?.as_f64()? as f32,
+                        v.get("offset")?.as_i64()? as i32,
+                    )))
+                }
+                "UDim2" => {
+                    let v = val?.as_object()?;
+                    let x = v.get("x")?.as_object()?;
+                    let y = v.get("y")?.as_object()?;
+                    Some(Variant::UDim2(UDim2::new(
+                        UDim::new(
+                            x.get("scale")?.as_f64()? as f32,
+                            x.get("offset")?.as_i64()? as i32,
+                        ),
+                        UDim::new(
+                            y.get("scale")?.as_f64()? as f32,
+                            y.get("offset")?.as_i64()? as i32,
+                        ),
+                    )))
+                }
+
+                // CFrame
+                "CFrame" => {
+                    let v = val?.as_object()?;
+                    let pos = v.get("position")?.as_array()?;
+                    let rot = v.get("rotation")?.as_array()?;
+                    if pos.len() >= 3 && rot.len() >= 9 {
+                        Some(Variant::CFrame(CFrame::new(
+                            Vector3::new(
+                                pos[0].as_f64()? as f32,
+                                pos[1].as_f64()? as f32,
+                                pos[2].as_f64()? as f32,
+                            ),
+                            Matrix3::new(
+                                Vector3::new(rot[0].as_f64()? as f32, rot[1].as_f64()? as f32, rot[2].as_f64()? as f32),
+                                Vector3::new(rot[3].as_f64()? as f32, rot[4].as_f64()? as f32, rot[5].as_f64()? as f32),
+                                Vector3::new(rot[6].as_f64()? as f32, rot[7].as_f64()? as f32, rot[8].as_f64()? as f32),
+                            ),
+                        )))
+                    } else {
+                        None
+                    }
+                }
+
+                // Enum (store as u32)
+                "Enum" => {
+                    let v = val?.as_object()?;
+                    let enum_value = v.get("value")?;
+                    // Try to get numeric value, or parse from string
+                    if let Some(n) = enum_value.as_u64() {
+                        Some(Variant::Enum(rbx_dom_weak::types::Enum::from_u32(n as u32)))
+                    } else {
+                        // For string enum values, we'd need the reflection database
+                        // For now, default to 0
+                        Some(Variant::Enum(rbx_dom_weak::types::Enum::from_u32(0)))
+                    }
+                }
+
+                // Rect
+                "Rect" => {
+                    let v = val?.as_object()?;
+                    let min = v.get("min")?.as_object()?;
+                    let max = v.get("max")?.as_object()?;
+                    Some(Variant::Rect(Rect::new(
+                        Vector2::new(min.get("x")?.as_f64()? as f32, min.get("y")?.as_f64()? as f32),
+                        Vector2::new(max.get("x")?.as_f64()? as f32, max.get("y")?.as_f64()? as f32),
+                    )))
+                }
+
+                // NumberRange
+                "NumberRange" => {
+                    let v = val?.as_object()?;
+                    Some(Variant::NumberRange(NumberRange::new(
+                        v.get("min")?.as_f64()? as f32,
+                        v.get("max")?.as_f64()? as f32,
+                    )))
+                }
+
+                // Font
+                "Font" => {
+                    let v = val?.as_object()?;
+                    let family = v.get("family")?.as_str()?.to_string();
+                    let weight = v.get("weight").and_then(|w| w.as_u64()).unwrap_or(400) as u16;
+                    let style = v.get("style").and_then(|s| s.as_str()).unwrap_or("Normal");
+                    Some(Variant::Font(Font {
+                        family,
+                        weight: FontWeight::from_u16(weight).unwrap_or(FontWeight::Regular),
+                        style: if style == "Italic" { FontStyle::Italic } else { FontStyle::Normal },
+                        cached_face_id: None,
+                    }))
+                }
+
+                // Content (asset URLs)
+                "Content" => {
+                    val?.as_str().map(|s| Variant::Content(Content::from(s.to_string())))
+                }
+
+                // Refs - we skip these as they need special handling
+                "Ref" => None,
+
+                // Skip unknown/unsupported types
+                _ => {
+                    tracing::debug!("Unsupported property type: {}", type_str);
+                    None
+                }
             };
         }
     }
@@ -1424,4 +1697,132 @@ fn json_to_variant(value: &serde_json::Value) -> Option<Variant> {
         }
         _ => None,
     }
+}
+
+/// Format project JSON files with consistent style
+fn cmd_fmt_project(path: Option<PathBuf>, check: bool) -> Result<()> {
+    let project_dir = path.unwrap_or_else(|| std::env::current_dir().unwrap());
+    let src_dir = project_dir.join("src");
+
+    if !src_dir.exists() {
+        bail!("Source directory not found: {}", src_dir.display());
+    }
+
+    let mut unformatted = Vec::new();
+    let mut formatted_count = 0;
+
+    // Recursively find all .rbxjson files
+    fn visit_dir(
+        dir: &std::path::Path,
+        check: bool,
+        unformatted: &mut Vec<PathBuf>,
+        formatted_count: &mut usize,
+    ) -> Result<()> {
+        if !dir.is_dir() {
+            return Ok(());
+        }
+
+        let entries = std::fs::read_dir(dir).context("Failed to read directory")?;
+
+        for entry in entries.flatten() {
+            let path = entry.path();
+
+            if path.is_dir() {
+                visit_dir(&path, check, unformatted, formatted_count)?;
+            } else if path.extension().map_or(false, |ext| ext == "rbxjson") {
+                let content = std::fs::read_to_string(&path)
+                    .with_context(|| format!("Failed to read {}", path.display()))?;
+
+                // Parse and re-serialize with consistent formatting
+                let value: serde_json::Value = serde_json::from_str(&content)
+                    .with_context(|| format!("Failed to parse {}", path.display()))?;
+
+                let formatted = serde_json::to_string_pretty(&value)? + "\n";
+
+                if content != formatted {
+                    if check {
+                        unformatted.push(path);
+                    } else {
+                        std::fs::write(&path, &formatted)
+                            .with_context(|| format!("Failed to write {}", path.display()))?;
+                        println!("Formatted: {}", path.display());
+                        *formatted_count += 1;
+                    }
+                }
+            }
+        }
+
+        Ok(())
+    }
+
+    visit_dir(&src_dir, check, &mut unformatted, &mut formatted_count)?;
+
+    // Also format rbxsync.json if it exists
+    let config_path = project_dir.join("rbxsync.json");
+    if config_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(value) = serde_json::from_str::<serde_json::Value>(&content) {
+                let formatted = serde_json::to_string_pretty(&value)? + "\n";
+                if content != formatted {
+                    if check {
+                        unformatted.push(config_path);
+                    } else {
+                        std::fs::write(&config_path, &formatted)?;
+                        println!("Formatted: {}", config_path.display());
+                        formatted_count += 1;
+                    }
+                }
+            }
+        }
+    }
+
+    if check {
+        if unformatted.is_empty() {
+            println!("All files are properly formatted.");
+        } else {
+            println!("The following files need formatting:");
+            for path in &unformatted {
+                println!("  {}", path.display());
+            }
+            std::process::exit(1);
+        }
+    } else if formatted_count == 0 {
+        println!("All files are already properly formatted.");
+    } else {
+        println!("\nFormatted {} file(s).", formatted_count);
+    }
+
+    Ok(())
+}
+
+/// Open documentation in browser
+fn cmd_doc() -> Result<()> {
+    let doc_url = "https://github.com/rbxsync/rbxsync#readme";
+
+    #[cfg(target_os = "macos")]
+    {
+        std::process::Command::new("open")
+            .arg(doc_url)
+            .spawn()
+            .context("Failed to open browser")?;
+    }
+
+    #[cfg(target_os = "windows")]
+    {
+        std::process::Command::new("cmd")
+            .args(["/C", "start", doc_url])
+            .spawn()
+            .context("Failed to open browser")?;
+    }
+
+    #[cfg(target_os = "linux")]
+    {
+        std::process::Command::new("xdg-open")
+            .arg(doc_url)
+            .spawn()
+            .context("Failed to open browser")?;
+    }
+
+    println!("Opening documentation: {}", doc_url);
+    Ok(())
 }

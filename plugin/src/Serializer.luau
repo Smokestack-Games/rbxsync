@@ -410,16 +410,8 @@ function Serializer.serializeInstance(instance: Instance, apiDump: APIDump): any
         serialized.tags = tags
     end
 
-    -- Handle scripts specially - include source
-    if className == "Script" or className == "LocalScript" or className == "ModuleScript" then
-        local sourceOk, source = pcall(function()
-            return (instance :: any).Source
-        end)
-
-        if sourceOk and source and #source > 0 then
-            serialized.source = source
-        end
-    end
+    -- Note: Script source is NOT included in rbxjson
+    -- The .luau file is the single source of truth for script code
 
     return serialized
 end

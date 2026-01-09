@@ -153,11 +153,33 @@ function Reflection.shouldSerializeProperty(prop: PropertyInfo): boolean
         return false
     end
 
+    -- Check if property is serializable (CanSave)
+    -- This excludes computed/read-only properties like Mass, AssemblyCenterOfMass, etc.
+    if prop.Serialization and prop.Serialization.CanSave == false then
+        return false
+    end
+
+    -- Check write security - only include properties we can actually modify
+    local writeSecurity = prop.Security and prop.Security.Write
+    if writeSecurity and writeSecurity ~= "None" and writeSecurity ~= "PluginSecurity" then
+        return false
+    end
+
+    -- Check for tags that indicate non-editable properties
+    if prop.Tags then
+        for _, tag in prop.Tags do
+            if tag == "ReadOnly" or tag == "NotScriptable" or tag == "Hidden" or tag == "Deprecated" then
+                return false
+            end
+        end
+    end
+
     -- Skip certain properties that are auto-generated or internal
     local skipProps = {
         "Parent", -- Handled separately via hierarchy
         "Name", -- Stored at top level
         "ClassName", -- Stored at top level
+        "className", -- Lowercase variant
         "Archivable", -- Usually true, rarely needed
         "DataCost", -- Deprecated/internal
         "RobloxLocked", -- Internal

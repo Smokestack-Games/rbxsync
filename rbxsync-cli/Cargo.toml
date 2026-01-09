@@ -15,12 +15,14 @@ serde = { workspace = true }
 serde_json = { workspace = true }
 rbx_dom_weak = { workspace = true }
 rbx_binary = { workspace = true }
+rbx_xml = { workspace = true }
 tokio = { workspace = true }
 clap = { workspace = true }
 anyhow = { workspace = true }
 tracing = { workspace = true }
 tracing-subscriber = { workspace = true }
 reqwest = { workspace = true }
+notify = { workspace = true }
 
 [target.'cfg(unix)'.dependencies]
 libc = "0.2"
