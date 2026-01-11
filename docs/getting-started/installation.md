@@ -84,28 +84,25 @@ rbxsync build-plugin --install
 
 ## 3. Install VS Code Extension (Optional)
 
+**Option A: Download pre-built extension (recommended)**
+1. Download `rbxsync-*.vsix` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
+2. In VS Code: `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows)
+3. Type "Extensions: Install from VSIX"
+4. Select the downloaded `.vsix` file
+
+**Option B: Build from source**
+
+::: warning
+This requires Node.js installed.
+:::
+
 ```bash
 cd rbxsync-vscode
 npm install
 npm run build
 npm run package
-```
-
-Then install the `.vsix` file:
-
-**Option 1: VS Code UI (Recommended)**
-1. Press `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows)
-2. Type "Extensions: Install from VSIX"
-3. Select `rbxsync-1.0.0.vsix`
-
-**Option 2: Command line**
-```bash
 code --install-extension rbxsync-1.0.0.vsix
 ```
-
-::: tip
-If `code` command is not found on Mac, open VS Code, press `Cmd+Shift+P`, and run "Shell Command: Install 'code' command in PATH"
-:::
 
 ## Verify Installation
 

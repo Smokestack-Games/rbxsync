@@ -3934,25 +3934,31 @@
                     <div class="step-content">
                         <h4>Install VS Code Extension (Optional)</h4>
                         <p>For the best experience, install the VS Code extension.</p>
-                        <div class="code-block-wrapper">
-                            <div class="code-block" data-copy="cd rbxsync-vscode && npm install && npm run build && npm run package">
-                                <span class="comment"># Build the extension</span><br>
-                                <span class="cmd">cd</span> rbxsync-vscode<br>
-                                <span class="cmd">npm install</span><br>
-                                <span class="cmd">npm run build</span><br>
-                                <span class="cmd">npm run package</span><br><br>
-                                <span class="comment"># Install the .vsix file (pick one):</span><br><br>
-                                <span class="comment"># Option 1: VS Code UI (Recommended)</span><br>
-                                <span class="comment"># 1. Press <span class="os-inline active" data-os="mac">Cmd+Shift+P</span><span class="os-inline" data-os="windows">Ctrl+Shift+P</span></span><br>
-                                <span class="comment"># 2. Type "Extensions: Install from VSIX"</span><br>
-                                <span class="comment"># 3. Select rbxsync-1.0.0.vsix from the file picker</span><br><br>
-                                <span class="comment"># Option 2: Command line</span><br>
-                                <span class="cmd">code</span> --install-extension rbxsync-1.0.0.vsix
+                        <div class="install-options" style="display: flex; flex-direction: column; gap: 1rem;">
+                            <div class="install-option" style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">Option A: Download (Recommended)</div>
+                                <ol style="margin: 0; padding-left: 1.25rem; color: var(--text-secondary); font-size: 0.875rem;">
+                                    <li>Download <code>rbxsync-*.vsix</code> from <a href="https://github.com/devmarissa/rbxsync/releases" target="_blank">GitHub Releases</a></li>
+                                    <li>In VS Code: <code><span class="os-inline active" data-os="mac">Cmd+Shift+P</span><span class="os-inline" data-os="windows">Ctrl+Shift+P</span></code></li>
+                                    <li>Type "Extensions: Install from VSIX"</li>
+                                    <li>Select the downloaded file</li>
+                                </ol>
                             </div>
-                            <button class="copy-btn" aria-label="Copy to clipboard">
-                                <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                            </button>
+                            <details style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;">
+                                <summary style="padding: 1rem; cursor: pointer; color: var(--text-secondary); font-size: 0.875rem;">Option B: Build from source</summary>
+                                <div class="code-block-wrapper" style="padding: 0 1rem 1rem;">
+                                    <div class="code-block" data-copy="cd rbxsync-vscode && npm install && npm run package && code --install-extension rbxsync-1.0.0.vsix">
+                                        <span class="cmd">cd</span> rbxsync-vscode<br>
+                                        <span class="cmd">npm install</span><br>
+                                        <span class="cmd">npm run package</span><br>
+                                        <span class="cmd">code</span> --install-extension rbxsync-1.0.0.vsix
+                                    </div>
+                                    <button class="copy-btn" aria-label="Copy to clipboard">
+                                        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
+                                        <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
+                                    </button>
+                                </div>
+                            </details>
                         </div>
                     </div>
                 </div>
