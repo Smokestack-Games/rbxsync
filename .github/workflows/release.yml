@@ -1,0 +1,73 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - 'v*'
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    name: Build and Release
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-action@stable
+
+      - name: Build CLI
+        run: cargo build --release -p rbxsync
+
+      - name: Build Plugin
+        run: ./target/release/rbxsync build-plugin
+
+      - name: Get version from tag
+        id: version
+        run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          # Get commits since last tag
+          PREV_TAG=$(git describe --tags --abbrev=0 HEAD^ 2>/dev/null || echo "")
+          if [ -n "$PREV_TAG" ]; then
+            CHANGES=$(git log --pretty=format:"- %s" $PREV_TAG..HEAD --no-merges)
+          else
+            CHANGES=$(git log --pretty=format:"- %s" --no-merges -10)
+          fi
+
+          # Write to file for multiline support
+          echo "## Changes" > changelog.md
+          echo "" >> changelog.md
+          echo "$CHANGES" >> changelog.md
+          echo "" >> changelog.md
+          echo "## Installation" >> changelog.md
+          echo "" >> changelog.md
+          echo "**Option 1: Update existing installation**" >> changelog.md
+          echo '```bash' >> changelog.md
+          echo "rbxsync update" >> changelog.md
+          echo '```' >> changelog.md
+          echo "" >> changelog.md
+          echo "**Option 2: Download plugin directly**" >> changelog.md
+          echo "Download \`RbxSync.rbxm\` below and copy to your plugins folder:" >> changelog.md
+          echo "- **macOS:** \`~/Documents/Roblox/Plugins/\`" >> changelog.md
+          echo "- **Windows:** \`%LOCALAPPDATA%\\Roblox\\Plugins\\\`" >> changelog.md
+          echo "" >> changelog.md
+          echo "Then restart Roblox Studio." >> changelog.md
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v1
+        with:
+          name: RbxSync ${{ steps.version.outputs.VERSION }}
+          body_path: changelog.md
+          files: |
+            build/RbxSync.rbxm
+          draft: false
+          prerelease: false
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
