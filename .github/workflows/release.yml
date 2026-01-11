@@ -75,6 +75,11 @@ jobs:
           echo "**VS Code Extension**" >> changelog.md
           echo "Download \`rbxsync-*.vsix\` below, then in VS Code: \`Cmd+Shift+P\` → \"Install from VSIX\"" >> changelog.md
 
+      - name: Publish VS Code Extension
+        working-directory: rbxsync-vscode
+        run: npx vsce publish --pat ${{ secrets.VSCE_PAT }}
+        continue-on-error: true  # Don't fail release if marketplace publish fails
+
       - name: Create Release
         uses: softprops/action-gh-release@v1
         with:
