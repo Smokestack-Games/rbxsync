@@ -66,13 +66,17 @@ Copy-Item target\release\rbxsync.exe C:\Windows\System32\
 
 ## 2. Install Studio Plugin
 
-**Option A: Download pre-built plugin (recommended)**
+**Option A: Roblox Creator Store (recommended)**
+
+Install from the [Roblox Creator Store](https://create.roblox.com/store/asset/105132526235830/RbxSync) - updates automatically.
+
+**Option B: Download from GitHub**
 1. Download `RbxSync.rbxm` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
 2. Copy to your plugins folder:
    - **macOS:** `~/Documents/Roblox/Plugins/`
    - **Windows:** `%LOCALAPPDATA%\Roblox\Plugins\`
 
-**Option B: Build from source**
+**Option C: Build from source**
 
 ::: warning
 This requires completing Step 1 above AND adding rbxsync to your PATH.
@@ -84,13 +88,17 @@ rbxsync build-plugin --install
 
 ## 3. Install VS Code Extension (Optional)
 
-**Option A: Download pre-built extension (recommended)**
+**Option A: VS Code Marketplace (recommended)**
+
+Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/items?itemName=rbxsync.rbxsync) or search "RbxSync" in the VS Code Extensions panel.
+
+**Option B: Download from GitHub**
 1. Download `rbxsync-*.vsix` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
 2. In VS Code: `Cmd+Shift+P` (Mac) or `Ctrl+Shift+P` (Windows)
 3. Type "Extensions: Install from VSIX"
 4. Select the downloaded `.vsix` file
 
-**Option B: Build from source**
+**Option C: Build from source**
 
 ::: warning
 This requires Node.js installed.
@@ -99,7 +107,6 @@ This requires Node.js installed.
 ```bash
 cd rbxsync-vscode
 npm install
-npm run build
 npm run package
 code --install-extension rbxsync-*.vsix
 ```

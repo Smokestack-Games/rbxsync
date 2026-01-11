@@ -317,7 +317,7 @@ async fn main() -> Result<()> {
             cmd_update(no_pull, vscode)?;
         }
         Commands::Version => {
-            cmd_version()?;
+            cmd_version().await?;
         }
         Commands::Flux { local, set_api_key } => {
             // Flux agent is not yet implemented in the CLI
@@ -2003,8 +2003,25 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
     Ok(())
 }
 
+/// Compare semver versions (returns true if latest > current)
+fn is_newer_version(latest: &str, current: &str) -> bool {
+    let parse = |v: &str| -> (u32, u32, u32) {
+        let parts: Vec<&str> = v.trim_start_matches('v').split('.').collect();
+        (
+            parts.first().and_then(|s| s.parse().ok()).unwrap_or(0),
+            parts.get(1).and_then(|s| s.parse().ok()).unwrap_or(0),
+            parts.get(2).and_then(|s| s.parse().ok()).unwrap_or(0),
+        )
+    };
+    let (l_maj, l_min, l_pat) = parse(latest);
+    let (c_maj, c_min, c_pat) = parse(current);
+    if l_maj != c_maj { return l_maj > c_maj; }
+    if l_min != c_min { return l_min > c_min; }
+    l_pat > c_pat
+}
+
 /// Show version information
-fn cmd_version() -> Result<()> {
+async fn cmd_version() -> Result<()> {
     let version = env!("CARGO_PKG_VERSION");
 
     println!("RbxSync v{}", version);
@@ -2021,9 +2038,44 @@ fn cmd_version() -> Result<()> {
         }
     }
 
-    // Check if there are updates available
+    // Check for updates from GitHub releases
     println!();
-    println!("To update: rbxsync update");
+    print!("Checking for updates... ");
+
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(5))
+        .build()?;
+
+    match client
+        .get("https://api.github.com/repos/devmarissa/rbxsync/releases/latest")
+        .header("User-Agent", "rbxsync-cli")
+        .send()
+        .await
+    {
+        Ok(response) => {
+            if let Ok(release) = response.json::<serde_json::Value>().await {
+                if let Some(tag) = release.get("tag_name").and_then(|t| t.as_str()) {
+                    let latest = tag.trim_start_matches('v');
+                    if is_newer_version(latest, version) {
+                        println!("\x1b[33mUpdate available: v{}\x1b[0m", latest);
+                        println!("  Run: rbxsync update");
+                        println!("  Or download: https://github.com/devmarissa/rbxsync/releases/latest");
+                    } else {
+                        println!("\x1b[32mUp to date!\x1b[0m");
+                    }
+                } else {
+                    println!("Could not parse version");
+                }
+            } else {
+                println!("Could not parse response");
+            }
+        }
+        Err(_) => {
+            println!("Could not check (offline?)");
+        }
+    }
+
+    println!();
     println!("Documentation: https://rbxsync.dev");
 
     Ok(())

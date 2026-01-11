@@ -3891,15 +3891,26 @@
                     <div class="step-num">2</div>
                     <div class="step-content">
                         <h4>Install Studio Plugin</h4>
-                        <p>Build and install the Roblox Studio plugin, or download directly.</p>
+                        <p>Install from the Roblox Creator Store for auto-updates, or build from source.</p>
+
+                        <div class="install-options" style="display: flex; flex-direction: column; gap: 1rem; margin-bottom: 1rem;">
+                            <div class="install-option" style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">Option A: Roblox Creator Store (Recommended)</div>
+                                <p style="margin: 0 0 0.75rem; color: var(--text-secondary); font-size: 0.9rem;">One-click install with automatic updates.</p>
+                                <a href="https://create.roblox.com/store/asset/105132526235830/RbxSync" target="_blank" rel="noopener noreferrer" class="btn btn-primary" style="display: inline-flex; align-items: center; gap: 0.5rem;">
+                                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+                                    Get on Creator Store
+                                </a>
+                            </div>
+                        </div>
 
                         <!-- macOS Plugin -->
                         <div class="os-content active" data-os="mac">
                             <div class="code-block-wrapper">
                                 <div class="code-block" data-copy="rbxsync build-plugin --install">
-                                    <span class="comment"># Option 1: Build from source</span><br>
+                                    <span class="comment"># Option B: Build from source</span><br>
                                     <span class="cmd">rbxsync build-plugin</span> --install<br><br>
-                                    <span class="comment"># Option 2: Download from GitHub releases</span><br>
+                                    <span class="comment"># Option C: Download from GitHub releases</span><br>
                                     <span class="comment"># https://github.com/devmarissa/rbxsync/releases</span><br>
                                     <span class="comment"># Copy RbxSync.rbxm to ~/Documents/Roblox/Plugins/</span>
                                 </div>
@@ -3914,9 +3925,9 @@
                         <div class="os-content" data-os="windows">
                             <div class="code-block-wrapper">
                                 <div class="code-block" data-copy="rbxsync build-plugin --install">
-                                    <span class="comment"># Option 1: Build from source</span><br>
+                                    <span class="comment"># Option B: Build from source</span><br>
                                     <span class="cmd">rbxsync build-plugin</span> --install<br><br>
-                                    <span class="comment"># Option 2: Download from GitHub releases (easiest!)</span><br>
+                                    <span class="comment"># Option C: Download from GitHub releases</span><br>
                                     <span class="comment"># https://github.com/devmarissa/rbxsync/releases</span><br>
                                     <span class="comment"># Copy RbxSync.rbxm to %LOCALAPPDATA%\Roblox\Plugins\</span>
                                 </div>
@@ -3936,16 +3947,22 @@
                         <p>For the best experience, install the VS Code extension.</p>
                         <div class="install-options" style="display: flex; flex-direction: column; gap: 1rem;">
                             <div class="install-option" style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px; padding: 1rem;">
-                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">Option A: Download (Recommended)</div>
-                                <ol style="margin: 0; padding-left: 1.25rem; color: var(--text-secondary); font-size: 0.875rem;">
+                                <div style="font-weight: 600; margin-bottom: 0.5rem; color: var(--text-primary);">Option A: VS Code Marketplace (Recommended)</div>
+                                <p style="margin: 0; color: var(--text-secondary); font-size: 0.875rem;">
+                                    Install from the <a href="https://marketplace.visualstudio.com/items?itemName=rbxsync.rbxsync" target="_blank">VS Code Marketplace</a> or search "RbxSync" in Extensions.
+                                </p>
+                            </div>
+                            <details style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;">
+                                <summary style="padding: 1rem; cursor: pointer; color: var(--text-secondary); font-size: 0.875rem;">Option B: Download from GitHub</summary>
+                                <ol style="margin: 0; padding: 0 1rem 1rem 2.25rem; color: var(--text-secondary); font-size: 0.875rem;">
                                     <li>Download <code>rbxsync-*.vsix</code> from <a href="https://github.com/devmarissa/rbxsync/releases" target="_blank">GitHub Releases</a></li>
                                     <li>In VS Code: <code><span class="os-inline active" data-os="mac">Cmd+Shift+P</span><span class="os-inline" data-os="windows">Ctrl+Shift+P</span></code></li>
                                     <li>Type "Extensions: Install from VSIX"</li>
                                     <li>Select the downloaded file</li>
                                 </ol>
-                            </div>
+                            </details>
                             <details style="background: var(--bg-secondary); border: 1px solid var(--border); border-radius: 8px;">
-                                <summary style="padding: 1rem; cursor: pointer; color: var(--text-secondary); font-size: 0.875rem;">Option B: Build from source</summary>
+                                <summary style="padding: 1rem; cursor: pointer; color: var(--text-secondary); font-size: 0.875rem;">Option C: Build from source</summary>
                                 <div class="code-block-wrapper" style="padding: 0 1rem 1rem;">
                                     <div class="code-block" data-copy="cd rbxsync-vscode && npm install && npm run package && code --install-extension rbxsync-*.vsix">
                                         <span class="cmd">cd</span> rbxsync-vscode<br>

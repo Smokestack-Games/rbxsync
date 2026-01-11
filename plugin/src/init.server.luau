@@ -20,6 +20,8 @@ local LogService = game:GetService("LogService")
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 50 -- instances per chunk (Roblox HttpService has 1MB limit)
+local PLUGIN_VERSION = "1.0.2" -- Current plugin version (update on release)
+local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)
@@ -57,6 +59,63 @@ local syncSettings = {
     studioToFiles = false,  -- Auto-extract Studio changes to files
     filesToStudio = false,  -- Sync file changes to Studio
 }
+
+-- Update checker state
+local updateAvailableVersion: string? = nil
+
+-- Version comparison helper
+local function isNewerVersion(latest: string, current: string): boolean
+    local function parseVersion(v: string): (number, number, number)
+        local major, minor, patch = v:match("(%d+)%.(%d+)%.(%d+)")
+        return tonumber(major) or 0, tonumber(minor) or 0, tonumber(patch) or 0
+    end
+    local lMaj, lMin, lPat = parseVersion(latest)
+    local cMaj, cMin, cPat = parseVersion(current)
+    if lMaj ~= cMaj then return lMaj > cMaj end
+    if lMin ~= cMin then return lMin > cMin end
+    return lPat > cPat
+end
+
+-- Check for updates from GitHub releases
+local function checkForUpdates()
+    -- Only check once per 24 hours
+    local lastCheck = Config.getLastUpdateCheck()
+    local now = os.time()
+    if now - lastCheck < UPDATE_CHECK_INTERVAL then
+        -- Load cached update status
+        updateAvailableVersion = Config.getUpdateAvailable()
+        return
+    end
+
+    -- Check GitHub releases API (runs in background)
+    task.spawn(function()
+        local url = "https://api.github.com/repos/devmarissa/rbxsync/releases/latest"
+        local success, response = pcall(function()
+            return HttpService:GetAsync(url)
+        end)
+
+        if success then
+            local ok, data = pcall(function()
+                return HttpService:JSONDecode(response)
+            end)
+
+            if ok and data and data.tag_name then
+                local latestVersion = data.tag_name:gsub("^v", "")
+                if isNewerVersion(latestVersion, PLUGIN_VERSION) then
+                    updateAvailableVersion = latestVersion
+                    Config.setUpdateAvailable(latestVersion)
+                    print("[RbxSync] Update available: v" .. latestVersion .. " (current: v" .. PLUGIN_VERSION .. ")")
+                    print("[RbxSync] Download at: https://github.com/devmarissa/rbxsync/releases")
+                else
+                    updateAvailableVersion = nil
+                    Config.setUpdateAvailable(nil)
+                end
+            end
+        end
+
+        Config.setLastUpdateCheck(now)
+    end)
+end
 
 -- Forward declaration for UI update function (defined later)
 local updateConnectionUI: () -> ()
@@ -2333,3 +2392,6 @@ task.spawn(function()
         task.wait(5)
     end
 end)
+
+-- Check for updates on startup
+task.spawn(checkForUpdates)

@@ -147,4 +147,28 @@ function Config.setProjectDir(dir: string)
     Config.addRecentProject(dir)
 end
 
+-- Get last update check timestamp
+function Config.getLastUpdateCheck(): number
+    if not pluginRef then return 0 end
+    return pluginRef:GetSetting("RbxSync_LastUpdateCheck") or 0
+end
+
+-- Set last update check timestamp
+function Config.setLastUpdateCheck(timestamp: number)
+    if not pluginRef then return end
+    pluginRef:SetSetting("RbxSync_LastUpdateCheck", timestamp)
+end
+
+-- Get available update version (nil if none)
+function Config.getUpdateAvailable(): string?
+    if not pluginRef then return nil end
+    return pluginRef:GetSetting("RbxSync_UpdateAvailable")
+end
+
+-- Set available update version
+function Config.setUpdateAvailable(version: string?)
+    if not pluginRef then return end
+    pluginRef:SetSetting("RbxSync_UpdateAvailable", version)
+end
+
 return Config
