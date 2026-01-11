@@ -1,6 +1,10 @@
 --!strict
 --[[
     RbxSync Studio Plugin
+    Copyright (c) 2026 Smokestack Games. All rights reserved.
+
+    This software is proprietary. Unauthorized copying, modification,
+    distribution, or use is strictly prohibited. See LICENSE for details.
 
     Extracts complete game DataModel with ALL properties using reflection.
     Communicates with local RbxSync server via HTTP.
