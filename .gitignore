@@ -27,3 +27,6 @@ testing/
 
 # Plugin build artifacts in wrong locations
 plugin/*.rbxm
+
+# Experimental
+flux-agent/

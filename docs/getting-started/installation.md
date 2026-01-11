@@ -66,16 +66,21 @@ Copy-Item target\release\rbxsync.exe C:\Windows\System32\
 
 ## 2. Install Studio Plugin
 
-**Option A: Build from source**
-```bash
-rbxsync build-plugin --install
-```
-
-**Option B: Download pre-built plugin (easiest)**
+**Option A: Download pre-built plugin (recommended)**
 1. Download `RbxSync.rbxm` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
 2. Copy to your plugins folder:
    - **macOS:** `~/Documents/Roblox/Plugins/`
    - **Windows:** `%LOCALAPPDATA%\Roblox\Plugins\`
+
+**Option B: Build from source**
+
+::: warning
+This requires completing Step 1 above AND adding rbxsync to your PATH.
+:::
+
+```bash
+rbxsync build-plugin --install
+```
 
 ## 3. Install VS Code Extension (Optional)
 
