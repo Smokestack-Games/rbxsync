@@ -20,7 +20,7 @@ local LogService = game:GetService("LogService")
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 50 -- instances per chunk (Roblox HttpService has 1MB limit)
-local PLUGIN_VERSION = "1.0.3" -- Current plugin version (update on release)
+local PLUGIN_VERSION = "1.0.4" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
