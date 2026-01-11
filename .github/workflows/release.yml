@@ -26,6 +26,18 @@ jobs:
       - name: Build Plugin
         run: ./target/release/rbxsync build-plugin
 
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Build VS Code Extension
+        working-directory: rbxsync-vscode
+        run: |
+          npm ci
+          npm run build
+          npx vsce package
+
       - name: Get version from tag
         id: version
         run: echo "VERSION=${GITHUB_REF#refs/tags/}" >> $GITHUB_OUTPUT
@@ -59,6 +71,9 @@ jobs:
           echo "- **Windows:** \`%LOCALAPPDATA%\\Roblox\\Plugins\\\`" >> changelog.md
           echo "" >> changelog.md
           echo "Then restart Roblox Studio." >> changelog.md
+          echo "" >> changelog.md
+          echo "**VS Code Extension**" >> changelog.md
+          echo "Download \`rbxsync-*.vsix\` below, then in VS Code: \`Cmd+Shift+P\` → \"Install from VSIX\"" >> changelog.md
 
       - name: Create Release
         uses: softprops/action-gh-release@v1
@@ -67,6 +82,7 @@ jobs:
           body_path: changelog.md
           files: |
             build/RbxSync.rbxm
+            rbxsync-vscode/*.vsix
           draft: false
           prerelease: false
         env:
