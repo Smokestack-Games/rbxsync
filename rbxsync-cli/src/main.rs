@@ -1333,6 +1333,48 @@ async fn cmd_sync(path: Option<PathBuf>, delete: bool) -> Result<()> {
         }
     }
 
+    // Check for terrain data and sync if present
+    let terrain_file = project_dir.join("src").join("Workspace").join("Terrain").join("terrain.rbxjson");
+    if terrain_file.exists() {
+        println!("Syncing terrain...");
+
+        // Read terrain data
+        let terrain_json = std::fs::read_to_string(&terrain_file)
+            .context("Failed to read terrain file")?;
+        let terrain_data: serde_json::Value = serde_json::from_str(&terrain_json)
+            .context("Failed to parse terrain file")?;
+
+        // Send terrain sync command
+        let terrain_response = client
+            .post("http://localhost:44755/sync/command")
+            .json(&serde_json::json!({
+                "command": "terrain:sync",
+                "payload": {
+                    "terrain": terrain_data,
+                    "clear": true
+                }
+            }))
+            .send()
+            .await
+            .context("Failed to sync terrain")?;
+
+        let terrain_result: serde_json::Value = terrain_response.json().await?;
+
+        if terrain_result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+            let chunks = terrain_result.get("data")
+                .and_then(|d| d.get("chunksApplied"))
+                .and_then(|c| c.as_u64())
+                .unwrap_or(0);
+            println!("\x1b[32m✓ Synced {} terrain chunks.\x1b[0m", chunks);
+        } else {
+            let error = terrain_result.get("error")
+                .or_else(|| terrain_result.get("data").and_then(|d| d.get("error")))
+                .and_then(|e| e.as_str())
+                .unwrap_or("Unknown error");
+            println!("\x1b[33m⚠ Terrain sync failed: {}\x1b[0m", error);
+        }
+    }
+
     Ok(())
 }
 

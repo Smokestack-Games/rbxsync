@@ -1237,7 +1237,7 @@ async fn handle_extract_terrain(Json(req): Json<TerrainRequest>) -> impl IntoRes
     }
 
     // Write terrain data to file
-    let terrain_file = terrain_dir.join("terrain.json");
+    let terrain_file = terrain_dir.join("terrain.rbxjson");
     let terrain_json = match serde_json::to_string_pretty(&req.terrain) {
         Ok(json) => json,
         Err(e) => {
