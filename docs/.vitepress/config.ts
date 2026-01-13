@@ -20,7 +20,7 @@ export default defineConfig({
 
   themeConfig: {
     logo: { src: '/logo.png', link: 'https://rbxsync.dev' },
-    siteTitle: 'RbxSync Docs',
+    siteTitle: 'RbxSync',
 
     nav: [
       { text: 'Guide', link: '/getting-started/' },
