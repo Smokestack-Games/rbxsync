@@ -33,8 +33,8 @@ export type TerrainData = {
 
 local TerrainHandler = {}
 
--- Get terrain bounding region
-local function getTerrainBounds(): (Vector3, Vector3)?
+-- Get terrain bounding region (returns nil if no terrain)
+local function getTerrainBounds()
     if not Terrain then
         return nil
     end
@@ -121,8 +121,8 @@ local function rleCompress(data: {number}): {number}
     return result
 end
 
--- Extract terrain chunk at given position
-local function extractChunk(chunkX: number, chunkY: number, chunkZ: number): TerrainChunk?
+-- Extract terrain chunk at given position (returns nil for empty chunks)
+local function extractChunk(chunkX: number, chunkY: number, chunkZ: number)
     if not Terrain then
         return nil
     end
@@ -171,8 +171,8 @@ local function extractChunk(chunkX: number, chunkY: number, chunkZ: number): Ter
     }
 end
 
--- Extract all terrain
-function TerrainHandler.extractTerrain(): TerrainData?
+-- Extract all terrain (returns nil if no terrain service)
+function TerrainHandler.extractTerrain()
     if not Terrain then
         return nil
     end
