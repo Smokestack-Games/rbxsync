@@ -171,4 +171,33 @@ function Config.setUpdateAvailable(version: string?)
     pluginRef:SetSetting("RbxSync_UpdateAvailable", version)
 end
 
+-- Get auto-connect setting (default: true for backward compatibility)
+function Config.getAutoConnect(): boolean
+    if not pluginRef then return true end
+    local value = pluginRef:GetSetting("RbxSync_AutoConnect")
+    -- Default to true if not set
+    if value == nil then return true end
+    return value == true
+end
+
+-- Set auto-connect setting
+function Config.setAutoConnect(enabled: boolean)
+    if not pluginRef then return end
+    pluginRef:SetSetting("RbxSync_AutoConnect", enabled)
+end
+
+-- Get auto-extract setting (default: true)
+function Config.getAutoExtract(): boolean
+    if not pluginRef then return true end
+    local value = pluginRef:GetSetting("RbxSync_AutoExtract")
+    if value == nil then return true end
+    return value == true
+end
+
+-- Set auto-extract setting
+function Config.setAutoExtract(enabled: boolean)
+    if not pluginRef then return end
+    pluginRef:SetSetting("RbxSync_AutoExtract", enabled)
+end
+
 return Config

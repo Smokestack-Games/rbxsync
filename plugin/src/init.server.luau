@@ -301,6 +301,79 @@ local function getInstanceBreakdown(): {total: number, classes: {[string]: numbe
     return { total = total, classes = classes, scripts = scripts }
 end
 
+-- Get optimization-related stats (lights, animations, meshes, etc.)
+local function getOptimizationStats(): {lights: number, animations: number, skinnedMeshes: number, sounds: number, particles: number, meshParts: number, unions: number}
+    local servicesToCount = {
+        "Workspace",
+        "ReplicatedStorage",
+        "ReplicatedFirst",
+        "ServerScriptService",
+        "ServerStorage",
+        "StarterGui",
+        "StarterPack",
+        "StarterPlayer",
+        "Lighting",
+        "SoundService",
+    }
+
+    local stats = {
+        lights = 0,
+        animations = 0,
+        skinnedMeshes = 0,
+        sounds = 0,
+        particles = 0,
+        meshParts = 0,
+        unions = 0,
+    }
+
+    for _, serviceName in servicesToCount do
+        local service = game:FindFirstChild(serviceName)
+        if service then
+            for _, desc in service:GetDescendants() do
+                if desc:IsA("Light") then
+                    stats.lights += 1
+                elseif desc:IsA("Animation") or desc:IsA("AnimationTrack") then
+                    stats.animations += 1
+                elseif desc:IsA("MeshPart") then
+                    stats.meshParts += 1
+                    -- Check for skinned mesh (has bone attachments or wrap layers)
+                    if desc:FindFirstChildOfClass("Bone") or desc:FindFirstChildOfClass("WrapTarget") or desc:FindFirstChildOfClass("WrapLayer") then
+                        stats.skinnedMeshes += 1
+                    end
+                elseif desc:IsA("Sound") then
+                    stats.sounds += 1
+                elseif desc:IsA("ParticleEmitter") or desc:IsA("Beam") or desc:IsA("Trail") then
+                    stats.particles += 1
+                elseif desc:IsA("UnionOperation") then
+                    stats.unions += 1
+                end
+            end
+        end
+    end
+
+    return stats
+end
+
+-- Get optimization stats display string
+local function getOptimizationStatsString(): string
+    local stats = getOptimizationStats()
+    local parts = {}
+
+    if stats.lights > 0 then table.insert(parts, formatNumber(stats.lights) .. " lights") end
+    if stats.meshParts > 0 then table.insert(parts, formatNumber(stats.meshParts) .. " meshes") end
+    if stats.skinnedMeshes > 0 then table.insert(parts, formatNumber(stats.skinnedMeshes) .. " skinned") end
+    if stats.sounds > 0 then table.insert(parts, formatNumber(stats.sounds) .. " sounds") end
+    if stats.particles > 0 then table.insert(parts, formatNumber(stats.particles) .. " particles") end
+    if stats.unions > 0 then table.insert(parts, formatNumber(stats.unions) .. " unions") end
+    if stats.animations > 0 then table.insert(parts, formatNumber(stats.animations) .. " anims") end
+
+    if #parts == 0 then
+        return ""
+    end
+
+    return table.concat(parts, " • ")
+end
+
 -- Get clean instance display string
 local function getClassBreakdownString(): string
     local breakdown = getInstanceBreakdown()
@@ -1896,6 +1969,18 @@ instanceLine.TextXAlignment = Enum.TextXAlignment.Left
 instanceLine.LayoutOrder = 2
 instanceLine.Parent = infoFrame
 
+-- Optimization stats line (lights, meshes, sounds, etc.)
+local optimizationLine = Instance.new("TextLabel")
+optimizationLine.Size = UDim2.new(1, 0, 0, 14)
+optimizationLine.BackgroundTransparency = 1
+optimizationLine.Text = ""
+optimizationLine.TextColor3 = Colors.textMuted
+optimizationLine.TextSize = 10
+optimizationLine.Font = Enum.Font.Gotham
+optimizationLine.TextXAlignment = Enum.TextXAlignment.Left
+optimizationLine.LayoutOrder = 3
+optimizationLine.Parent = infoFrame
+
 -- Status line (dynamic updates)
 local statusLine = Instance.new("TextLabel")
 statusLine.Size = UDim2.new(1, 0, 0, 14)
@@ -1941,6 +2026,11 @@ local function updateInfoDisplay()
 
     -- Update instance breakdown (classes instead of just count)
     instanceLine.Text = getClassBreakdownString()
+
+    -- Update optimization stats
+    local optStats = getOptimizationStatsString()
+    optimizationLine.Text = optStats
+    optimizationLine.Visible = optStats ~= ""
 end
 
 -- ============================================================================
@@ -2322,6 +2412,17 @@ filesToStudioCheckbox = createCheckbox(
     end
 )
 
+-- Auto-connect checkbox
+createCheckbox(
+    syncOptionsSection, 68,
+    "Auto-connect on startup",
+    Config.getAutoConnect(),
+    nil,  -- No confirmation needed
+    function(checked)
+        Config.setAutoConnect(checked)
+    end
+)
+
 -- ============================================================================
 -- Panel Button
 -- ============================================================================
@@ -2341,11 +2442,11 @@ end)
 
 task.spawn(pollLoop)
 
--- Connection check loop (respects userDisconnected flag)
+-- Connection check loop (respects userDisconnected flag and auto-connect setting)
 task.spawn(function()
     while true do
-        -- Only auto-reconnect if user hasn't explicitly disconnected
-        if not userDisconnected then
+        -- Only auto-reconnect if user hasn't explicitly disconnected AND auto-connect is enabled
+        if not userDisconnected and Config.getAutoConnect() then
             local wasConnected = isConnected
             local success, _ = httpGet("/health")
 
@@ -2354,6 +2455,20 @@ task.spawn(function()
                 isConnected = success
                 if isConnected then
                     print("Connected")
+
+                    -- Auto-populate project path if empty
+                    local currentPath = Config.getProjectDir()
+                    if currentPath == "" then
+                        local infoSuccess, infoData = httpGet("/rbxsync/server-info")
+                        if infoSuccess and infoData and infoData.cwd and infoData.cwd ~= "" then
+                            Config.setProjectDir(infoData.cwd)
+                            if projectDirInput then
+                                projectDirInput.Text = infoData.cwd
+                            end
+                            print("[RbxSync] Auto-detected project: " .. infoData.cwd)
+                        end
+                    end
+
                     registerWithServer()
                     -- Start change tracker only if enabled
                     if syncSettings.studioToFiles then

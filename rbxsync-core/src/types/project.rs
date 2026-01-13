@@ -3,7 +3,7 @@
 //! Defines the `rbxsync.json` manifest format.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashSet;
+use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
 /// The main project configuration file (rbxsync.json)
@@ -29,6 +29,11 @@ pub struct ProjectConfig {
     #[serde(default)]
     pub sync: SyncConfig,
 
+    /// Custom directory-to-DataModel mapping
+    /// Keys are DataModel paths (e.g., "ServerScriptService"), values are filesystem paths (e.g., "server")
+    #[serde(default)]
+    pub tree_mapping: HashMap<String, String>,
+
     /// License information (for commercial features)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<LicenseConfig>,
@@ -50,6 +55,7 @@ impl Default for ProjectConfig {
             assets: default_assets_path(),
             config: ExtractionConfig::default(),
             sync: SyncConfig::default(),
+            tree_mapping: HashMap::new(),
             license: None,
         }
     }

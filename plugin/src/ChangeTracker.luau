@@ -129,22 +129,39 @@ local function getInstancePath(instance: Instance, forDelete: boolean?): string?
     return path
 end
 
--- Queue a change for batched sending
+-- Queue a change for batched sending (with deduplication)
 local function queueChange(instance: Instance, changeType: string, data: any?)
     local isDelete = changeType == "delete"
     local path = getInstancePath(instance, isDelete)
     if not path then
-        print("[RbxSync Debug] No path for " .. changeType .. ": " .. instance.Name)
         return
     end
 
     -- Deletes always go through - they can't be echo from file watcher
     -- Only check grace period for create/modify operations
     if changeType ~= "delete" and shouldIgnoreChange(path) then
-        print("[RbxSync Debug] Ignoring change (grace period): " .. changeType .. " " .. path)
         return
     end
 
+    -- Check if we already have a pending change for this path
+    local existing = pendingChanges[path]
+    if existing then
+        -- Update existing entry with new timestamp (reset debounce)
+        -- For deletes, always update. For other changes, merge/update.
+        if changeType == "delete" then
+            existing.changeType = "delete"
+            existing.data = nil
+        else
+            -- Keep the latest data, reset timestamp
+            if data then
+                existing.data = data
+            end
+        end
+        existing.timestamp = tick()
+        return  -- Don't log duplicate
+    end
+
+    -- New change - log and add to queue
     print("[RbxSync Debug] Queueing change: " .. changeType .. " " .. path)
 
     pendingChanges[path] = {
@@ -156,21 +173,29 @@ local function queueChange(instance: Instance, changeType: string, data: any?)
     }
 end
 
+-- Configuration
+local MAX_BATCH_SIZE = 100  -- Max changes per batch to prevent memory issues
+local DEBOUNCE_TIME = 0.3   -- 300ms debounce
+
 -- Send pending changes to server
 local function sendPendingChanges()
     if not isTracking then
         return
     end
 
-    -- Collect changes older than debounce period (300ms)
-    local debounceTime = 0.3
+    -- Collect changes older than debounce period
     local now = tick()
     local readyChanges = {}
 
     for path, change in pairs(pendingChanges) do
-        if now - change.timestamp >= debounceTime then
+        if now - change.timestamp >= DEBOUNCE_TIME then
             table.insert(readyChanges, change)
             pendingChanges[path] = nil
+
+            -- Limit batch size to prevent memory issues
+            if #readyChanges >= MAX_BATCH_SIZE then
+                break
+            end
         end
     end
 
@@ -206,7 +231,34 @@ local function sendPendingChanges()
     end)
 
     if ok and result.Success then
-        print("[RbxSync] Auto-extracted " .. #operations .. " change(s)")
+        -- Parse response to get detailed info
+        local responseOk, responseData = pcall(function()
+            return HttpService:JSONDecode(result.Body)
+        end)
+
+        if responseOk and responseData then
+            local filesWritten = responseData.filesWritten or 0
+            local errors = responseData.errors or {}
+
+            if filesWritten > 0 then
+                print("[RbxSync] Auto-extracted " .. filesWritten .. " file(s)")
+            elseif #operations > 0 then
+                warn("[RbxSync] Sync sent " .. #operations .. " changes but no files written - check project path")
+            end
+
+            if #errors > 0 then
+                warn("[RbxSync] Sync errors:")
+                for _, err in errors do
+                    warn("  " .. err)
+                end
+            end
+        else
+            print("[RbxSync] Auto-extracted " .. #operations .. " change(s)")
+        end
+    elseif ok then
+        warn("[RbxSync] Sync failed: HTTP " .. tostring(result.StatusCode))
+    else
+        warn("[RbxSync] Sync request failed")
     end
 end
 
@@ -246,6 +298,14 @@ local function trackInstanceChanges(instance: Instance)
             return
         end
 
+        -- Check if we already have a pending change - skip expensive serialization
+        local path = getInstancePath(instance, false)
+        if path and pendingChanges[path] then
+            -- Just update timestamp to reset debounce
+            pendingChanges[path].timestamp = tick()
+            return
+        end
+
         -- For scripts, track Source changes specially
         if instance:IsA("LuaSourceContainer") and property == "Source" then
             local source = ""
@@ -260,7 +320,7 @@ local function trackInstanceChanges(instance: Instance)
             return
         end
 
-        -- Serialize the changed property
+        -- Serialize the changed property (only if no pending change)
         local ok, serialized = pcall(function()
             return Serializer.serializeInstance(instance)
         end)

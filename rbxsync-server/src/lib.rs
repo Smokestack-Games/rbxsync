@@ -22,6 +22,87 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock};
 use uuid::Uuid;
 
+/// Load project config from rbxsync.json
+fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
+    let config_path = PathBuf::from(project_dir).join("rbxsync.json");
+    if config_path.exists() {
+        if let Ok(content) = std::fs::read_to_string(&config_path) {
+            if let Ok(config) = serde_json::from_str(&content) {
+                return Some(config);
+            }
+        }
+    }
+    None
+}
+
+/// Apply tree mapping to convert DataModel path to filesystem path
+fn apply_tree_mapping(datamodel_path: &str, tree_mapping: &HashMap<String, String>) -> String {
+    // Try to find longest matching prefix
+    let mut best_match: Option<(&str, &str)> = None;
+    let mut best_len = 0;
+
+    for (dm_prefix, fs_prefix) in tree_mapping {
+        if datamodel_path == dm_prefix || datamodel_path.starts_with(&format!("{}/", dm_prefix)) {
+            if dm_prefix.len() > best_len {
+                best_match = Some((dm_prefix.as_str(), fs_prefix.as_str()));
+                best_len = dm_prefix.len();
+            }
+        }
+    }
+
+    if let Some((dm_prefix, fs_prefix)) = best_match {
+        if datamodel_path == dm_prefix {
+            fs_prefix.to_string()
+        } else {
+            let suffix = &datamodel_path[dm_prefix.len() + 1..]; // Skip the '/'
+            format!("{}/{}", fs_prefix, suffix)
+        }
+    } else {
+        datamodel_path.to_string()
+    }
+}
+
+/// Apply reverse tree mapping to convert filesystem path to DataModel path
+fn apply_reverse_tree_mapping(fs_path: &str, tree_mapping: &HashMap<String, String>) -> String {
+    // Try to find longest matching prefix (reverse lookup)
+    let mut best_match: Option<(&str, &str)> = None;
+    let mut best_len = 0;
+
+    for (dm_prefix, fs_prefix) in tree_mapping {
+        if fs_path == fs_prefix || fs_path.starts_with(&format!("{}/", fs_prefix)) {
+            if fs_prefix.len() > best_len {
+                best_match = Some((dm_prefix.as_str(), fs_prefix.as_str()));
+                best_len = fs_prefix.len();
+            }
+        }
+    }
+
+    if let Some((dm_prefix, fs_prefix)) = best_match {
+        if fs_path == fs_prefix {
+            dm_prefix.to_string()
+        } else {
+            let suffix = &fs_path[fs_prefix.len() + 1..]; // Skip the '/'
+            format!("{}/{}", dm_prefix, suffix)
+        }
+    } else {
+        fs_path.to_string()
+    }
+}
+
+/// Extract tree_mapping from config JSON
+fn get_tree_mapping(config: &Option<serde_json::Value>) -> HashMap<String, String> {
+    config
+        .as_ref()
+        .and_then(|c| c.get("treeMapping"))
+        .and_then(|m| m.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 /// Server configuration
 #[derive(Debug, Clone)]
 pub struct ServerConfig {
@@ -178,6 +259,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rbxsync/register-vscode", post(handle_register_vscode))
         .route("/rbxsync/places", get(handle_list_places))
         .route("/rbxsync/workspaces", get(handle_list_workspaces))
+        .route("/rbxsync/server-info", get(handle_server_info))
         // New extraction endpoints
         .route("/extract/start", post(handle_extract_start))
         .route("/extract/chunk", post(handle_extract_chunk))
@@ -420,6 +502,18 @@ async fn handle_list_workspaces(
 
     Json(serde_json::json!({
         "workspaces": workspace_dirs
+    }))
+}
+
+/// Handle server info request - provides CWD for auto-populating project path
+async fn handle_server_info() -> impl IntoResponse {
+    let cwd = std::env::current_dir()
+        .map(|p| p.to_string_lossy().to_string())
+        .unwrap_or_default();
+
+    Json(serde_json::json!({
+        "cwd": cwd,
+        "version": env!("CARGO_PKG_VERSION"),
     }))
 }
 
@@ -745,6 +839,11 @@ async fn handle_extract_finalize(
     let session = session.as_ref().unwrap();
     let src_dir = PathBuf::from(&req.project_dir).join("src");
 
+    // Load project config and tree mapping
+    let config = load_project_config(&req.project_dir);
+    let tree_mapping = get_tree_mapping(&config);
+    tracing::info!("Tree mapping loaded: {:?}", tree_mapping);
+
     // Flatten all chunks into a single array of instances
     let mut all_instances: Vec<serde_json::Value> = Vec::new();
     for chunk in &session.data {
@@ -777,6 +876,28 @@ async fn handle_extract_finalize(
         all_paths.iter().any(|p| p.starts_with(&prefix))
     };
 
+    // Helper to normalize package paths (fix duplicated Packages folders)
+    let normalize_path = |path: &str| -> String {
+        // Fix case variations and duplications like "Packages/Packages" or "packages/Packages"
+        let mut normalized = path.to_string();
+
+        // Replace various case-insensitive duplications
+        let patterns = [
+            ("Packages/Packages/", "Packages/"),
+            ("packages/packages/", "packages/"),
+            ("Packages/packages/", "Packages/"),
+            ("packages/Packages/", "Packages/"),
+        ];
+
+        for (from, to) in patterns {
+            while normalized.contains(from) {
+                normalized = normalized.replace(from, to);
+            }
+        }
+
+        normalized
+    };
+
     // Write each instance to its own file using the path field
     let mut files_written = 0;
     let mut scripts_written = 0;
@@ -791,11 +912,17 @@ async fn handle_extract_finalize(
             continue;
         }
 
-        // Path is already '/' delimited, use directly as filesystem path
-        let full_path = src_dir.join(inst_path);
+        // Normalize path to fix package folder duplication
+        let inst_path = normalize_path(inst_path);
 
-        // Track service name (first segment of path) for folder creation
-        if let Some(service_name) = inst_path.split('/').next() {
+        // Apply tree mapping to convert DataModel path to filesystem path
+        let fs_path = apply_tree_mapping(&inst_path, &tree_mapping);
+
+        // Use mapped path for filesystem operations
+        let full_path = src_dir.join(&fs_path);
+
+        // Track service name (first segment of mapped path) for folder creation
+        if let Some(service_name) = fs_path.split('/').next() {
             service_folders.insert(service_name.to_string());
         }
 
@@ -803,6 +930,9 @@ async fn handle_extract_finalize(
         if let Some(parent) = full_path.parent() {
             let _ = std::fs::create_dir_all(parent);
         }
+
+        // Check if this instance has children (use normalized path)
+        let is_container = has_children(&inst_path);
 
         // Check if this is a script with source
         let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
@@ -828,7 +958,6 @@ async fn handle_extract_finalize(
         // Write .rbxjson file for all instances (including scripts for metadata)
         // For containers (instances with children), write _meta.rbxjson inside the folder
         // For leaf instances, write as sibling .rbxjson
-        let is_container = has_children(inst_path);
         let json_path = if is_container {
             // Container: create folder and put _meta.rbxjson inside
             let _ = std::fs::create_dir_all(&full_path);
@@ -1060,13 +1189,18 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
         );
     }
 
+    // Load project config and tree mapping
+    let config = load_project_config(&req.project_dir);
+    let tree_mapping = get_tree_mapping(&config);
+
     let mut files_written = 0;
     let mut errors: Vec<String> = Vec::new();
 
     for op in &req.operations {
-        // Convert instance path to file path
+        // Convert instance path to file path with tree mapping
         let inst_path = &op.path;
-        let full_path = src_dir.join(inst_path);
+        let fs_path = apply_tree_mapping(inst_path, &tree_mapping);
+        let full_path = src_dir.join(&fs_path);
 
         match op.change_type.as_str() {
             "delete" => {

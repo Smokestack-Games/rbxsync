@@ -2,6 +2,7 @@
 //!
 //! Command-line interface for Roblox game extraction and synchronization.
 
+use std::collections::HashSet;
 use std::fs::File;
 use std::io::BufWriter;
 use std::path::PathBuf;
@@ -13,7 +14,10 @@ use clap::{Parser, Subcommand};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rbx_dom_weak::types::Variant;
 use rbx_dom_weak::{InstanceBuilder, WeakDom};
-use rbxsync_core::{build_plugin, get_studio_plugins_folder, install_plugin, PluginBuildConfig, ProjectConfig};
+use rbxsync_core::{
+    build_plugin, find_rojo_project, get_studio_plugins_folder, install_plugin, parse_rojo_project,
+    rojo_to_tree_mapping, PluginBuildConfig, ProjectConfig,
+};
 use rbxsync_server::{run_server, ServerConfig};
 
 #[derive(Parser)]
@@ -78,6 +82,10 @@ enum Commands {
         /// Port to listen on
         #[arg(short, long, default_value = "44755")]
         port: u16,
+
+        /// Run server in background (detached)
+        #[arg(short, long)]
+        background: bool,
     },
 
     /// Stop the running sync server
@@ -202,6 +210,21 @@ enum Commands {
     /// Show current version and check for updates
     Version,
 
+    /// Migrate from Rojo project to RbxSync
+    Migrate {
+        /// Source format (currently only "rojo" is supported)
+        #[arg(long, default_value = "rojo")]
+        from: String,
+
+        /// Path to project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+
+        /// Overwrite existing rbxsync.json
+        #[arg(long)]
+        force: bool,
+    },
+
     /// Start the Flux agent (control Studio via iMessage)
     Flux {
         /// Run in local mode (terminal testing, no iMessage)
@@ -280,8 +303,8 @@ async fn main() -> Result<()> {
         } => {
             cmd_extract(service, terrain, assets, output).await?;
         }
-        Commands::Serve { port } => {
-            cmd_serve(port).await?;
+        Commands::Serve { port, background } => {
+            cmd_serve(port, background).await?;
         }
         Commands::Stop => {
             cmd_stop().await?;
@@ -347,6 +370,9 @@ async fn main() -> Result<()> {
         Commands::Uninstall { vscode, keep_repo, yes } => {
             cmd_uninstall(vscode, keep_repo, yes)?;
         }
+        Commands::Migrate { from, path, force } => {
+            cmd_migrate(from, path, force)?;
+        }
     }
 
     Ok(())
@@ -397,21 +423,41 @@ async fn cmd_init(name: Option<String>, path: Option<PathBuf>) -> Result<()> {
     let config_json = serde_json::to_string_pretty(&config)?;
     std::fs::write(&config_path, config_json).context("Failed to write rbxsync.json")?;
 
-    // Create .gitignore
+    // Create or update .gitignore (append entries instead of overwriting)
     let gitignore_path = project_dir.join(".gitignore");
-    let gitignore_content = r#"# RbxSync
-.rbxsync/
-*.rbxl
-*.rbxlx
+    let rbxsync_entries = [".rbxsync/", "*.rbxl", "*.rbxlx", ".DS_Store", "Thumbs.db"];
 
-# Binary assets (optional - uncomment to exclude)
-# assets/
+    let existing_content = if gitignore_path.exists() {
+        std::fs::read_to_string(&gitignore_path).unwrap_or_default()
+    } else {
+        String::new()
+    };
 
-# OS files
-.DS_Store
-Thumbs.db
-"#;
-    std::fs::write(&gitignore_path, gitignore_content).context("Failed to write .gitignore")?;
+    let existing_lines: HashSet<&str> = existing_content.lines().map(|l| l.trim()).collect();
+    let mut additions: Vec<&str> = Vec::new();
+
+    for entry in &rbxsync_entries {
+        if !existing_lines.contains(entry) {
+            additions.push(entry);
+        }
+    }
+
+    if !additions.is_empty() {
+        let mut new_content = existing_content.clone();
+        if !new_content.is_empty() && !new_content.ends_with('\n') {
+            new_content.push('\n');
+        }
+        new_content.push_str("\n# RbxSync\n");
+        for entry in additions {
+            new_content.push_str(entry);
+            new_content.push('\n');
+        }
+        std::fs::write(&gitignore_path, new_content).context("Failed to write .gitignore")?;
+    } else if !gitignore_path.exists() {
+        // Create new .gitignore if it doesn't exist
+        let gitignore_content = "# RbxSync\n.rbxsync/\n*.rbxl\n*.rbxlx\n\n# OS files\n.DS_Store\nThumbs.db\n";
+        std::fs::write(&gitignore_path, gitignore_content).context("Failed to write .gitignore")?;
+    }
 
     println!("Initialized RbxSync project '{}' at {:?}", project_name, project_dir);
     println!("\nProject structure:");
@@ -735,9 +781,44 @@ async fn cmd_extract(
 }
 
 /// Start the sync server
-async fn cmd_serve(port: u16) -> Result<()> {
-    println!("Starting RbxSync server on port {}...", port);
-    println!("Stop with: rbxsync stop");
+async fn cmd_serve(port: u16, background: bool) -> Result<()> {
+    if background {
+        // Spawn server as a detached background process
+        let exe = std::env::current_exe()?;
+        let mut cmd = std::process::Command::new(&exe);
+        cmd.args(["serve", "--port", &port.to_string()]);
+
+        #[cfg(unix)]
+        {
+            use std::os::unix::process::CommandExt;
+            cmd.process_group(0); // Create new process group
+        }
+
+        #[cfg(windows)]
+        {
+            use std::os::windows::process::CommandExt;
+            const DETACHED_PROCESS: u32 = 0x00000008;
+            const CREATE_NEW_PROCESS_GROUP: u32 = 0x00000200;
+            cmd.creation_flags(DETACHED_PROCESS | CREATE_NEW_PROCESS_GROUP);
+        }
+
+        let child = cmd
+            .stdin(std::process::Stdio::null())
+            .stdout(std::process::Stdio::null())
+            .stderr(std::process::Stdio::null())
+            .spawn()
+            .context("Failed to spawn background server")?;
+
+        println!("RbxSync server started in background (PID: {})", child.id());
+        println!("  Port: {}", port);
+        println!("  Stop with: rbxsync stop");
+        return Ok(());
+    }
+
+    // Foreground mode
+    println!("RbxSync server running on port {}", port);
+    println!("Stop with: Ctrl+C or `rbxsync stop` from another terminal");
+    println!("Run in background with: rbxsync serve --background");
     run_server(ServerConfig {
         port,
         ..Default::default()
@@ -2372,6 +2453,112 @@ fn cmd_uninstall(vscode: bool, keep_repo: bool, yes: bool) -> Result<()> {
         println!("Uninstall completed with some issues:");
         for err in &errors {
             println!("  - {}", err);
+        }
+    }
+
+    Ok(())
+}
+
+/// Migrate from Rojo project to RbxSync
+fn cmd_migrate(from: String, path: Option<PathBuf>, force: bool) -> Result<()> {
+    let project_dir = path.unwrap_or_else(|| std::env::current_dir().unwrap());
+
+    println!("RbxSync Migration Tool");
+    println!("======================");
+    println!();
+
+    match from.to_lowercase().as_str() {
+        "rojo" => {
+            // Find Rojo project file
+            let rojo_path = match find_rojo_project(&project_dir) {
+                Ok(path) => path,
+                Err(e) => {
+                    bail!(
+                        "No Rojo project file found in {}.\n\
+                        Expected: default.project.json or *.project.json\n\
+                        Error: {}",
+                        project_dir.display(),
+                        e
+                    );
+                }
+            };
+
+            println!("Found Rojo project: {}", rojo_path.display());
+            println!();
+
+            // Parse Rojo config
+            let rojo = parse_rojo_project(&rojo_path).context("Failed to parse Rojo project")?;
+
+            println!("Project name: {}", rojo.name);
+            println!();
+
+            // Convert to RbxSync tree_mapping
+            let tree_mapping = rojo_to_tree_mapping(&rojo);
+
+            if tree_mapping.is_empty() {
+                println!("Warning: No path mappings found in Rojo project.");
+                println!("The Rojo project may use inline definitions without $path.");
+            } else {
+                println!("Detected directory mappings:");
+                let mut sorted_mappings: Vec<_> = tree_mapping.iter().collect();
+                sorted_mappings.sort_by(|a, b| a.0.cmp(b.0));
+                for (datamodel_path, fs_path) in &sorted_mappings {
+                    println!("  {} -> {}", datamodel_path, fs_path);
+                }
+                println!();
+            }
+
+            // Check for existing rbxsync.json
+            let rbxsync_path = project_dir.join("rbxsync.json");
+            if rbxsync_path.exists() && !force {
+                bail!(
+                    "rbxsync.json already exists at {}.\n\
+                    Use --force to overwrite.",
+                    rbxsync_path.display()
+                );
+            }
+
+            // Determine source directory from Rojo config
+            let source_dir = rbxsync_core::rojo::get_source_dir(&rojo)
+                .unwrap_or_else(|| "src".to_string());
+
+            // Create RbxSync config
+            let rbxsync_config = ProjectConfig {
+                name: rojo.name.clone(),
+                tree: PathBuf::from(format!("./{}", source_dir)),
+                tree_mapping,
+                ..Default::default()
+            };
+
+            // Write rbxsync.json
+            let json = serde_json::to_string_pretty(&rbxsync_config)?;
+            std::fs::write(&rbxsync_path, &json).context("Failed to write rbxsync.json")?;
+
+            println!("Created: {}", rbxsync_path.display());
+            println!();
+
+            // Show the generated config
+            println!("Generated rbxsync.json:");
+            println!("{}", json);
+            println!();
+
+            println!("Migration complete!");
+            println!();
+            println!("Next steps:");
+            println!("  1. Review rbxsync.json and adjust settings if needed");
+            println!("  2. Start the sync server: rbxsync serve");
+            println!("  3. Connect from Roblox Studio with the RbxSync plugin");
+            println!();
+            println!("Note: Your existing Rojo project file was not modified.");
+            println!("You can keep using both tools side-by-side if desired.");
+        }
+        other => {
+            bail!(
+                "Unknown source format: '{}'\n\
+                Supported formats:\n\
+                  - rojo: Migrate from Rojo project (default.project.json)",
+                other
+            );
         }
     }
 
