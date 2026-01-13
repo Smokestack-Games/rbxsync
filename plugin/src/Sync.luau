@@ -325,11 +325,15 @@ local function findChildByName(parent: Instance, pathSegment: string): Instance?
             return child
         end
 
-        -- Try finding by source attribute
+        -- Try finding by source attribute (match the last segment of the source path)
         for _, candidate in parent:GetChildren() do
             local sourceAttr = candidate:GetAttribute(SOURCE_ATTR)
-            if sourceAttr and string.find(sourceAttr, pathSegment, 1, true) then
-                return candidate
+            if sourceAttr then
+                -- Extract the last segment of the source path and compare
+                local sourceLastSegment = string.match(sourceAttr, "[^/]+$")
+                if sourceLastSegment == pathSegment or sourceLastSegment == searchName then
+                    return candidate
+                end
             end
         end
     end
@@ -387,9 +391,10 @@ function Sync.findInstanceAtPath(path: string): Instance?
     -- First check if we created this recently (handles name mismatches)
     if recentlyCreated[path] then
         local inst = recentlyCreated[path]
-        if inst.Parent then  -- Still valid
+        if inst.Parent then  -- Still valid (not orphaned)
             return inst
         end
+        -- Instance was destroyed or orphaned, don't return stale cache entry
     end
 
     local parts = string.split(path, "/")
@@ -404,10 +409,11 @@ function Sync.findInstanceAtPath(path: string): Instance?
     for i, part in parts do
         local child = findChildByName(current, part)
         if not child then
-            -- Try recently created
+            -- Try recently created (but only if still parented)
             local partialPath = table.concat(parts, "/", 1, i)
-            if recentlyCreated[partialPath] then
-                child = recentlyCreated[partialPath]
+            local cached = recentlyCreated[partialPath]
+            if cached and cached.Parent then
+                child = cached
             end
         end
         if not child then
@@ -534,6 +540,7 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     end)
 
     if not ok or not instance then
+        warn("[Sync.createInstance] Failed to create " .. className .. ": " .. tostring(instance))
         return nil
     end
 
@@ -822,9 +829,15 @@ function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?
         end
     end
 
-    -- Cache for reference resolution
+    -- Cache for reference resolution AND register for lookup
     if data.referenceId then
         instanceCache[data.referenceId] = instance
+        -- Also register in the refId lookup cache and set attribute
+        -- This ensures reference properties (Part0, Part1, etc.) can resolve
+        Sync.registerInstanceByRefId(data.referenceId, instance)
+        pcall(function()
+            instance:SetAttribute("_rbxsync_ref", data.referenceId)
+        end)
     end
 
     return true, nil
@@ -1112,7 +1125,8 @@ function Sync.resolvePendingReferences(): number
         end
 
         -- Try to find the referenced instance
-        local target = instanceCache[refId] or instanceByRefId[refId]
+        -- Check caches first, then fall back to full search by attribute
+        local target = instanceCache[refId] or instanceByRefId[refId] or Sync.findInstanceByRefId(refId)
         if target and target.Parent then
             local ok = pcall(function()
                 (instance :: any)[propName] = target

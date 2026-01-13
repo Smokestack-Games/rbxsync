@@ -281,6 +281,69 @@ enum DebugAction {
     Status,
 }
 
+/// Check for duplicate rbxsync installations that might cause version confusion
+fn check_duplicate_installations() {
+    // Skip if we're being called recursively (to check version)
+    if std::env::var("RBXSYNC_VERSION_CHECK").is_ok() {
+        return;
+    }
+
+    let current_exe = match std::env::current_exe() {
+        Ok(path) => path,
+        Err(_) => return,
+    };
+
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    // Common installation paths to check
+    let paths_to_check = [
+        "/usr/local/bin/rbxsync",
+        "/usr/bin/rbxsync",
+        &format!("{}/.cargo/bin/rbxsync", std::env::var("HOME").unwrap_or_default()),
+    ];
+
+    for path_str in &paths_to_check {
+        let path = std::path::Path::new(path_str);
+
+        // Skip if it's the same as current exe or doesn't exist
+        if !path.exists() {
+            continue;
+        }
+
+        if let Ok(canonical_current) = current_exe.canonicalize() {
+            if let Ok(canonical_other) = path.canonicalize() {
+                if canonical_current == canonical_other {
+                    continue;
+                }
+            }
+        }
+
+        // Found a different installation - check its version
+        // Set env var to prevent recursive check
+        if let Ok(output) = std::process::Command::new(path)
+            .arg("--version")
+            .env("RBXSYNC_VERSION_CHECK", "1")
+            .output()
+        {
+            let version_output = String::from_utf8_lossy(&output.stdout);
+            let other_version = version_output
+                .split_whitespace()
+                .last()
+                .unwrap_or("unknown");
+
+            if other_version != current_version {
+                eprintln!("⚠️  Warning: Multiple rbxsync installations detected with different versions!");
+                eprintln!("   Running:  {} (v{})", current_exe.display(), current_version);
+                eprintln!("   Found:    {} (v{})", path_str, other_version);
+                eprintln!();
+                eprintln!("   This can cause confusion. To fix, remove the older version:");
+                eprintln!("   sudo rm {}", path_str);
+                eprintln!();
+            }
+        }
+    }
+}
+
 #[tokio::main]
 async fn main() -> Result<()> {
     // Initialize logging
@@ -290,6 +353,9 @@ async fn main() -> Result<()> {
                 .add_directive("rbxsync=info".parse().unwrap()),
         )
         .init();
+
+    // Check for duplicate installations that might cause confusion
+    check_duplicate_installations();
 
     let cli = Cli::parse();
 
@@ -826,6 +892,19 @@ async fn cmd_serve(port: u16, background: bool) -> Result<()> {
         std::process::exit(1);
     }
 
+    // Check if port is available before attempting to start
+    if !is_port_available(port) {
+        eprintln!("Error: Port {} is already in use.", port);
+        eprintln!();
+        eprintln!("This could mean:");
+        eprintln!("  - Another rbxsync server is already running");
+        eprintln!("  - Another application is using this port");
+        eprintln!();
+        eprintln!("Try: rbxsync stop --port {}", port);
+        eprintln!("Or use a different port: rbxsync serve --port <PORT>");
+        std::process::exit(1);
+    }
+
     if background {
         // Spawn server as a detached background process
         let exe = std::env::current_exe()?;
@@ -918,6 +997,28 @@ async fn stop_all_servers() -> Result<()> {
     Ok(())
 }
 
+/// Wait for a port to be released, polling up to `timeout_ms` milliseconds
+async fn wait_for_port_release(port: u16, timeout_ms: u64) -> bool {
+    let start = std::time::Instant::now();
+    let timeout = std::time::Duration::from_millis(timeout_ms);
+
+    while start.elapsed() < timeout {
+        // Try to bind to the port - if successful, the port is free
+        match std::net::TcpListener::bind(format!("127.0.0.1:{}", port)) {
+            Ok(_) => return true,
+            Err(_) => {
+                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
+            }
+        }
+    }
+    false
+}
+
+/// Check if a port is available
+fn is_port_available(port: u16) -> bool {
+    std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
+}
+
 /// Stop server on a specific port
 async fn stop_server_on_port(port: u16) -> Result<()> {
     // First, try to find any rbxsync server processes by port
@@ -937,29 +1038,54 @@ async fn stop_server_on_port(port: u16) -> Result<()> {
                 return Ok(());
             }
 
-            // Try graceful shutdown first
+            // Try graceful shutdown first via HTTP
             let client = reqwest::Client::builder()
                 .timeout(std::time::Duration::from_secs(2))
                 .build()?;
 
             let url = format!("http://localhost:{}/shutdown", port);
-            let graceful = client.post(&url).send().await;
+            let _ = client.post(&url).send().await;  // Ignore result, check if port is released
 
-            if graceful.is_ok() {
-                // Give it a moment to shut down
-                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+            // Wait briefly for graceful shutdown
+            if wait_for_port_release(port, 2000).await {
                 println!("Server stopped.");
                 return Ok(());
             }
 
-            // Graceful shutdown failed, force kill
-            println!("Force stopping server on port {}...", port);
-            for pid in pids {
+            // Graceful shutdown didn't work, try SIGTERM first (allows cleanup)
+            println!("Sending SIGTERM to server...");
+            for pid in &pids {
+                if let Ok(pid) = pid.trim().parse::<i32>() {
+                    unsafe {
+                        libc::kill(pid, libc::SIGTERM);
+                    }
+                }
+            }
+
+            // Wait for SIGTERM to take effect
+            if wait_for_port_release(port, 2000).await {
+                println!("Server stopped.");
+                return Ok(());
+            }
+
+            // SIGTERM didn't work, force kill with SIGKILL
+            println!("Force killing server (SIGKILL)...");
+            for pid in &pids {
                 if let Ok(pid) = pid.trim().parse::<i32>() {
                     unsafe {
                         libc::kill(pid, libc::SIGKILL);
                     }
-                    println!("Killed process {}", pid);
+                }
+            }
+
+            // Final check
+            if wait_for_port_release(port, 2000).await {
+                println!("Server stopped.");
+            } else {
+                // Last resort: print the PIDs so user can manually kill
+                println!("Warning: Could not stop server. Try manually:");
+                for pid in &pids {
+                    println!("  kill -9 {}", pid.trim());
                 }
             }
             return Ok(());
@@ -1012,10 +1138,83 @@ async fn cmd_status() -> Result<()> {
     Ok(())
 }
 
-/// Show diff
+/// Show diff between local files and Studio
 async fn cmd_diff() -> Result<()> {
-    println!("Diff functionality not yet implemented.");
-    println!("This will show differences between local files and Studio.");
+    let project_dir = std::env::current_dir().unwrap();
+    let project_dir_str = project_dir.to_string_lossy().to_string();
+
+    let client = reqwest::Client::new();
+
+    // Check server is running
+    if client.get("http://localhost:44755/health").send().await.is_err() {
+        println!("RbxSync server is not running. Start it with: rbxsync serve");
+        return Ok(());
+    }
+
+    println!("Comparing files with Studio...");
+
+    // Call diff endpoint
+    let response = client
+        .post("http://localhost:44755/diff")
+        .json(&serde_json::json!({
+            "project_dir": project_dir_str
+        }))
+        .send()
+        .await
+        .context("Failed to get diff")?;
+
+    let diff: serde_json::Value = response.json().await?;
+
+    if diff.get("success").and_then(|v| v.as_bool()) != Some(true) {
+        let error = diff.get("error").and_then(|v| v.as_str()).unwrap_or("Unknown error");
+        println!("Error: {}", error);
+        return Ok(());
+    }
+
+    let added = diff.get("added").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let removed = diff.get("removed").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+    let common = diff.get("common").and_then(|v| v.as_u64()).unwrap_or(0);
+    let file_count = diff.get("file_count").and_then(|v| v.as_u64()).unwrap_or(0);
+    let studio_count = diff.get("studio_count").and_then(|v| v.as_u64()).unwrap_or(0);
+
+    // Print added (in files, not in Studio)
+    if !added.is_empty() {
+        println!("\n\x1b[32mFiles → Studio (would be created): {}\x1b[0m", added.len());
+        for entry in added.iter().take(20) {
+            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let class = entry.get("className").and_then(|v| v.as_str()).unwrap_or("");
+            println!("  + {} ({})", path, class);
+        }
+        if added.len() > 20 {
+            println!("  ... and {} more", added.len() - 20);
+        }
+    }
+
+    // Print removed (in Studio, not in files)
+    if !removed.is_empty() {
+        println!("\n\x1b[31mStudio only (would be deleted with --delete): {}\x1b[0m", removed.len());
+        for entry in removed.iter().take(20) {
+            let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("");
+            let class = entry.get("className").and_then(|v| v.as_str()).unwrap_or("");
+            println!("  - {} ({})", path, class);
+        }
+        if removed.len() > 20 {
+            println!("  ... and {} more", removed.len() - 20);
+        }
+    }
+
+    // Summary
+    println!("\n\x1b[1mSummary:\x1b[0m");
+    println!("  Files: {} instances", file_count);
+    println!("  Studio: {} instances", studio_count);
+    println!("  Common: {} (in sync)", common);
+    println!("  Added: {} (files → studio)", added.len());
+    println!("  Removed: {} (studio only)", removed.len());
+
+    if added.is_empty() && removed.is_empty() {
+        println!("\n\x1b[32m✓ Files and Studio are in sync!\x1b[0m");
+    }
+
     Ok(())
 }
 

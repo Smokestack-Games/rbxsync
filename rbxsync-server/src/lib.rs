@@ -225,6 +225,7 @@ pub struct PluginRequest {
 pub struct PluginResponse {
     pub id: Uuid,
     pub success: bool,
+    #[serde(default)]
     pub data: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
@@ -257,6 +258,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rbxsync/response", post(handle_response))
         .route("/rbxsync/register", post(handle_register))
         .route("/rbxsync/register-vscode", post(handle_register_vscode))
+        .route("/rbxsync/update-project-path", post(handle_update_project_path))
         .route("/rbxsync/places", get(handle_list_places))
         .route("/rbxsync/workspaces", get(handle_list_workspaces))
         .route("/rbxsync/server-info", get(handle_server_info))
@@ -272,6 +274,9 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/sync/read-tree", post(handle_sync_read_tree))
         .route("/sync/from-studio", post(handle_sync_from_studio))
         .route("/sync/pending-changes", post(handle_sync_pending_changes))
+        // Diff endpoints
+        .route("/studio/paths", post(handle_studio_paths))
+        .route("/diff", post(handle_diff))
         // Git endpoints
         .route("/git/status", post(handle_git_status))
         .route("/git/log", post(handle_git_log))
@@ -362,6 +367,35 @@ async fn handle_register(
             session_id,
             req.project_dir
         );
+
+        // Check for path mismatch with VS Code workspaces
+        let workspaces = state.vscode_workspaces.read().await;
+        if !workspaces.is_empty() {
+            let studio_dir = req.project_dir.as_str();
+            let vscode_dirs: Vec<&str> = workspaces.keys().map(|s| s.as_str()).collect();
+
+            // Check if Studio project matches or is parent/child of any VS Code workspace
+            let has_match = vscode_dirs.iter().any(|vscode_dir| {
+                *vscode_dir == studio_dir
+                    || studio_dir.starts_with(*vscode_dir)
+                    || vscode_dir.starts_with(studio_dir)
+            });
+
+            if !has_match {
+                tracing::warn!(
+                    "⚠️  PATH MISMATCH: Studio project is at '{}' but VS Code is open at '{}'",
+                    studio_dir,
+                    vscode_dirs.join("', '")
+                );
+                tracing::warn!(
+                    "   Extracted files will go to '{}', not your VS Code workspace!",
+                    studio_dir
+                );
+                tracing::warn!(
+                    "   To fix: Open VS Code in the Studio project directory."
+                );
+            }
+        }
     }
 
     Json(serde_json::json!({
@@ -446,6 +480,49 @@ async fn handle_register_vscode(
 
         tracing::info!("VS Code workspace registered: {}", req.workspace_dir);
 
+        // Check for path mismatch with Studio registrations
+        let registry = state.place_registry.read().await;
+        if !registry.is_empty() {
+            let studio_dirs: Vec<&str> = registry.values().map(|p| p.project_dir.as_str()).collect();
+            let vscode_dir = req.workspace_dir.as_str();
+
+            // Check if VS Code workspace matches or is parent/child of any Studio project
+            let has_match = studio_dirs.iter().any(|studio_dir| {
+                vscode_dir == *studio_dir
+                    || studio_dir.starts_with(vscode_dir)
+                    || vscode_dir.starts_with(*studio_dir)
+            });
+
+            if !has_match {
+                tracing::warn!(
+                    "⚠️  PATH MISMATCH: VS Code is open at '{}' but Studio project is at '{}'",
+                    vscode_dir,
+                    studio_dirs.join("', '")
+                );
+                tracing::warn!(
+                    "   Extracted files will go to the Studio project path, not your VS Code workspace!"
+                );
+                tracing::warn!(
+                    "   To fix: Open VS Code in the Studio project directory, or run 'rbxsync serve' from there."
+                );
+
+                // Return early with mismatch warning
+                return Json(serde_json::json!({
+                    "success": true,
+                    "message": "Workspace registered",
+                    "path_mismatch": {
+                        "vscode_path": vscode_dir,
+                        "studio_paths": studio_dirs,
+                        "warning": format!(
+                            "VS Code is open at '{}' but Studio project is at '{}'. Extracted files will go to the Studio path, not your VS Code workspace.",
+                            vscode_dir,
+                            studio_dirs.join("', '")
+                        )
+                    }
+                }));
+            }
+        }
+
         // Start file watcher for new workspaces
         if is_new {
             let watcher_state = state.file_watcher_state.clone();
@@ -461,6 +538,71 @@ async fn handle_register_vscode(
     Json(serde_json::json!({
         "success": true,
         "message": "Workspace registered"
+    }))
+}
+
+/// Request to update Studio project path
+#[derive(Debug, Deserialize)]
+pub struct UpdateProjectPathRequest {
+    pub project_dir: String,
+}
+
+/// Handle request to update the project path for all connected Studio places
+/// This is called when VS Code wants to fix a path mismatch
+async fn handle_update_project_path(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UpdateProjectPathRequest>,
+) -> impl IntoResponse {
+    if req.project_dir.is_empty() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "Empty project directory"
+        }));
+    }
+
+    let mut registry = state.place_registry.write().await;
+    let mut updated_count = 0;
+
+    // Update all registered places to use the new project directory
+    for (_key, place_info) in registry.iter_mut() {
+        let old_path = place_info.project_dir.clone();
+        place_info.project_dir = req.project_dir.clone();
+        updated_count += 1;
+        tracing::info!(
+            "Updated Studio project path: '{}' -> '{}'",
+            old_path,
+            req.project_dir
+        );
+    }
+
+    if updated_count == 0 {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "No Studio instances connected to update"
+        }));
+    }
+
+    // Also update project queues to use the new path
+    drop(registry);
+    {
+        let mut queues = state.project_queues.write().await;
+        // Move commands from old paths to new path
+        let old_keys: Vec<String> = queues.keys().cloned().collect();
+        for old_key in old_keys {
+            if old_key != req.project_dir {
+                if let Some(commands) = queues.remove(&old_key) {
+                    queues.entry(req.project_dir.clone())
+                        .or_insert_with(VecDeque::new)
+                        .extend(commands);
+                }
+            }
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": true,
+        "message": format!("Updated {} Studio instance(s) to use path: {}", updated_count, req.project_dir),
+        "updated_count": updated_count
     }))
 }
 
@@ -505,15 +647,25 @@ async fn handle_list_workspaces(
     }))
 }
 
-/// Handle server info request - provides CWD for auto-populating project path
-async fn handle_server_info() -> impl IntoResponse {
+/// Handle server info request - provides CWD and VS Code workspaces for auto-populating project path
+async fn handle_server_info(
+    State(state): State<Arc<AppState>>,
+) -> impl IntoResponse {
     let cwd = std::env::current_dir()
         .map(|p| p.to_string_lossy().to_string())
         .unwrap_or_default();
 
+    // Get VS Code workspaces - prefer these for auto-populating project path
+    let workspaces = state.vscode_workspaces.read().await;
+    let vscode_workspaces: Vec<String> = workspaces
+        .values()
+        .map(|ws| ws.workspace_dir.clone())
+        .collect();
+
     Json(serde_json::json!({
         "cwd": cwd,
         "version": env!("CARGO_PKG_VERSION"),
+        "vscode_workspaces": vscode_workspaces,
     }))
 }
 
@@ -589,16 +741,22 @@ async fn handle_response(
     State(state): State<Arc<AppState>>,
     Json(response): Json<PluginResponse>,
 ) -> impl IntoResponse {
+    tracing::info!("Received response for request {}: success={}", response.id, response.success);
     let channels = state.response_channels.read().await;
     if let Some(sender) = channels.get(&response.id) {
+        tracing::info!("Found channel for request {}, sending response", response.id);
         let _ = sender.send(response);
+    } else {
+        tracing::warn!("No channel found for request {} - response dropped", response.id);
     }
-    StatusCode::OK
+    Json(serde_json::json!({"ok": true}))
 }
 
 /// Start extraction request
 #[derive(Debug, Deserialize)]
 pub struct ExtractStartRequest {
+    /// Project directory to extract to
+    pub project_dir: Option<String>,
     /// Services to extract
     pub services: Option<Vec<String>>,
     /// Include terrain
@@ -630,6 +788,7 @@ async fn handle_extract_start(
         id: session_uuid,
         command: "extract:start".to_string(),
         payload: serde_json::json!({
+            "project_dir": req.project_dir,
             "services": req.services.unwrap_or_default(),
             "includeTerrain": req.include_terrain.unwrap_or(true),
             "includeAssets": req.include_assets.unwrap_or(true),
@@ -860,15 +1019,47 @@ async fn handle_extract_finalize(
     // Track which services we've seen to create folders for them
     let mut service_folders: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // First pass: collect all instance paths to determine which are containers
-    let mut all_paths: std::collections::HashSet<String> = std::collections::HashSet::new();
+    // First pass: build a map from referenceId to disambiguated path
+    // This handles duplicate sibling names by appending a suffix
+    let mut path_to_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
+    let mut ref_to_path: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut duplicate_count = 0;
+
     for inst in &all_instances {
         if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
             if !path.is_empty() {
-                all_paths.insert(path.to_string());
+                let ref_id = inst.get("referenceId").and_then(|v| v.as_str()).unwrap_or("");
+                let count = path_to_count.entry(path.to_string()).or_insert(0);
+                *count += 1;
+
+                // If this is a duplicate path, append a suffix
+                let disambiguated_path = if *count > 1 {
+                    // Use referenceId suffix for disambiguation (first 8 chars)
+                    let suffix = if ref_id.len() >= 8 { &ref_id[..8] } else { ref_id };
+                    let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
+                    tracing::warn!(
+                        "Duplicate instance path detected: '{}' ({}). Disambiguating to '{}_{}'",
+                        path, class_name, path, suffix
+                    );
+                    duplicate_count += 1;
+                    format!("{}_{}", path, suffix)
+                } else {
+                    path.to_string()
+                };
+
+                if !ref_id.is_empty() {
+                    ref_to_path.insert(ref_id.to_string(), disambiguated_path);
+                }
             }
         }
     }
+
+    if duplicate_count > 0 {
+        tracing::info!("Found {} duplicate instance paths - these have been disambiguated", duplicate_count);
+    }
+
+    // Collect all disambiguated paths for container detection
+    let all_paths: std::collections::HashSet<String> = ref_to_path.values().cloned().collect();
 
     // Helper to check if a path has children (is a container)
     let has_children = |path: &str| -> bool {
@@ -905,9 +1096,13 @@ async fn handle_extract_finalize(
     for inst in &all_instances {
         let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
 
-        // Use the path field from serialized instance (e.g., "StarterGui/MapSelect/TimerHandler")
-        // Paths now use '/' as delimiter to support instance names with periods
-        let inst_path = inst.get("path").and_then(|v| v.as_str()).unwrap_or("");
+        // Use disambiguated path from ref_to_path map to handle duplicate instance names
+        let ref_id = inst.get("referenceId").and_then(|v| v.as_str()).unwrap_or("");
+        let inst_path = if !ref_id.is_empty() {
+            ref_to_path.get(ref_id).map(|s| s.as_str()).unwrap_or("")
+        } else {
+            inst.get("path").and_then(|v| v.as_str()).unwrap_or("")
+        };
         if inst_path.is_empty() {
             continue;
         }
@@ -1367,10 +1562,20 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 // Derive path from file system if not present in JSON
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rel_path.to_string_lossy();
+                                let path_str = rel_path.to_string_lossy().to_string();
                                 // Convert file path to instance path:
                                 // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
-                                let inst_path = path_str.trim_end_matches(".rbxjson").to_string();
+                                // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
+                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
+                                let inst_path = if is_meta {
+                                    // _meta.rbxjson represents the parent folder
+                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
+                                } else {
+                                    path_str.replace(".rbxjson", "")
+                                };
+                                if path_str.contains("_meta") {
+                                    tracing::info!("DEBUG: path_str='{}', is_meta={}, inst_path='{}'", path_str, is_meta, inst_path);
+                                }
 
                                 // Set path from file location (used for tracking, not naming)
                                 if let Some(obj) = inst.as_object_mut() {
@@ -1463,6 +1668,280 @@ async fn handle_sync_pending_changes(
         Json(serde_json::json!({
             "success": true,
             "count": count
+        })),
+    )
+}
+
+// ============================================================================
+// Diff Endpoints
+// ============================================================================
+
+/// Request to get Studio paths
+#[derive(Debug, Deserialize)]
+pub struct StudioPathsRequest {
+    #[serde(default)]
+    pub services: Option<Vec<String>>,
+}
+
+/// Single path entry from Studio
+#[derive(Debug, Serialize, Deserialize)]
+pub struct StudioPathEntry {
+    pub path: String,
+    #[serde(rename = "className")]
+    pub class_name: String,
+    pub name: String,
+}
+
+/// Response from studio:paths command
+#[derive(Debug, Deserialize)]
+pub struct StudioPathsResponse {
+    pub success: bool,
+    pub paths: Vec<StudioPathEntry>,
+    pub count: usize,
+}
+
+/// Handle studio paths request - gets all instance paths from Studio via plugin
+async fn handle_studio_paths(
+    State(state): State<Arc<AppState>>,
+    Json(_req): Json<StudioPathsRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.insert(request_id, tx);
+    }
+
+    // Queue request to plugin
+    let plugin_request = PluginRequest {
+        id: request_id,
+        command: "studio:paths".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(plugin_request);
+    }
+    let _ = state.trigger.send(());
+
+    tracing::info!("Requesting Studio paths ({})", request_id);
+
+    // Wait for response with timeout (60s for large games)
+    let timeout = tokio::time::Duration::from_secs(60);
+    let result = tokio::time::timeout(timeout, rx.recv()).await;
+
+    // Clean up channel
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.remove(&request_id);
+    }
+
+    match result {
+        Ok(Some(response)) => {
+            tracing::info!("Received Studio paths: success={}", response.success);
+            (StatusCode::OK, Json(response.data))
+        }
+        Ok(None) => {
+            tracing::warn!("Channel closed for {}", request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"success": false, "error": "Channel closed"})),
+            )
+        }
+        Err(_) => {
+            tracing::warn!("Timeout waiting for Studio paths: {}", request_id);
+            (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"success": false, "error": "Timeout waiting for plugin response"})),
+            )
+        }
+    }
+}
+
+/// Diff request
+#[derive(Debug, Deserialize)]
+pub struct DiffRequest {
+    pub project_dir: String,
+}
+
+/// Single diff entry
+#[derive(Debug, Serialize)]
+pub struct DiffEntry {
+    pub path: String,
+    #[serde(rename = "className")]
+    pub class_name: String,
+}
+
+/// Diff result
+#[derive(Debug, Serialize)]
+pub struct DiffResult {
+    pub added: Vec<DiffEntry>,      // In files, not in Studio (would be created)
+    pub removed: Vec<DiffEntry>,    // In Studio, not in files (would be deleted)
+    pub common: usize,              // In both
+}
+
+/// Handle diff request - compares files with Studio
+async fn handle_diff(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<DiffRequest>,
+) -> impl IntoResponse {
+    // 1. Read file tree
+    let src_dir = PathBuf::from(&req.project_dir).join("src");
+    if !src_dir.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Source directory does not exist"
+            })),
+        );
+    }
+
+    // Collect file paths
+    let mut file_paths: HashSet<String> = HashSet::new();
+    let mut file_classes: HashMap<String, String> = HashMap::new();
+
+    fn collect_file_paths(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        paths: &mut HashSet<String>,
+        classes: &mut HashMap<String, String>,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    collect_file_paths(&path, base, paths, classes);
+                } else if let Some(ext) = path.extension() {
+                    if ext == "rbxjson" {
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
+                                let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                                let path_str = rel_path.to_string_lossy().to_string();
+                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
+                                let inst_path = if is_meta {
+                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
+                                } else {
+                                    path_str.replace(".rbxjson", "")
+                                };
+                                // Normalize path separators
+                                let inst_path = inst_path.replace('\\', "/");
+                                paths.insert(inst_path.clone());
+                                if let Some(class) = inst.get("className").and_then(|v| v.as_str()) {
+                                    classes.insert(inst_path, class.to_string());
+                                }
+                            }
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    collect_file_paths(&src_dir, &src_dir, &mut file_paths, &mut file_classes);
+    tracing::info!("Read {} file paths from {}", file_paths.len(), src_dir.display());
+
+    // 2. Get Studio paths via plugin
+    let request_id = Uuid::new_v4();
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.insert(request_id, tx);
+    }
+
+    let plugin_request = PluginRequest {
+        id: request_id,
+        command: "studio:paths".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(plugin_request);
+    }
+    let _ = state.trigger.send(());
+
+    let timeout = tokio::time::Duration::from_secs(60);
+    let result = tokio::time::timeout(timeout, rx.recv()).await;
+
+    {
+        let mut channels = state.response_channels.write().await;
+        channels.remove(&request_id);
+    }
+
+    let studio_response = match result {
+        Ok(Some(response)) if response.success => response.data,
+        Ok(Some(response)) => {
+            return (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": response.error.unwrap_or_else(|| "Plugin returned error".to_string())
+                })),
+            );
+        }
+        Ok(None) => {
+            return (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({"success": false, "error": "Channel closed"})),
+            );
+        }
+        Err(_) => {
+            return (
+                StatusCode::GATEWAY_TIMEOUT,
+                Json(serde_json::json!({"success": false, "error": "Timeout waiting for Studio paths"})),
+            );
+        }
+    };
+
+    // Parse studio paths
+    let mut studio_paths: HashSet<String> = HashSet::new();
+    let mut studio_classes: HashMap<String, String> = HashMap::new();
+
+    if let Some(paths) = studio_response.get("paths").and_then(|v| v.as_array()) {
+        for entry in paths {
+            if let Some(path) = entry.get("path").and_then(|v| v.as_str()) {
+                studio_paths.insert(path.to_string());
+                if let Some(class) = entry.get("className").and_then(|v| v.as_str()) {
+                    studio_classes.insert(path.to_string(), class.to_string());
+                }
+            }
+        }
+    }
+
+    tracing::info!("Got {} Studio paths", studio_paths.len());
+
+    // 3. Compute diff
+    let added: Vec<DiffEntry> = file_paths
+        .difference(&studio_paths)
+        .map(|path| DiffEntry {
+            path: path.clone(),
+            class_name: file_classes.get(path).cloned().unwrap_or_default(),
+        })
+        .collect();
+
+    let removed: Vec<DiffEntry> = studio_paths
+        .difference(&file_paths)
+        .map(|path| DiffEntry {
+            path: path.clone(),
+            class_name: studio_classes.get(path).cloned().unwrap_or_default(),
+        })
+        .collect();
+
+    let common = file_paths.intersection(&studio_paths).count();
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "added": added,
+            "removed": removed,
+            "common": common,
+            "file_count": file_paths.len(),
+            "studio_count": studio_paths.len()
         })),
     )
 }
@@ -1884,6 +2363,7 @@ async fn handle_run_code(
     Json(req): Json<RunCodeRequest>,
 ) -> impl IntoResponse {
     let request_id = Uuid::new_v4();
+    tracing::info!("run:code request {} - queuing command", request_id);
     let request = PluginRequest {
         id: request_id,
         command: "run:code".to_string(),
@@ -1897,7 +2377,12 @@ async fn handle_run_code(
     state.response_channels.write().await.insert(request_id, tx);
 
     // Queue the request
-    state.request_queue.lock().await.push_back(request);
+    let queue_len = {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(request);
+        queue.len()
+    };
+    tracing::info!("run:code request {} - queued (queue length: {})", request_id, queue_len);
     state.trigger.send(()).ok();
 
     // Wait for response with timeout
@@ -1948,9 +2433,8 @@ pub async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
     });
 
     let addr = format!("{}:{}", config.host, config.port);
-    tracing::info!("RbxSync server listening on {}", addr);
-
     let listener = tokio::net::TcpListener::bind(&addr).await?;
+    tracing::info!("RbxSync server listening on {}", addr);
     axum::serve(listener, router).await?;
 
     Ok(())

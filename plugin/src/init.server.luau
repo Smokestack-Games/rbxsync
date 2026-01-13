@@ -725,14 +725,19 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
         if existingInstance then
             -- Verify className matches to prevent wrong instance matches
             if existingInstance.ClassName == className then
-                local needsUpdate, reasons = Sync.instanceNeedsUpdate(existingInstance, data)
-                if needsUpdate then
-                    local _, replacedInstance = Sync.updateInstance(existingInstance, data)
-                    Sync.registerCreated(path, replacedInstance or existingInstance)
-                    return { success = true, action = "updated", reasons = reasons }
+                -- Check if this instance is actually valid (has parent)
+                if not existingInstance.Parent then
+                    existingInstance = nil
+                else
+                    local needsUpdate, reasons = Sync.instanceNeedsUpdate(existingInstance, data)
+                    if needsUpdate then
+                        local _, replacedInstance = Sync.updateInstance(existingInstance, data)
+                        Sync.registerCreated(path, replacedInstance or existingInstance)
+                        return { success = true, action = "updated", reasons = reasons }
+                    end
+                    Sync.registerCreated(path, existingInstance)
+                    return { success = true, skipped = true }
                 end
-                Sync.registerCreated(path, existingInstance)
-                return { success = true, skipped = true }
             else
                 -- Wrong instance found by referenceId - ignore and continue
                 existingInstance = nil
@@ -743,7 +748,10 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
     -- SECOND: Try to find by path
     existingInstance = Sync.findInstanceAtPath(path)
     if existingInstance then
-        if existingInstance.ClassName == className then
+        -- Check if this instance is actually valid (has parent)
+        if not existingInstance.Parent then
+            existingInstance = nil
+        elseif existingInstance.ClassName == className then
             local needsUpdate, reasons = Sync.instanceNeedsUpdate(existingInstance, data)
             if needsUpdate then
                 local _, replacedInstance = Sync.updateInstance(existingInstance, data)
@@ -821,6 +829,7 @@ local function syncUpdate(payload: any): {success: boolean, error: string?, skip
 
     -- If className changed and instance is not immutable, try to replace
     if data.className and instance.ClassName ~= data.className then
+
         -- Don't try to replace if the found instance is immutable
         if isImmutableClass(instance.ClassName) then
             return { success = true, skipped = true } -- Skip, can't replace immutable
@@ -931,14 +940,46 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
             return aPriority < bPriority
         end
 
-        -- For creates: shallow paths first (parents before children)
+        -- For creates/updates: shallow paths first (parents before children)
         -- For deletes: deep paths first (children before parents)
         if aType == "delete" then
-            return aDepth > bDepth
+            if aDepth ~= bDepth then
+                return aDepth > bDepth
+            end
         else
-            return aDepth < bDepth
+            if aDepth ~= bDepth then
+                return aDepth < bDepth
+            end
         end
+
+        -- For same depth, sort by path to ensure parent paths come before child paths
+        -- This handles cases like "A/B" before "A/B/C" at same calculated depth
+        return aPath < bPath
     end)
+
+    -- Debug: verify sort order (first 20 and last 20 operations by depth)
+    if #operations > 0 then
+        local firstDepth = select(2, string.gsub(operations[1].path or "", "/", "")) + 1
+        local lastDepth = select(2, string.gsub(operations[#operations].path or "", "/", "")) + 1
+        print(string.format("[RbxSync Debug] Sort check: first depth=%d, last depth=%d, total=%d", firstDepth, lastDepth, #operations))
+
+        -- Check for any out-of-order items
+        local prevDepth = 0
+        local outOfOrder = 0
+        for i, op in ipairs(operations) do
+            local depth = select(2, string.gsub(op.path or "", "/", "")) + 1
+            if depth < prevDepth then
+                outOfOrder += 1
+                if outOfOrder <= 3 then
+                    print(string.format("[RbxSync Debug] Out of order at %d: %s (depth %d) after depth %d", i, op.path or "nil", depth, prevDepth))
+                end
+            end
+            prevDepth = depth
+        end
+        if outOfOrder > 0 then
+            print(string.format("[RbxSync Debug] Total out of order: %d", outOfOrder))
+        end
+    end
 
     -- Clear cache before sync to handle undo/redo scenarios
     Sync.clearRecentlyCreated()
@@ -1231,6 +1272,49 @@ local function handleCommand(command: string, payload: any)
         else
             return { success = false, error = "Model loaded but was empty" }
         end
+    elseif command == "studio:paths" then
+        -- Get all instance paths in tracked services (for diff comparison)
+        local paths = {}
+        local trackedServices = {
+            "Workspace", "ReplicatedStorage", "ReplicatedFirst",
+            "ServerScriptService", "ServerStorage", "StarterGui",
+            "StarterPack", "StarterPlayer", "Lighting", "SoundService",
+            "Teams", "Chat", "LocalizationService", "TestService"
+        }
+
+        for _, serviceName in trackedServices do
+            local service = game:FindFirstChild(serviceName)
+            if service then
+                -- Add service itself
+                table.insert(paths, {
+                    path = serviceName,
+                    className = service.ClassName,
+                    name = service.Name
+                })
+
+                -- Add all descendants
+                for _, desc in service:GetDescendants() do
+                    -- Build path by walking up parent chain
+                    local parts = {}
+                    local current = desc
+                    while current and current ~= game do
+                        table.insert(parts, 1, current.Name)
+                        current = current.Parent
+                    end
+
+                    if #parts > 0 then
+                        local path = table.concat(parts, "/")
+                        table.insert(paths, {
+                            path = path,
+                            className = desc.ClassName,
+                            name = desc.Name
+                        })
+                    end
+                end
+            end
+        end
+
+        return { success = true, paths = paths, count = #paths }
     else
         return { success = false, error = "Unknown command" }
     end
