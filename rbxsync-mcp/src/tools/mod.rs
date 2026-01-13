@@ -185,6 +185,19 @@ pub struct InsertModelResponse {
     pub error: Option<String>,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct DiffEntry {
+    pub path: String,
+    pub class_name: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct DiffResponse {
+    pub added: Vec<DiffEntry>,
+    pub removed: Vec<DiffEntry>,
+    pub unchanged: usize,
+}
+
 impl RbxSyncClient {
     pub fn new(port: u16) -> Self {
         Self {
@@ -408,5 +421,20 @@ impl RbxSyncClient {
             .await?;
 
         Ok(resp.data)
+    }
+
+    pub async fn get_diff(&self, project_dir: &str) -> anyhow::Result<DiffResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/diff", self.base_url))
+            .json(&serde_json::json!({
+                "project_dir": project_dir
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
     }
 }

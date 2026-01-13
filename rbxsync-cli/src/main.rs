@@ -110,6 +110,10 @@ enum Commands {
         /// Project directory (default: current directory)
         #[arg(short, long)]
         path: Option<PathBuf>,
+
+        /// Delete instances in Studio that don't exist in local files
+        #[arg(long)]
+        delete: bool,
     },
 
     /// Build the Studio plugin as .rbxm file
@@ -389,8 +393,8 @@ async fn main() -> Result<()> {
         Commands::Diff => {
             cmd_diff().await?;
         }
-        Commands::Sync { path } => {
-            cmd_sync(path).await?;
+        Commands::Sync { path, delete } => {
+            cmd_sync(path, delete).await?;
         }
         Commands::BuildPlugin {
             source,
@@ -1219,7 +1223,7 @@ async fn cmd_diff() -> Result<()> {
 }
 
 /// Sync local changes to Studio
-async fn cmd_sync(path: Option<PathBuf>) -> Result<()> {
+async fn cmd_sync(path: Option<PathBuf>, delete: bool) -> Result<()> {
     let project_dir = path.unwrap_or_else(|| std::env::current_dir().unwrap());
     let project_dir_str = project_dir.to_string_lossy().to_string();
 
@@ -1247,30 +1251,62 @@ async fn cmd_sync(path: Option<PathBuf>) -> Result<()> {
     let tree: serde_json::Value = tree_response.json().await?;
     let instances = tree.get("instances").and_then(|v| v.as_array()).cloned().unwrap_or_default();
 
-    if instances.is_empty() {
-        println!("No changes to sync.");
-        return Ok(());
-    }
-
-    println!("Found {} instances to sync", instances.len());
-
-    // Build sync operations
-    let operations: Vec<serde_json::Value> = instances
+    // Build sync operations for updates
+    let mut operations: Vec<serde_json::Value> = instances
         .into_iter()
         .map(|inst| {
             serde_json::json!({
-                "op": "update",
+                "type": "update",
                 "path": inst.get("path"),
-                "class_name": inst.get("className"),
-                "name": inst.get("name"),
-                "properties": inst.get("properties"),
-                "source": inst.get("source")
+                "data": inst
             })
         })
         .collect();
 
+    // If --delete flag is set, get diff and add delete operations
+    if delete {
+        println!("Checking for orphaned instances in Studio...");
+        let diff_response = client
+            .post("http://localhost:44755/diff")
+            .json(&serde_json::json!({
+                "project_dir": project_dir_str
+            }))
+            .send()
+            .await
+            .context("Failed to get diff")?;
+
+        let diff: serde_json::Value = diff_response.json().await?;
+        let removed = diff.get("removed").and_then(|v| v.as_array()).cloned().unwrap_or_default();
+
+        if !removed.is_empty() {
+            println!("Found {} orphaned instances to delete", removed.len());
+            for entry in removed {
+                let path = entry.get("path").and_then(|v| v.as_str()).unwrap_or("");
+                let class_name = entry.get("class_name").and_then(|v| v.as_str()).unwrap_or("Instance");
+                println!("  \x1b[31m- {}\x1b[0m ({})", path, class_name);
+                operations.push(serde_json::json!({
+                    "type": "delete",
+                    "path": path
+                }));
+            }
+        }
+    }
+
+    if operations.is_empty() {
+        println!("No changes to sync.");
+        return Ok(());
+    }
+
+    let update_count = operations.iter().filter(|op| op.get("type").and_then(|v| v.as_str()) == Some("update")).count();
+    let delete_count = operations.iter().filter(|op| op.get("type").and_then(|v| v.as_str()) == Some("delete")).count();
+
+    if delete_count > 0 {
+        println!("Syncing {} updates and {} deletes to Studio...", update_count, delete_count);
+    } else {
+        println!("Syncing {} instances to Studio...", update_count);
+    }
+
     // Send batch sync
-    println!("Syncing to Studio...");
     let sync_response = client
         .post("http://localhost:44755/sync/batch")
         .json(&serde_json::json!({
@@ -1284,7 +1320,7 @@ async fn cmd_sync(path: Option<PathBuf>) -> Result<()> {
 
     if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
         let applied = result.get("applied").and_then(|v| v.as_u64()).unwrap_or(0);
-        println!("Successfully synced {} instances to Studio.", applied);
+        println!("\x1b[32m✓ Successfully synced {} operations to Studio.\x1b[0m", applied);
     } else {
         let errors = result.get("errors").and_then(|v| v.as_array()).cloned().unwrap_or_default();
         println!("Sync completed with errors:");

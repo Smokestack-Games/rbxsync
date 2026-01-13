@@ -35,6 +35,10 @@ pub struct SyncParams {
     /// The directory containing the project files to sync
     #[schemars(description = "Directory containing project files to sync")]
     pub project_dir: String,
+
+    /// If true, delete instances in Studio that don't exist in local files
+    #[schemars(description = "Delete orphaned instances in Studio (optional, default: false)")]
+    pub delete: Option<bool>,
 }
 
 /// Parameters for git_commit tool
@@ -163,7 +167,22 @@ impl RbxSyncServer {
         let tree = self.client.read_tree(&params.project_dir).await.map_err(|e| mcp_error(e.to_string()))?;
 
         // Build sync operations in the format expected by the plugin
-        let operations = tools::build_sync_operations(tree.instances);
+        let mut operations = tools::build_sync_operations(tree.instances);
+
+        // If delete flag is set, add delete operations for orphaned instances
+        let delete_count = if params.delete.unwrap_or(false) {
+            let diff = self.client.get_diff(&params.project_dir).await.map_err(|e| mcp_error(e.to_string()))?;
+            let removed_count = diff.removed.len();
+            for entry in diff.removed {
+                operations.push(serde_json::json!({
+                    "type": "delete",
+                    "path": entry.path
+                }));
+            }
+            removed_count
+        } else {
+            0
+        };
 
         if operations.is_empty() {
             return Ok(CallToolResult::success(vec![Content::text("No changes to sync.")]));
@@ -187,10 +206,12 @@ impl RbxSyncServer {
         let errors = result.data.as_ref().map(|d| d.errors.clone()).unwrap_or(result.errors);
 
         if result.success && errors.is_empty() {
-            Ok(CallToolResult::success(vec![Content::text(format!(
-                "Successfully synced {} instances to Studio.",
-                applied
-            ))]))
+            let msg = if delete_count > 0 {
+                format!("Successfully synced {} instances and deleted {} orphans.", applied, delete_count)
+            } else {
+                format!("Successfully synced {} instances to Studio.", applied)
+            };
+            Ok(CallToolResult::success(vec![Content::text(msg)]))
         } else {
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "Sync completed with errors: {:?}",
