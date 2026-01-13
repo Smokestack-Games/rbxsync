@@ -3,6 +3,7 @@
   "displayName": "RbxSync",
   "description": "Sync Roblox games between Studio and VS Code",
   "version": "1.0.5",
+  "license": "SEE LICENSE IN LICENSE.txt",
   "publisher": "rbxsync",
   "icon": "media/icons/rbxsync.png",
   "repository": {
