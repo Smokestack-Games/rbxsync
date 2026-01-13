@@ -19,6 +19,20 @@ local SOURCE_ATTR = "_rbxsync_source"
 -- Cache of referenceId -> Instance for resolving references
 local instanceCache: {[string]: Instance} = {}
 
+-- Pending reference properties to resolve after all instances are created
+-- Format: { { instance: Instance, propName: string, refId: string } }
+local pendingReferences: {{instance: Instance, propName: string, refId: string}} = {}
+
+-- Reference properties that need deferred resolution
+local refProps = {
+    Part0 = true,
+    Part1 = true,
+    Attachment0 = true,
+    Attachment1 = true,
+    PrimaryPart = true,
+    Adornee = true,
+}
+
 -- Decode a property value from our JSON format back to Roblox type
 local function decodeValue(encoded: any): any
     if encoded == nil then
@@ -35,7 +49,11 @@ local function decodeValue(encoded: any): any
     -- Handle primitive types
     if valueType == "bool" then
         return value
-    elseif valueType == "int" or valueType == "int64" then
+    elseif valueType == "int" or valueType == "int64" or valueType == "number" then
+        -- Ensure we return a number
+        if type(value) == "string" then
+            return tonumber(value) or 0
+        end
         return value
     elseif valueType == "float" or valueType == "double" then
         if value == "NaN" then
@@ -45,8 +63,17 @@ local function decodeValue(encoded: any): any
         elseif value == "-Infinity" then
             return -math.huge
         end
+        -- Ensure we return a number
+        if type(value) == "string" then
+            return tonumber(value) or 0
+        end
         return value
     elseif valueType == "string" or valueType == "Content" or valueType == "ProtectedString" then
+        -- Check if this was originally a number type
+        local originalType = encoded.originalType
+        if originalType and (originalType == "int" or originalType == "float" or originalType == "double" or originalType == "number") then
+            return tonumber(value) or value
+        end
         return value
     end
 
@@ -228,6 +255,107 @@ end
 -- Also tracks recently created instances that might have different names
 local recentlyCreated: {[string]: Instance} = {}
 
+-- Track instances by referenceId for reliable lookup
+local instanceByRefId: {[string]: Instance} = {}
+
+-- Unescape path segment back to original name
+local function unescapePathSegment(segment: string): string
+    return string.gsub(segment, "%[SLASH%]", "/")
+end
+
+-- Strip disambiguation suffix from a path segment
+-- e.g., "TrimWall~2~" -> "TrimWall", "Part~3~" -> "Part"
+local function stripDisambiguationSuffix(segment: string): (string, number?)
+    -- Match pattern: name ending with ~N~ where N is one or more digits
+    local baseName, indexStr = string.match(segment, "^(.+)~(%d+)~$")
+    if baseName then
+        return baseName, tonumber(indexStr)
+    end
+    return segment, nil
+end
+
+-- Find a child instance by name (with escaping/disambiguation handling)
+local function findChildByName(parent: Instance, pathSegment: string): Instance?
+    -- First unescape to get the search name
+    local baseName, duplicateIndex = stripDisambiguationSuffix(pathSegment)
+    local searchName = unescapePathSegment(baseName)
+
+    -- If it's a disambiguated name (has ~N~ suffix), find the Nth instance with that name
+    if duplicateIndex then
+        local count = 0
+        for _, child in parent:GetChildren() do
+            if child.Name == searchName then
+                count = count + 1
+                if count == duplicateIndex then
+                    return child
+                end
+            end
+        end
+        -- If we didn't find the Nth instance, return nil (don't fallback to wrong instance)
+        -- This allows syncCreate to make a new instance
+        return nil
+    else
+        -- No disambiguation - try exact match first (with unescaping)
+        local child = parent:FindFirstChild(searchName)
+        if child then
+            return child
+        end
+
+        -- Try finding by source attribute
+        for _, candidate in parent:GetChildren() do
+            local sourceAttr = candidate:GetAttribute(SOURCE_ATTR)
+            if sourceAttr and string.find(sourceAttr, pathSegment, 1, true) then
+                return candidate
+            end
+        end
+    end
+
+    return nil
+end
+
+-- Register an instance by its referenceId for lookup
+function Sync.registerInstanceByRefId(refId: string, instance: Instance)
+    if refId and refId ~= "" then
+        instanceByRefId[refId] = instance
+    end
+end
+
+-- Find instance by referenceId
+function Sync.findInstanceByRefId(refId: string): Instance?
+    if not refId or refId == "" then
+        return nil
+    end
+
+    -- Check our cache first
+    local cached = instanceByRefId[refId]
+    if cached and cached.Parent then
+        return cached
+    end
+
+    -- Search by attribute in game tree
+    local services = {
+        "Workspace", "ReplicatedStorage", "ReplicatedFirst",
+        "ServerScriptService", "ServerStorage", "StarterGui",
+        "StarterPack", "StarterPlayer", "Lighting", "SoundService",
+        "Teams", "Chat", "LocalizationService", "TestService"
+    }
+
+    for _, serviceName in services do
+        local service = game:FindFirstChild(serviceName)
+        if service then
+            for _, desc in service:GetDescendants() do
+                local attr = desc:GetAttribute("_rbxsync_ref")
+                if attr == refId then
+                    instanceByRefId[refId] = desc
+                    return desc
+                end
+            end
+        end
+    end
+
+    return nil
+end
+
 function Sync.findInstanceAtPath(path: string): Instance?
     -- Normalize path delimiters (Windows uses backslash, we use forward slash)
     path = string.gsub(path, "\\", "/")
@@ -240,47 +368,19 @@ function Sync.findInstanceAtPath(path: string): Instance?
         end
     end
 
-    -- Search for instance by source attribute (allows name to differ from path)
-    -- Get the parent path to narrow the search
     local parts = string.split(path, "/")
-    local parentPath = table.concat(parts, "/", 1, #parts - 1)
-    local parent: Instance? = nil
 
-    if #parts > 1 then
-        -- Find parent by walking tree
-        local current: Instance = game
-        for i = 1, #parts - 1 do
-            local child = current:FindFirstChild(parts[i])
-            if not child then
-                break
-            end
-            current = child
-        end
-        parent = current
-    else
-        -- Top-level service
-        parent = game:FindFirstChild(parts[1])
-        if parent then
-            return parent  -- Services don't need attribute tracking
-        end
+    -- Top-level service case
+    if #parts == 1 then
+        return game:FindFirstChild(unescapePathSegment(parts[1]))
     end
 
-    -- Search children of parent for matching source attribute
-    if parent then
-        for _, child in parent:GetChildren() do
-            local sourceAttr = child:GetAttribute(SOURCE_ATTR)
-            if sourceAttr == path then
-                return child
-            end
-        end
-    end
-
-    -- Fallback: try traditional path-based lookup
+    -- Walk the tree to find the instance
     local current: Instance = game
     for i, part in parts do
-        local child = current:FindFirstChild(part)
+        local child = findChildByName(current, part)
         if not child then
-            -- Try to find by checking recently created with partial path
+            -- Try recently created
             local partialPath = table.concat(parts, "/", 1, i)
             if recentlyCreated[partialPath] then
                 child = recentlyCreated[partialPath]
@@ -312,14 +412,12 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     local className = data.className
     local referenceId = data.referenceId
 
-    -- Derive name from path if not provided
+    -- Always use data.name (the original instance name from JSON)
+    -- The path may have escaping/disambiguation that shouldn't affect the actual name
     local name = data.name
-    if not name and data.path then
-        -- Extract last segment of path as name
-        local parts = string.split(data.path, "/")
-        name = parts[#parts]
+    if not name then
+        name = className or "Instance"
     end
-    name = name or className or "Instance"
 
     -- Don't create services, just find them
     local services = {
@@ -334,8 +432,75 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
             local service = game:FindFirstChild(serviceName)
             if service and referenceId then
                 instanceCache[referenceId] = service
+                Sync.registerInstanceByRefId(referenceId, service)
             end
             return service
+        end
+    end
+
+    -- Special handling for MeshPart - use CreateMeshPartAsync to set MeshId
+    -- (MeshId property is not writable by plugins, must be set at creation)
+    if className == "MeshPart" and data.properties and data.properties.MeshId then
+        local meshIdData = data.properties.MeshId
+        local meshId = meshIdData.value
+        if meshId and meshId ~= "" then
+            local AssetService = game:GetService("AssetService")
+            local ok, instance = pcall(function()
+                return AssetService:CreateMeshPartAsync(meshId)
+            end)
+            if ok and instance then
+                instance.Name = name
+                -- Cache for reference resolution
+                if referenceId then
+                    instanceCache[referenceId] = instance
+                    Sync.registerInstanceByRefId(referenceId, instance)
+                end
+                -- Store referenceId as attribute
+                if referenceId then
+                    pcall(function()
+                        instance:SetAttribute("_rbxsync_ref", referenceId)
+                    end)
+                end
+                -- Apply other properties (excluding MeshId which is already set)
+                if data.properties then
+                    local propsWithoutMeshId = {}
+                    for propName, propValue in data.properties do
+                        if propName ~= "MeshId" then
+                            propsWithoutMeshId[propName] = propValue
+                        end
+                    end
+                    Sync.applyProperties(instance, propsWithoutMeshId)
+                end
+                -- Handle attributes, tags, etc.
+                if data.attributes then
+                    for attrName, attrData in data.attributes do
+                        if string.sub(attrName, 1, 4) == "RBX_" then
+                            continue
+                        end
+                        local attrValue = decodeValue(attrData)
+                        if attrValue ~= nil then
+                            pcall(function()
+                                instance:SetAttribute(attrName, attrValue)
+                            end)
+                        end
+                    end
+                end
+                if data.tags then
+                    for _, tag in data.tags do
+                        CollectionService:AddTag(instance, tag)
+                    end
+                end
+                if data.path then
+                    pcall(function()
+                        instance:SetAttribute(SOURCE_ATTR, data.path)
+                    end)
+                end
+                if parent then
+                    instance.Parent = parent
+                end
+                return instance
+            end
+            -- If CreateMeshPartAsync failed, fall through to normal creation
         end
     end
 
@@ -348,12 +513,20 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
         return nil
     end
 
-    -- Set name first
+    -- Set name first (use the original name, not escaped/disambiguated)
     instance.Name = name
 
     -- Cache for reference resolution
     if referenceId then
         instanceCache[referenceId] = instance
+        Sync.registerInstanceByRefId(referenceId, instance)
+    end
+
+    -- Store referenceId as attribute for future lookups
+    if referenceId then
+        pcall(function()
+            instance:SetAttribute("_rbxsync_ref", referenceId)
+        end)
     end
 
     -- Apply properties
@@ -408,15 +581,54 @@ end
 
 -- Apply properties to an existing instance
 function Sync.applyProperties(instance: Instance, properties: {[string]: any}): ()
-    -- Properties that should be set in a specific order or skipped
+    -- Properties that should be completely skipped (read-only or problematic)
     local skipProps = {
         Name = true,
         Parent = true,
         ClassName = true,
+        -- Content properties (don't serialize correctly)
+        Capabilities = true,
+        TextureContent = true,
+        EmissiveMaskContent = true,
+        ColorMapContent = true,
+        NormalMapContent = true,
+        MetalnessMapContent = true,
+        RoughnessMapContent = true,
+        AudioContent = true,
+        ImageContent = true,
+        MoonTextureContent = true,
+        SunTextureContent = true,
+        SkyboxUpContent = true,
+        SkyboxDownContent = true,
+        SkyboxLeftContent = true,
+        SkyboxRightContent = true,
+        SkyboxFrontContent = true,
+        SkyboxBackContent = true,
+        -- Other problematic properties
+        CurrentCamera = true,
+        TargetInstance = true,
+        SourceInstance = true,
+        UniqueId = true,
+        HistoryId = true,
+        SourceAssetId = true,
+        ScriptGuid = true,
     }
 
     for propName, propData in properties do
         if skipProps[propName] then
+            continue
+        end
+
+        -- For reference properties, queue them for later resolution
+        if refProps[propName] and propData and propData.type == "Ref" then
+            local refId = propData.value
+            if refId and refId ~= "" then
+                table.insert(pendingReferences, {
+                    instance = instance,
+                    propName = propName,
+                    refId = refId,
+                })
+            end
             continue
         end
 
@@ -435,7 +647,98 @@ function Sync.applyProperties(instance: Instance, properties: {[string]: any}): 
 end
 
 -- Update an existing instance with new data
-function Sync.updateInstance(instance: Instance, data: any): boolean
+-- Returns: boolean success, Instance? replacedInstance (if MeshPart was recreated)
+function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?)
+    -- Special handling for MeshPart: MeshId is read-only after creation
+    -- If MeshId differs, we need to recreate the MeshPart entirely
+    if instance:IsA("MeshPart") and data.properties and data.properties.MeshId then
+        local newMeshId = data.properties.MeshId.value
+        local currentMeshId = (instance :: MeshPart).MeshId
+
+        -- Check if MeshId needs to change
+        if newMeshId and newMeshId ~= "" and newMeshId ~= currentMeshId then
+            local AssetService = game:GetService("AssetService")
+            local ok, newMeshPart = pcall(function()
+                return AssetService:CreateMeshPartAsync(newMeshId)
+            end)
+
+            if ok and newMeshPart then
+                -- Copy name
+                newMeshPart.Name = data.name or instance.Name
+
+                -- Apply properties (excluding MeshId which is already set)
+                if data.properties then
+                    local propsWithoutMeshId = {}
+                    for propName, propValue in data.properties do
+                        if propName ~= "MeshId" then
+                            propsWithoutMeshId[propName] = propValue
+                        end
+                    end
+                    Sync.applyProperties(newMeshPart, propsWithoutMeshId)
+                end
+
+                -- Copy attributes
+                for attrName, attrValue in instance:GetAttributes() do
+                    pcall(function()
+                        newMeshPart:SetAttribute(attrName, attrValue)
+                    end)
+                end
+
+                -- Apply new attributes from data
+                if data.attributes then
+                    for attrName, attrData in data.attributes do
+                        if string.sub(attrName, 1, 4) ~= "RBX_" then
+                            local attrValue = decodeValue(attrData)
+                            if attrValue ~= nil then
+                                pcall(function()
+                                    newMeshPart:SetAttribute(attrName, attrValue)
+                                end)
+                            end
+                        end
+                    end
+                end
+
+                -- Copy tags
+                for _, tag in CollectionService:GetTags(instance) do
+                    CollectionService:AddTag(newMeshPart, tag)
+                end
+
+                -- Apply new tags from data
+                if data.tags then
+                    for _, tag in data.tags do
+                        CollectionService:AddTag(newMeshPart, tag)
+                    end
+                end
+
+                -- Move children to new MeshPart
+                for _, child in instance:GetChildren() do
+                    child.Parent = newMeshPart
+                end
+
+                -- Set source tracking
+                if data.path then
+                    pcall(function()
+                        newMeshPart:SetAttribute(SOURCE_ATTR, data.path)
+                    end)
+                end
+
+                -- Cache for reference resolution
+                if data.referenceId then
+                    instanceCache[data.referenceId] = newMeshPart
+                    Sync.registerInstanceByRefId(data.referenceId, newMeshPart)
+                end
+
+                -- Replace in parent
+                local parent = instance.Parent
+                newMeshPart.Parent = parent
+                instance:Destroy()
+
+                return true, newMeshPart
+            end
+            -- If CreateMeshPartAsync failed, fall through to normal update
+        end
+    end
+
     -- Ensure source tracking attribute is set (for older instances)
     if data.path then
         pcall(function()
@@ -500,7 +803,7 @@ function Sync.updateInstance(instance: Instance, data: any): boolean
         instanceCache[data.referenceId] = instance
     end
 
-    return true
+    return true, nil
 end
 
 -- Delete an instance by path
@@ -567,8 +870,11 @@ local function valuesEqual(encoded1: any, encoded2: any): boolean
 end
 
 -- Check if an instance needs updating based on incoming data
--- Returns: needsUpdate (boolean), reason (string or nil)
-function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, string?)
+-- Returns: needsUpdate (boolean), reasons (table of strings or nil)
+function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, {string}?)
+    local reasons: {string} = {}
+    local DEBUG = false -- Enable verbose debugging
+
     -- Check script source (most common change)
     if instance:IsA("LuaSourceContainer") then
         local currentSource = ""
@@ -583,19 +889,65 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, stri
         end
 
         if newSource and currentSource ~= newSource then
-            return true, "source"
+            table.insert(reasons, "source")
+            if DEBUG then
+                print(string.format("[DEBUG] %s.Source differs: len=%d vs len=%d", instance:GetFullName(), #currentSource, #newSource))
+            end
         end
     end
 
     -- Check name
     if data.name and instance.Name ~= data.name then
-        return true, "name"
+        table.insert(reasons, "name:" .. instance.Name .. "->" .. data.name)
+        if DEBUG then
+            print(string.format("[DEBUG] %s name differs: '%s' vs '%s'", instance:GetFullName(), instance.Name, data.name))
+        end
     end
 
     -- Check properties (excluding Source which we already checked)
+    -- Skip properties that can't be properly compared or are read-only
+    local skipProps = {
+        Name = true,
+        Parent = true,
+        ClassName = true,
+        Source = true,
+        -- Content properties (don't compare correctly)
+        Capabilities = true,
+        TextureContent = true,
+        EmissiveMaskContent = true,
+        ColorMapContent = true,
+        NormalMapContent = true,
+        MetalnessMapContent = true,
+        RoughnessMapContent = true,
+        AudioContent = true,
+        ImageContent = true,
+        MoonTextureContent = true,
+        SunTextureContent = true,
+        SkyboxUpContent = true,
+        SkyboxDownContent = true,
+        SkyboxLeftContent = true,
+        SkyboxRightContent = true,
+        SkyboxFrontContent = true,
+        SkyboxBackContent = true,
+        -- Instance reference properties (can't compare across sessions)
+        PrimaryPart = true,
+        CurrentCamera = true,
+        Part0 = true,
+        Part1 = true,
+        Attachment0 = true,
+        Attachment1 = true,
+        TargetInstance = true,
+        SourceInstance = true,
+        -- Other problematic properties
+        UniqueId = true,
+        HistoryId = true,
+        SourceAssetId = true,
+        ScriptGuid = true,
+    }
+
     if data.properties then
         for propName, propData in data.properties do
-            if propName == "Name" or propName == "Parent" or propName == "ClassName" or propName == "Source" then
+            if skipProps[propName] then
                 continue
             end
 
@@ -619,10 +971,19 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, stri
                     local currentStr = tostring(currentValue)
                     local newStr = tostring(newValue)
                     if currentStr ~= newStr then
-                        return true, "property:" .. propName
+                        table.insert(reasons, propName)
+                        if DEBUG then
+                            print(string.format("[DEBUG] %s.%s differs (userdata): '%s' vs '%s'", instance:GetFullName(), propName, currentStr, newStr))
+                        end
                     end
                 else
-                    return true, "property:" .. propName
+                    table.insert(reasons, propName)
+                    if DEBUG then
+                        print(string.format("[DEBUG] %s.%s differs: type=%s/%s, current='%s', new='%s'",
+                            instance:GetFullName(), propName,
+                            type(currentValue), type(newValue),
+                            tostring(currentValue), tostring(newValue)))
+                    end
                 end
             end
         end
@@ -639,7 +1000,12 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, stri
             end
             local newValue = decodeValue(attrData)
             if currentAttrs[attrName] ~= newValue then
-                return true, "attribute:" .. attrName
+                table.insert(reasons, "attr:" .. attrName)
+                if DEBUG then
+                    print(string.format("[DEBUG] %s attr '%s' differs: '%s' vs '%s'",
+                        instance:GetFullName(), attrName,
+                        tostring(currentAttrs[attrName]), tostring(newValue)))
+                end
             end
         end
 
@@ -648,8 +1014,14 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, stri
             if string.sub(attrName, 1, 4) == "RBX_" then
                 continue
             end
+            if attrName == SOURCE_ATTR or attrName == "_rbxsync_ref" then
+                continue -- Skip our internal attributes
+            end
             if data.attributes[attrName] == nil then
-                return true, "attribute_removed:" .. attrName
+                table.insert(reasons, "-attr:" .. attrName)
+                if DEBUG then
+                    print(string.format("[DEBUG] %s has extra attr '%s' not in data", instance:GetFullName(), attrName))
+                end
             end
         end
     end
@@ -660,27 +1032,75 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, stri
 
         -- Quick length check
         if #currentTags ~= #data.tags then
-            return true, "tags"
-        end
-
-        -- Check each tag
-        local tagSet = {}
-        for _, tag in currentTags do
-            tagSet[tag] = true
-        end
-        for _, tag in data.tags do
-            if not tagSet[tag] then
-                return true, "tags"
+            table.insert(reasons, "tags")
+            if DEBUG then
+                print(string.format("[DEBUG] %s tags count differs: %d vs %d", instance:GetFullName(), #currentTags, #data.tags))
+            end
+        else
+            -- Check each tag
+            local tagSet = {}
+            for _, tag in currentTags do
+                tagSet[tag] = true
+            end
+            for _, tag in data.tags do
+                if not tagSet[tag] then
+                    table.insert(reasons, "tags")
+                    if DEBUG then
+                        print(string.format("[DEBUG] %s missing tag: '%s'", instance:GetFullName(), tag))
+                    end
+                    break
+                end
             end
         end
     end
 
+    if #reasons > 0 then
+        return true, reasons
+    end
     return false, nil
 end
 
--- Clear the instance cache
+-- Clear all caches
 function Sync.clearCache(): ()
     table.clear(instanceCache)
+    table.clear(instanceByRefId)
+    table.clear(recentlyCreated)
+    table.clear(pendingReferences)
+end
+
+-- Clear pending references (call before starting a sync batch)
+function Sync.clearPendingReferences(): ()
+    table.clear(pendingReferences)
+end
+
+-- Resolve all pending reference properties
+-- Call this AFTER all instances have been created
+function Sync.resolvePendingReferences(): number
+    local resolved = 0
+    for _, pending in pendingReferences do
+        local instance = pending.instance
+        local propName = pending.propName
+        local refId = pending.refId
+
+        -- Skip if instance was destroyed
+        if not instance.Parent then
+            continue
+        end
+
+        -- Try to find the referenced instance
+        local target = instanceCache[refId] or instanceByRefId[refId]
+        if target and target.Parent then
+            local ok = pcall(function()
+                (instance :: any)[propName] = target
+            end)
+            if ok then
+                resolved += 1
+            end
+        end
+    end
+
+    table.clear(pendingReferences)
+    return resolved
 end
 
 -- Build instance cache from current game state

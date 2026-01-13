@@ -26,10 +26,18 @@ local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 -- Dynamic function access (avoids static analysis for legitimate plugin features)
 -- These are used for MCP/AI integration to execute code and insert models
 local _G_ref = _G
-local _dynExec = _G_ref["lo" .. "adstr" .. "ing"]
-local _dynGetEnv = _G_ref["ge" .. "tfe" .. "nv"]
-local _dynSetEnv = _G_ref["se" .. "tfe" .. "nv"]
+local _dynExec = _G_ref["lo" .. "adstr" .. "ing"] or loadstring
+local _dynGetEnv = _G_ref["ge" .. "tfe" .. "nv"] or getfenv
+local _dynSetEnv = _G_ref["se" .. "tfe" .. "nv"] or setfenv
 local _dynInsert = "Lo" .. "adAs" .. "set"
+
+-- Check if loadstring is available (required for run:code)
+-- In modern Roblox, loadstring should be available to plugins with PluginSecurity
+if not _dynExec then
+    warn("[RbxSync] loadstring not available - run:code feature will be disabled.")
+else
+    print("[RbxSync] loadstring available - run:code enabled")
+end
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)
@@ -51,6 +59,8 @@ local cachedPlaceName: string? = nil
 local lastExtractTime: number? = nil  -- Track last extraction time for estimates
 local lastInstanceCount: number? = nil  -- Track last instance count
 local hasLoggedLink: boolean = false  -- Prevent spam logging of "Linked to" messages
+local hasShownPathMismatch: boolean = false  -- Prevent showing path mismatch dialog multiple times per session
+local lastKnownVscodePath: string? = nil  -- Track VS Code workspace to detect when it connects
 
 -- Console capture state (for E2E testing mode)
 local consoleCapture = {
@@ -507,15 +517,20 @@ end
 -- Forward declaration for setStatus (defined in UI section)
 local setStatus: (text: string, color: Color3?, duration: number?) -> () = function() end
 
+-- Forward declarations for path mismatch functions (defined in UI section)
+local checkPathMismatch: () -> (boolean, string?)
+local showPathMismatchDialog: (vscodePath: string, onContinue: () -> (), onFixPath: () -> (), onCancel: () -> ()) -> ()
+
 -- Extract full game
 local function extractGame(config: {any})
     if isExtracting then
         return
     end
 
-    local projectDir = Config.getProjectDir()
+    -- Use project_dir from config if provided, otherwise fall back to configured dir
+    local projectDir = config.project_dir or Config.getProjectDir()
     if projectDir == "" then
-        warn("No project set. Enter path above.")
+        warn("No project set. Enter path above or pass project_dir in command.")
         return
     end
 
@@ -531,8 +546,12 @@ local function extractGame(config: {any})
         return
     end
 
-    -- Determine which services to extract
-    local servicesToExtract = config.services or {
+    -- Debug: log what config contains
+    print("[RbxSync Debug] config.project_dir:", config.project_dir or "nil")
+    print("[RbxSync Debug] config.services type:", type(config.services), "length:", config.services and #config.services or "nil")
+
+    -- Determine which services to extract (check for non-empty array since empty [] is truthy in Lua)
+    local defaultServices = {
         "Workspace",
         "ReplicatedStorage",
         "ReplicatedFirst",
@@ -548,17 +567,35 @@ local function extractGame(config: {any})
         "LocalizationService",
         "TestService",
     }
+    local servicesToExtract = (config.services and #config.services > 0) and config.services or defaultServices
+    print("[RbxSync Debug] Using", #servicesToExtract, "services")
 
     -- Collect all instances to serialize
     local allInstances: {Instance} = {}
 
+    print("[RbxSync Debug] Services to extract:", #servicesToExtract)
     for _, serviceName in servicesToExtract do
         local service = game:FindFirstChild(serviceName)
         if service then
+            local count = #service:GetDescendants()
+            print("[RbxSync Debug] Found service:", serviceName, "with", count, "descendants")
             table.insert(allInstances, service)
             for _, descendant in service:GetDescendants() do
                 table.insert(allInstances, descendant)
             end
+        else
+            print("[RbxSync Debug] Service not found:", serviceName)
+        end
+    end
+    print("[RbxSync Debug] Total instances collected:", #allInstances)
+
+    -- Build disambiguated paths for all services to handle duplicate sibling names
+    -- This needs to happen before serialization so paths are correctly computed
+    for _, serviceName in servicesToExtract do
+        local service = game:FindFirstChild(serviceName)
+        if service then
+            -- Build paths for the service itself and all descendants
+            Serializer.buildDisambiguatedPaths(service)
         end
     end
 
@@ -576,6 +613,12 @@ local function extractGame(config: {any})
             local instance = allInstances[i]
             local serialized = Serializer.serializeInstance(instance, apiDump)
             if serialized then
+                -- Store referenceId on instance for reliable lookup during sync
+                if serialized.referenceId then
+                    pcall(function()
+                        instance:SetAttribute("_rbxsync_ref", serialized.referenceId)
+                    end)
+                end
                 table.insert(chunkInstances, serialized)
             end
         end
@@ -613,13 +656,32 @@ local function extractGame(config: {any})
     isExtracting = false
 end
 
+-- List of services and built-in instances that cannot be replaced
+local IMMUTABLE_CLASSES = {
+    "Workspace", "ReplicatedStorage", "ReplicatedFirst",
+    "ServerScriptService", "ServerStorage", "StarterGui",
+    "StarterPack", "StarterPlayer", "Lighting", "SoundService",
+    "Teams", "Chat", "LocalizationService", "TestService",
+    "StarterCharacterScripts", "StarterPlayerScripts",
+    "Terrain", "Camera",
+}
+
+local function isImmutableClass(className: string): boolean
+    for _, name in IMMUTABLE_CLASSES do
+        if className == name then
+            return true
+        end
+    end
+    return false
+end
+
 -- Sync: Create instance at path (silent)
-local function syncCreate(payload: any): {success: boolean, error: string?}
+-- Returns: success, error, skipped, action (what happened), reasons (what changed)
+local function syncCreate(payload: any): {success: boolean, error: string?, skipped: boolean?, action: string?, reasons: {string}?}
     local path = payload.path
     local data = payload.data
 
     if not path or not data then
-        print("[RbxSync Debug] syncCreate failed: Missing path or data")
         return { success = false, error = "Missing path or data" }
     end
 
@@ -630,9 +692,71 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
         data.path = string.gsub(data.path, "\\", "/")
     end
 
-    print("[RbxSync Debug] syncCreate: " .. path .. " (class=" .. tostring(data.className) .. ", name=" .. tostring(data.name) .. ")")
+    local className = data.className or ""
 
-    -- Find parent (use '/' delimiter to handle instance names with periods)
+    -- Services and built-in instances: find by path/name, don't use referenceId
+    -- They're singletons and should never be matched by referenceId
+    if isImmutableClass(className) then
+        local existingInstance = Sync.findInstanceAtPath(path)
+        if existingInstance then
+            -- Update properties only (can't replace)
+            local needsUpdate, reasons = Sync.instanceNeedsUpdate(existingInstance, data)
+            if needsUpdate then
+                local _, replacedInstance = Sync.updateInstance(existingInstance, data)
+                Sync.registerCreated(path, replacedInstance or existingInstance)
+                return { success = true, action = "updated", reasons = reasons }
+            end
+            Sync.registerCreated(path, existingInstance)
+            return { success = true, skipped = true }
+        end
+        -- For services, if not found at path, they probably exist under game
+        local service = game:FindFirstChild(className)
+        if service then
+            Sync.registerCreated(path, service)
+            return { success = true, skipped = true }
+        end
+        return { success = true, skipped = true } -- Services always "succeed" even if not found
+    end
+
+    -- FIRST: Try to find existing instance by referenceId
+    local existingInstance: Instance? = nil
+    if data.referenceId then
+        existingInstance = Sync.findInstanceByRefId(data.referenceId)
+        if existingInstance then
+            -- Verify className matches to prevent wrong instance matches
+            if existingInstance.ClassName == className then
+                local needsUpdate, reasons = Sync.instanceNeedsUpdate(existingInstance, data)
+                if needsUpdate then
+                    local _, replacedInstance = Sync.updateInstance(existingInstance, data)
+                    Sync.registerCreated(path, replacedInstance or existingInstance)
+                    return { success = true, action = "updated", reasons = reasons }
+                end
+                Sync.registerCreated(path, existingInstance)
+                return { success = true, skipped = true }
+            else
+                -- Wrong instance found by referenceId - ignore and continue
+                existingInstance = nil
+            end
+        end
+    end
+
+    -- SECOND: Try to find by path
+    existingInstance = Sync.findInstanceAtPath(path)
+    if existingInstance then
+        if existingInstance.ClassName == className then
+            local needsUpdate, reasons = Sync.instanceNeedsUpdate(existingInstance, data)
+            if needsUpdate then
+                local _, replacedInstance = Sync.updateInstance(existingInstance, data)
+                Sync.registerCreated(path, replacedInstance or existingInstance)
+                return { success = true, action = "updated", reasons = reasons }
+            end
+            Sync.registerCreated(path, existingInstance)
+            return { success = true, skipped = true }
+        end
+        -- Wrong className - will need to replace (handled below)
+    end
+
+    -- THIRD: Create new instance - find parent first
     local pathParts = string.split(path, "/")
     table.remove(pathParts) -- Remove the instance name itself
     local parentPath = table.concat(pathParts, "/")
@@ -641,7 +765,6 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
     if #parentPath > 0 then
         parent = Sync.findInstanceAtPath(parentPath)
         if not parent then
-            print("[RbxSync Debug] syncCreate failed: Parent not found at " .. parentPath)
             return { success = false, error = "Parent not found: " .. parentPath }
         end
     end
@@ -650,17 +773,15 @@ local function syncCreate(payload: any): {success: boolean, error: string?}
     local instance = Sync.createInstance(data, parent)
     if instance then
         Sync.registerCreated(path, instance)
-        print("[RbxSync Debug] syncCreate success: created " .. instance:GetFullName())
-        return { success = true }
+        return { success = true, action = "created" }
     else
-        print("[RbxSync Debug] syncCreate failed: Sync.createInstance returned nil")
         return { success = false, error = "Can't create instance. Parent may be locked." }
     end
 end
 
 -- Sync: Update instance at path (silent)
--- Returns: success, error, wasSkipped (true if no changes needed)
-local function syncUpdate(payload: any): {success: boolean, error: string?, skipped: boolean?}
+-- Returns: success, error, skipped, action, reasons
+local function syncUpdate(payload: any): {success: boolean, error: string?, skipped: boolean?, action: string?, reasons: {string}?}
     local path = payload.path
     local data = payload.data
 
@@ -675,48 +796,77 @@ local function syncUpdate(payload: any): {success: boolean, error: string?, skip
         data.path = string.gsub(data.path, "\\", "/")
     end
 
+    local className = data.className or ""
+
+    -- Handle immutable classes (services, built-in instances)
+    if isImmutableClass(className) then
+        local instance = Sync.findInstanceAtPath(path) or game:FindFirstChild(className)
+        if instance then
+            -- Only update properties, never replace
+            local needsUpdate, reasons = Sync.instanceNeedsUpdate(instance, data)
+            if needsUpdate then
+                local _, replacedInstance = Sync.updateInstance(instance, data)
+                Sync.registerCreated(path, replacedInstance or instance)
+                return { success = true, action = "updated", reasons = reasons }
+            end
+            Sync.registerCreated(path, instance)
+        end
+        return { success = true, skipped = true }
+    end
+
     local instance = Sync.findInstanceAtPath(path)
     if not instance then
         return syncCreate(payload)
     end
 
-    -- If className changed, we need to replace the instance entirely
+    -- If className changed and instance is not immutable, try to replace
     if data.className and instance.ClassName ~= data.className then
-        print("[RbxSync Debug] className changed from " .. instance.ClassName .. " to " .. data.className .. ", replacing instance")
+        -- Don't try to replace if the found instance is immutable
+        if isImmutableClass(instance.ClassName) then
+            return { success = true, skipped = true } -- Skip, can't replace immutable
+        end
+
         -- Get parent before destroying
         local parent = instance.Parent
 
-        -- Remove old instance
-        instance.Parent = nil
+        -- Try to remove old instance
+        local removeOk = pcall(function()
+            instance.Parent = nil
+        end)
+
+        if not removeOk then
+            -- Can't remove - just skip
+            return { success = true, skipped = true }
+        end
 
         -- Create new instance with correct className
         local newInstance = Sync.createInstance(data, parent)
         if newInstance then
             Sync.registerCreated(path, newInstance)
-            return { success = true }
+            return { success = true, action = "replaced", reasons = {"className:" .. (instance.ClassName) .. "->" .. data.className} }
         else
             return { success = false, error = "Can't create replacement instance" }
         end
     end
 
     -- Check if update is actually needed (differential sync)
-    local needsUpdate, reason = Sync.instanceNeedsUpdate(instance, data)
+    local needsUpdate, reasons = Sync.instanceNeedsUpdate(instance, data)
     if not needsUpdate then
         -- No changes needed - skip this update
         return { success = true, skipped = true }
     end
 
-    Sync.registerCreated(path, instance)
-    local ok = Sync.updateInstance(instance, data)
+    local ok, replacedInstance = Sync.updateInstance(instance, data)
+    Sync.registerCreated(path, replacedInstance or instance)
     if ok then
-        return { success = true }
+        return { success = true, action = "updated", reasons = reasons }
     else
         return { success = false, error = "Can't update instance" }
     end
 end
 
 -- Sync: Delete instance at path (silent)
-local function syncDelete(payload: any): {success: boolean, error: string?}
+local function syncDelete(payload: any): {success: boolean, error: string?, action: string?}
     local path = payload.path
 
     if not path then
@@ -725,9 +875,10 @@ local function syncDelete(payload: any): {success: boolean, error: string?}
 
     local ok = Sync.deleteInstance(path)
     if ok then
-        return { success = true }
+        return { success = true, action = "deleted" }
     else
-        return { success = false, error = "Instance not found" }
+        -- Instance not found - treat as skipped (already deleted)
+        return { success = true, skipped = true }
     end
 end
 
@@ -791,6 +942,7 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
 
     -- Clear cache before sync to handle undo/redo scenarios
     Sync.clearRecentlyCreated()
+    Sync.clearPendingReferences()
 
     isSyncing = true
     setStatus("Checking " .. #operations .. " instances...", Color3.fromRGB(100, 180, 255), 0)
@@ -798,42 +950,80 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     local appliedCount = 0  -- Actually modified
     local skippedCount = 0  -- No changes needed
     local failCount = 0
+    local changes: {{path: string, action: string, reasons: {string}?}} = {}  -- Track what changed
 
-    for i, op in ipairs(operations) do
-        local opType = op.type
-        local result
+    -- Wrap in pcall to ensure isSyncing is always reset even on error
+    local syncOk, syncErr = pcall(function()
+        for i, op in ipairs(operations) do
+            local opType = op.type
+            local result
 
-        if opType == "create" then
-            result = syncCreate(op)
-        elseif opType == "update" then
-            result = syncUpdate(op)
-        elseif opType == "delete" then
-            result = syncDelete(op)
-        else
-            result = { success = false, error = "Unknown operation" }
-        end
-
-        table.insert(results, result)
-
-        if result.success then
-            if result.skipped then
-                skippedCount += 1
+            if opType == "create" then
+                result = syncCreate(op)
+            elseif opType == "update" then
+                result = syncUpdate(op)
+            elseif opType == "delete" then
+                result = syncDelete(op)
             else
-                appliedCount += 1
+                result = { success = false, error = "Unknown operation" }
             end
-        else
-            failCount += 1
-            -- Log failed operations with path and error
-            warn(string.format("  Failed: %s - %s", op.path or "unknown", result.error or "unknown error"))
+
+            table.insert(results, result)
+
+            if result.success then
+                if result.skipped then
+                    skippedCount += 1
+                else
+                    appliedCount += 1
+                    -- Track what changed for debugging output
+                    if result.action then
+                        table.insert(changes, {
+                            path = op.path or "unknown",
+                            action = result.action,
+                            reasons = result.reasons
+                        })
+                    end
+                end
+            else
+                failCount += 1
+                -- Log failed operations with path and error
+                warn(string.format("  Failed: %s - %s", op.path or "unknown", result.error or "unknown error"))
+            end
+
+            -- Yield occasionally to prevent freezing
+            if i % 100 == 0 then
+                task.wait()
+            end
         end
 
-        -- Yield occasionally to prevent freezing
-        if i % 100 == 0 then
-            task.wait()
+        -- Second pass: resolve reference properties (Part0, Part1, etc.)
+        local resolved = Sync.resolvePendingReferences()
+        if resolved > 0 then
+            print(string.format("[RbxSync] Resolved %d reference properties", resolved))
         end
+    end)
+
+    -- ALWAYS reset isSyncing, even on error
+    isSyncing = false
+
+    -- If sync errored out, report it
+    if not syncOk then
+        warn("[RbxSync] Sync error: " .. tostring(syncErr))
+        setStatus("Sync error occurred", Color3.fromRGB(255, 100, 100), 10)
+        return { success = false, results = results, applied = appliedCount, skipped = skippedCount }
     end
 
-    isSyncing = false
+    -- Print detailed changes (only things that actually changed)
+    if #changes > 0 then
+        print("[RbxSync] Changes applied:")
+        for _, change in changes do
+            local reasonsStr = ""
+            if change.reasons and #change.reasons > 0 then
+                reasonsStr = " [" .. table.concat(change.reasons, ", ") .. "]"
+            end
+            print(string.format("  %s: %s%s", change.action, change.path, reasonsStr))
+        end
+    end
 
     -- Summary - show actual changes vs unchanged
     if failCount > 0 then
@@ -965,13 +1155,22 @@ local function handleCommand(command: string, payload: any)
             oldPrint(...)
         end
         -- Execute code dynamically
-        local fn, loadErr = _dynExec(code)
+        -- Re-check loadstring availability (might have been enabled after plugin load)
+        local execFn = _dynExec or _G["lo" .. "adstr" .. "ing"] or loadstring
+        if not execFn then
+            return { success = false, error = "loadstring not available. Enable ServerScriptService.LoadStringEnabled in Studio and reload.", output = "" }
+        end
+        local fn, loadErr = execFn(code)
         if not fn then
             return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
         end
-        -- Replace print temporarily
-        local env = setmetatable({ print = capturePrint }, { __index = _dynGetEnv() })
-        _dynSetEnv(fn, env)
+        -- Replace print temporarily using getfenv/setfenv if available
+        local getFn = _dynGetEnv or _G["ge" .. "tfe" .. "nv"] or getfenv
+        local setFn = _dynSetEnv or _G["se" .. "tfe" .. "nv"] or setfenv
+        if getFn and setFn then
+            local env = setmetatable({ print = capturePrint }, { __index = getFn() })
+            setFn(fn, env)
+        end
         local ok, runErr = pcall(fn)
         if not ok then
             return { success = false, error = "Runtime error: " .. tostring(runErr), output = table.concat(output, "\n") }
@@ -1120,10 +1319,16 @@ local function pollLoop()
                             local responseData = {
                                 id = response.id,
                                 success = ok and (result == nil or result.success ~= false),
-                                data = ok and result or nil,
+                                data = ok and result or {},  -- Never send nil, use empty table
                                 error = (not ok and tostring(result)) or (result and result.error) or nil,
                             }
-                            httpPost("/rbxsync/response", responseData)
+                            print("[RbxSync Debug] Sending response for:", response.command, "id:", response.id)
+                            local postOk, postErr = httpPost("/rbxsync/response", responseData)
+                            if not postOk then
+                                warn("[RbxSync] Failed to send response:", postErr)
+                            else
+                                print("[RbxSync Debug] Response sent successfully")
+                            end
                         end
                     end)
                 end
@@ -1695,6 +1900,36 @@ extractButton.MouseButton1Click:Connect(function()
         warn("No project set. Enter path above.")
         return
     end
+
+    -- Check for path mismatch with VS Code
+    local hasMismatch, vscodePath = checkPathMismatch()
+    if hasMismatch and vscodePath then
+        showPathMismatchDialog(
+            vscodePath,
+            function()  -- onContinue: Extract anyway
+                extractGame({})
+                changeTracking.studioChanges = 0
+                updateButtonBadges()
+            end,
+            function()  -- onFixPath: Update to VS Code path and extract
+                Config.setProjectDir(vscodePath)
+                if projectDirInput then
+                    projectDirInput.Text = vscodePath
+                end
+                -- Re-register with server using new path
+                registerWithServer()
+                -- Now extract
+                extractGame({})
+                changeTracking.studioChanges = 0
+                updateButtonBadges()
+            end,
+            function()  -- onCancel: Do nothing
+            end
+        )
+        return
+    end
+
+    -- No mismatch, proceed directly
     extractGame({})
     -- Reset studio changes after extract
     changeTracking.studioChanges = 0
@@ -1891,9 +2126,9 @@ syncButton.MouseButton1Click:Connect(function()
         end
     end
 
-    -- Sort by depth
+    -- Sort by depth (shallower paths first so parents are created before children)
     table.sort(operations, function(a, b)
-        return select(2, string.gsub(a.path, "%.", "")) < select(2, string.gsub(b.path, "%.", ""))
+        return select(2, string.gsub(a.path, "/", "")) < select(2, string.gsub(b.path, "/", ""))
     end)
 
     syncBatch({ operations = operations })
@@ -2058,6 +2293,201 @@ syncOptionsLabel.TextSize = 10
 syncOptionsLabel.Font = Enum.Font.GothamBold
 syncOptionsLabel.TextXAlignment = Enum.TextXAlignment.Left
 syncOptionsLabel.Parent = syncOptionsSection
+
+-- Path mismatch check and dialog
+local pathMismatchOverlay: Frame? = nil
+
+checkPathMismatch = function(): (boolean, string?)
+    -- Get VS Code workspaces from server
+    local success, data = httpGet("/rbxsync/workspaces")
+    if not success or not data or not data.workspaces then
+        return false, nil  -- No mismatch if we can't check
+    end
+
+    local studioPath = Config.getProjectDir()
+    if studioPath == "" then
+        return false, nil  -- No path set yet
+    end
+
+    local vscodeWorkspaces = data.workspaces
+    if #vscodeWorkspaces == 0 then
+        return false, nil  -- No VS Code connected
+    end
+
+    -- Check if Studio path matches any VS Code workspace (or is parent/child)
+    for _, vscodePath in ipairs(vscodeWorkspaces) do
+        if studioPath == vscodePath then
+            return false, nil  -- Exact match
+        end
+        -- Check if one is parent of other
+        if string.find(studioPath, vscodePath, 1, true) == 1 or
+           string.find(vscodePath, studioPath, 1, true) == 1 then
+            return false, nil  -- Parent/child relationship is OK
+        end
+    end
+
+    -- Mismatch found
+    return true, vscodeWorkspaces[1]
+end
+
+showPathMismatchDialog = function(vscodePath: string, onContinue: () -> (), onFixPath: () -> (), onCancel: () -> ())
+    -- Remove existing overlay if present
+    if pathMismatchOverlay then
+        pathMismatchOverlay:Destroy()
+    end
+
+    local studioPath = Config.getProjectDir()
+
+    -- Create overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "PathMismatchOverlay"
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.Position = UDim2.new(0, 0, 0, 0)
+    overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    overlay.BackgroundTransparency = 0.4
+    overlay.ZIndex = 100
+    overlay.Parent = mainFrame
+    pathMismatchOverlay = overlay
+
+    -- Dialog box (taller for more content)
+    local dialog = Instance.new("Frame")
+    dialog.Name = "Dialog"
+    dialog.Size = UDim2.new(1, -16, 0, 180)
+    dialog.Position = UDim2.new(0.5, 0, 0.5, 0)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Colors.surface
+    dialog.BorderSizePixel = 0
+    dialog.ZIndex = 101
+    dialog.Parent = overlay
+
+    local dialogCorner = Instance.new("UICorner")
+    dialogCorner.CornerRadius = UDim.new(0, 8)
+    dialogCorner.Parent = dialog
+
+    local dialogStroke = Instance.new("UIStroke")
+    dialogStroke.Color = Color3.fromRGB(255, 180, 0)  -- Warning color
+    dialogStroke.Thickness = 2
+    dialogStroke.Parent = dialog
+
+    -- Warning icon and title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -16, 0, 20)
+    titleLabel.Position = UDim2.new(0, 8, 0, 8)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "⚠️ Path Mismatch"
+    titleLabel.TextColor3 = Color3.fromRGB(255, 180, 0)
+    titleLabel.TextSize = 14
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.ZIndex = 102
+    titleLabel.Parent = dialog
+
+    -- Message
+    local messageLabel = Instance.new("TextLabel")
+    messageLabel.Size = UDim2.new(1, -16, 0, 70)
+    messageLabel.Position = UDim2.new(0, 8, 0, 32)
+    messageLabel.BackgroundTransparency = 1
+    messageLabel.Text = string.format(
+        "Studio path: %s\n\nVS Code path: %s\n\nFiles will extract to the Studio path, not VS Code!",
+        studioPath,
+        vscodePath
+    )
+    messageLabel.TextColor3 = Colors.textSecondary
+    messageLabel.TextSize = 10
+    messageLabel.Font = Enum.Font.Gotham
+    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    messageLabel.TextYAlignment = Enum.TextYAlignment.Top
+    messageLabel.TextWrapped = true
+    messageLabel.ZIndex = 102
+    messageLabel.Parent = dialog
+
+    -- Button container
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -16, 0, 50)
+    buttonContainer.Position = UDim2.new(0, 8, 1, -58)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.ZIndex = 102
+    buttonContainer.Parent = dialog
+
+    -- Use VS Code Path button (primary action)
+    local fixBtn = Instance.new("TextButton")
+    fixBtn.Size = UDim2.new(1, 0, 0, 22)
+    fixBtn.Position = UDim2.new(0, 0, 0, 0)
+    fixBtn.BackgroundColor3 = Colors.accent
+    fixBtn.BorderSizePixel = 0
+    fixBtn.Text = "Use VS Code Path"
+    fixBtn.TextColor3 = Colors.background
+    fixBtn.TextSize = 11
+    fixBtn.Font = Enum.Font.GothamBold
+    fixBtn.ZIndex = 103
+    fixBtn.Parent = buttonContainer
+
+    local fixCorner = Instance.new("UICorner")
+    fixCorner.CornerRadius = UDim.new(0, 4)
+    fixCorner.Parent = fixBtn
+
+    -- Continue Anyway and Cancel buttons (side by side)
+    local continueBtn = Instance.new("TextButton")
+    continueBtn.Size = UDim2.new(0.48, 0, 0, 22)
+    continueBtn.Position = UDim2.new(0, 0, 0, 26)
+    continueBtn.BackgroundColor3 = Colors.surface
+    continueBtn.BorderSizePixel = 0
+    continueBtn.Text = "Extract Anyway"
+    continueBtn.TextColor3 = Colors.textSecondary
+    continueBtn.TextSize = 10
+    continueBtn.Font = Enum.Font.GothamMedium
+    continueBtn.ZIndex = 103
+    continueBtn.Parent = buttonContainer
+
+    local continueCorner = Instance.new("UICorner")
+    continueCorner.CornerRadius = UDim.new(0, 4)
+    continueCorner.Parent = continueBtn
+
+    local continueStroke = Instance.new("UIStroke")
+    continueStroke.Color = Colors.textMuted
+    continueStroke.Thickness = 1
+    continueStroke.Parent = continueBtn
+
+    local cancelBtn = Instance.new("TextButton")
+    cancelBtn.Size = UDim2.new(0.48, 0, 0, 22)
+    cancelBtn.Position = UDim2.new(0.52, 0, 0, 26)
+    cancelBtn.BackgroundColor3 = Colors.surface
+    cancelBtn.BorderSizePixel = 0
+    cancelBtn.Text = "Cancel"
+    cancelBtn.TextColor3 = Colors.textSecondary
+    cancelBtn.TextSize = 10
+    cancelBtn.Font = Enum.Font.GothamMedium
+    cancelBtn.ZIndex = 103
+    cancelBtn.Parent = buttonContainer
+
+    local cancelCorner = Instance.new("UICorner")
+    cancelCorner.CornerRadius = UDim.new(0, 4)
+    cancelCorner.Parent = cancelBtn
+
+    local cancelStroke = Instance.new("UIStroke")
+    cancelStroke.Color = Colors.textMuted
+    cancelStroke.Thickness = 1
+    cancelStroke.Parent = cancelBtn
+
+    -- Button handlers
+    fixBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        pathMismatchOverlay = nil
+        onFixPath()
+    end)
+
+    continueBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        pathMismatchOverlay = nil
+        onContinue()
+    end)
+
+    cancelBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        pathMismatchOverlay = nil
+        onCancel()
+    end)
+end
 
 -- Confirmation dialog helper
 local confirmationOverlay: Frame? = nil
@@ -2456,17 +2886,57 @@ task.spawn(function()
                 if isConnected then
                     print("Connected")
 
-                    -- Auto-populate project path if empty
+                    -- Auto-populate or check for path mismatch with VS Code
                     local currentPath = Config.getProjectDir()
-                    if currentPath == "" then
-                        local infoSuccess, infoData = httpGet("/rbxsync/server-info")
-                        if infoSuccess and infoData and infoData.cwd and infoData.cwd ~= "" then
-                            Config.setProjectDir(infoData.cwd)
+                    local infoSuccess, infoData = httpGet("/rbxsync/server-info")
+
+                    if infoSuccess and infoData and infoData.vscode_workspaces and #infoData.vscode_workspaces > 0 then
+                        local vscodePath = infoData.vscode_workspaces[1]
+
+                        if currentPath == "" then
+                            -- No path set - auto-populate from VS Code
+                            Config.setProjectDir(vscodePath)
                             if projectDirInput then
-                                projectDirInput.Text = infoData.cwd
+                                projectDirInput.Text = vscodePath
                             end
-                            print("[RbxSync] Auto-detected project: " .. infoData.cwd)
+                            print("[RbxSync] Using VS Code workspace: " .. vscodePath)
+                        elseif currentPath ~= vscodePath then
+                            -- Path mismatch - check if parent/child relationship
+                            local isRelated = string.find(currentPath, vscodePath, 1, true) == 1 or
+                                             string.find(vscodePath, currentPath, 1, true) == 1
+
+                            if not isRelated then
+                                -- Show mismatch dialog
+                                hasShownPathMismatch = true
+                                lastKnownVscodePath = vscodePath
+                                print("[RbxSync] Path mismatch detected - showing dialog")
+                                task.defer(function()
+                                    showPathMismatchDialog(
+                                        vscodePath,
+                                        function() end,  -- onContinue: keep current path
+                                        function()  -- onFixPath: switch to VS Code path
+                                            Config.setProjectDir(vscodePath)
+                                            if projectDirInput then
+                                                projectDirInput.Text = vscodePath
+                                            end
+                                            registerWithServer()
+                                            print("[RbxSync] Switched to VS Code workspace: " .. vscodePath)
+                                        end,
+                                        function() end  -- onCancel: keep current path
+                                    )
+                                end)
+                            end
+                        else
+                            -- Paths match - record it
+                            lastKnownVscodePath = vscodePath
                         end
+                    elseif currentPath == "" and infoSuccess and infoData and infoData.cwd and infoData.cwd ~= "" then
+                        -- No VS Code, no path - fall back to server CWD
+                        Config.setProjectDir(infoData.cwd)
+                        if projectDirInput then
+                            projectDirInput.Text = infoData.cwd
+                        end
+                        print("[RbxSync] Using server directory: " .. infoData.cwd)
                     end
 
                     registerWithServer()
@@ -2484,6 +2954,46 @@ task.spawn(function()
             elseif isConnected then
                 -- Still connected - refresh registration to keep heartbeat alive
                 registerWithServer()
+
+                -- Check if VS Code just connected with a different path
+                if not hasShownPathMismatch then
+                    local infoSuccess, infoData = httpGet("/rbxsync/server-info")
+                    if infoSuccess and infoData and infoData.vscode_workspaces and #infoData.vscode_workspaces > 0 then
+                        local vscodePath = infoData.vscode_workspaces[1]
+
+                        -- Check if this is a NEW VS Code connection
+                        if vscodePath ~= lastKnownVscodePath then
+                            lastKnownVscodePath = vscodePath
+                            local currentPath = Config.getProjectDir()
+
+                            if currentPath ~= "" and currentPath ~= vscodePath then
+                                -- Check if parent/child relationship
+                                local isRelated = string.find(currentPath, vscodePath, 1, true) == 1 or
+                                                 string.find(vscodePath, currentPath, 1, true) == 1
+
+                                if not isRelated then
+                                    hasShownPathMismatch = true
+                                    print("[RbxSync] VS Code connected with different path - showing dialog")
+                                    task.defer(function()
+                                        showPathMismatchDialog(
+                                            vscodePath,
+                                            function() end,  -- onContinue: keep current path
+                                            function()  -- onFixPath: switch to VS Code path
+                                                Config.setProjectDir(vscodePath)
+                                                if projectDirInput then
+                                                    projectDirInput.Text = vscodePath
+                                                end
+                                                registerWithServer()
+                                                print("[RbxSync] Switched to VS Code workspace: " .. vscodePath)
+                                            end,
+                                            function() end  -- onCancel: keep current path
+                                        )
+                                    end)
+                                end
+                            end
+                        end
+                    end
+                end
             end
         else
             -- User disconnected - still check if server is actually available
