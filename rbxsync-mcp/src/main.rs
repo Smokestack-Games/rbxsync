@@ -130,15 +130,14 @@ impl RbxSyncServer {
 
             let status = self.client.get_extraction_status().await.map_err(|e| mcp_error(e.to_string()))?;
 
-            match status.status.as_str() {
-                "complete" => break,
-                "error" => {
-                    return Ok(CallToolResult::success(vec![Content::text(format!(
-                        "Extraction error: {}",
-                        status.error.unwrap_or_default()
-                    ))]));
-                }
-                _ => continue,
+            if status.complete {
+                break;
+            }
+            if let Some(err) = &status.error {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Extraction error: {}",
+                    err
+                ))]));
             }
         }
 
@@ -163,19 +162,8 @@ impl RbxSyncServer {
         // Read the local tree
         let tree = self.client.read_tree(&params.project_dir).await.map_err(|e| mcp_error(e.to_string()))?;
 
-        // Build sync operations
-        let operations: Vec<_> = tree
-            .instances
-            .into_iter()
-            .map(|inst| tools::SyncOperation {
-                op: "update".to_string(),
-                path: inst.path,
-                class_name: Some(inst.class_name),
-                name: Some(inst.name),
-                properties: Some(inst.properties),
-                source: inst.source,
-            })
-            .collect();
+        // Build sync operations in the format expected by the plugin
+        let operations = tools::build_sync_operations(tree.instances);
 
         if operations.is_empty() {
             return Ok(CallToolResult::success(vec![Content::text("No changes to sync.")]));
@@ -184,15 +172,19 @@ impl RbxSyncServer {
         // Apply changes
         let result = self.client.sync_batch(&operations).await.map_err(|e| mcp_error(e.to_string()))?;
 
-        if result.success {
+        // Extract applied count from nested data or top-level field
+        let applied = result.data.as_ref().map(|d| d.applied).unwrap_or(result.applied);
+        let errors = result.data.as_ref().map(|d| d.errors.clone()).unwrap_or(result.errors);
+
+        if result.success && errors.is_empty() {
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "Successfully synced {} instances to Studio.",
-                result.applied
+                applied
             ))]))
         } else {
             Ok(CallToolResult::success(vec![Content::text(format!(
                 "Sync completed with errors: {:?}",
-                result.errors
+                errors
             ))]))
         }
     }

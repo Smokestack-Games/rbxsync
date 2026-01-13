@@ -11,58 +11,93 @@ pub struct RbxSyncClient {
 #[derive(Debug, Deserialize)]
 pub struct HealthResponse {
     pub status: String,
-    pub connected: bool,
+    pub version: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ExtractStartResponse {
+    #[serde(rename = "sessionId")]
     pub session_id: String,
-    pub message: String,
+    pub status: String,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ExtractStatusResponse {
-    pub status: String,
-    pub current_service: Option<String>,
-    pub instances_extracted: i32,
+    #[serde(rename = "sessionId")]
+    pub session_id: String,
+    #[serde(rename = "chunksReceived")]
+    pub chunks_received: i32,
+    #[serde(rename = "totalChunks")]
+    pub total_chunks: Option<i32>,
+    pub complete: bool,
     pub error: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct ExtractFinalizeResponse {
     pub success: bool,
+    #[serde(rename = "filesWritten")]
     pub files_written: i32,
+    #[serde(rename = "scriptsWritten")]
+    pub scripts_written: Option<i32>,
+    #[serde(rename = "totalInstances")]
+    pub total_instances: Option<i32>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SyncReadTreeResponse {
-    pub instances: Vec<InstanceData>,
-    pub total_count: i32,
+    pub instances: Vec<serde_json::Value>,  // Raw JSON instances
+    pub count: i32,
+}
+
+/// Build sync operations from raw instance data
+/// Returns operations in the format expected by the plugin:
+/// { type: "update", path: "...", data: { className, name, referenceId, attributes, properties, ... } }
+pub fn build_sync_operations(instances: Vec<serde_json::Value>) -> Vec<serde_json::Value> {
+    instances
+        .into_iter()
+        .filter_map(|inst| {
+            let path = inst.get("path")?.as_str()?;
+            Some(serde_json::json!({
+                "type": "update",
+                "path": path,
+                "data": inst
+            }))
+        })
+        .collect()
 }
 
 #[derive(Debug, Deserialize)]
-pub struct InstanceData {
-    pub path: String,
-    pub class_name: String,
-    pub name: String,
-    pub properties: HashMap<String, serde_json::Value>,
-    pub source: Option<String>,
+pub struct SyncBatchResult {
+    pub success: bool,
+    #[serde(default)]
+    pub skipped: bool,
 }
 
-#[derive(Debug, Serialize)]
-pub struct SyncOperation {
-    pub op: String,
-    pub path: String,
-    pub class_name: Option<String>,
-    pub name: Option<String>,
-    pub properties: Option<HashMap<String, serde_json::Value>>,
-    pub source: Option<String>,
+#[derive(Debug, Deserialize)]
+pub struct SyncBatchResponseData {
+    pub success: bool,
+    #[serde(default)]
+    pub applied: i32,
+    #[serde(default)]
+    pub skipped: i32,
+    #[serde(default)]
+    pub errors: Vec<String>,
+    #[serde(default)]
+    pub results: Vec<SyncBatchResult>,
 }
 
 #[derive(Debug, Deserialize)]
 pub struct SyncBatchResponse {
     pub success: bool,
+    #[serde(default)]
+    pub data: Option<SyncBatchResponseData>,
+    #[serde(default)]
+    pub id: Option<String>,
+    // Flattened fields for backwards compatibility
+    #[serde(default)]
     pub applied: i32,
+    #[serde(default)]
     pub errors: Vec<String>,
 }
 
@@ -163,7 +198,7 @@ impl RbxSyncClient {
             .json::<HealthResponse>()
             .await?;
 
-        Ok(resp.connected)
+        Ok(resp.status == "ok")
     }
 
     pub async fn start_extraction(
@@ -238,7 +273,7 @@ impl RbxSyncClient {
         Ok(resp)
     }
 
-    pub async fn sync_batch(&self, operations: &[SyncOperation]) -> anyhow::Result<SyncBatchResponse> {
+    pub async fn sync_batch(&self, operations: &[serde_json::Value]) -> anyhow::Result<SyncBatchResponse> {
         let resp = self
             .client
             .post(format!("{}/sync/batch", self.base_url))
