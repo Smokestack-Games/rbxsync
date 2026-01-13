@@ -1461,31 +1461,6 @@
             letter-spacing: -0.01em;
         }
 
-        /* Three-beat headline style (Apple-like) */
-        .headline-beats {
-            display: flex;
-            flex-wrap: wrap;
-            justify-content: center;
-            gap: 0.5rem 1.5rem;
-        }
-
-        .headline-beats .beat {
-            position: relative;
-        }
-
-        .headline-beats .beat:not(:last-child)::after {
-            content: '';
-            position: absolute;
-            right: -0.875rem;
-            top: 50%;
-            transform: translateY(-50%);
-            width: 4px;
-            height: 4px;
-            border-radius: 50%;
-            background: var(--text-muted);
-            opacity: 0.5;
-        }
-
         /* Why RbxSync - Bento Box Layout */
         .bento-grid {
             display: grid;
@@ -2357,11 +2332,6 @@
             letter-spacing: -0.02em;
         }
 
-        .format-info h3.headline-beats {
-            justify-content: flex-start;
-            font-size: var(--text-2xl);
-        }
-
         .format-info p {
             color: var(--text-secondary);
             margin-bottom: 1.25rem;
@@ -2726,7 +2696,8 @@
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            max-height: 400px;
+            min-height: 400px;
+            max-height: 500px;
         }
 
         .code-header {
@@ -3846,87 +3817,81 @@
             height: 16px;
         }
 
-        /* Install Extract Step (scoped to avoid conflicts with original .extract-step) */
-        .install-extract-step {
-            display: flex;
-            flex-direction: column;
-            align-items: center;
-            gap: 1rem;
-            margin-top: 2rem;
-            padding-top: 2rem;
-            border-top: 1px solid var(--border);
-            max-width: 900px;
-            margin-left: auto;
-            margin-right: auto;
+        /* Install Final Step - Two Equal Paths */
+        .install-final-step {
+            margin-top: 3rem;
+            padding-top: 2.5rem;
             opacity: 0;
             transform: translateY(20px);
-            transition: opacity 0.6s ease, transform 0.6s ease;
+            transition: opacity 0.8s ease, transform 0.8s ease;
             transition-delay: 0.927s;
         }
 
-        .install-extract-step.visible {
+        .install-final-step.visible {
             opacity: 1;
             transform: translateY(0);
         }
 
-        .install-extract-step .extract-step-header {
+        .final-step-paths {
             display: flex;
-            align-items: center;
-            gap: 0.75rem;
-            font-size: 1rem;
-            font-weight: 500;
-            color: var(--text-primary);
-        }
-
-        .extract-btn {
-            display: flex;
-            align-items: center;
+            align-items: flex-start;
             justify-content: center;
-            gap: 0.5rem;
-            padding: 0.875rem 2.5rem;
-            background: var(--bg-tertiary);
-            color: var(--text-primary);
-            border: 1px solid var(--border);
-            border-radius: 8px;
-            font-size: 1rem;
-            font-weight: 600;
-            cursor: pointer;
-            transition: all 0.2s ease;
+            gap: 2.5rem;
+            text-align: center;
         }
 
-        .extract-btn:hover {
-            background: var(--bg-elevated);
-            border-color: var(--text-muted);
+        .final-step-path {
+            flex: 1;
+            max-width: 280px;
         }
 
-        /* Light theme extract button */
-        [data-theme="light"] .extract-btn {
-            background: #f1f5f9;
-            border-color: #e2e8f0;
-            color: #1a1a2e;
-        }
-
-        [data-theme="light"] .extract-btn:hover {
-            background: #e2e8f0;
-            border-color: #cbd5e0;
-        }
-
-        .extract-btn svg {
-            width: 20px;
-            height: 20px;
-        }
-
-        .extract-hint {
-            font-size: 0.8125rem;
+        .final-step-divider {
+            font-size: var(--text-sm);
             color: var(--text-muted);
+            opacity: 0.4;
+            padding-top: 0.25rem;
         }
 
-        .extract-hint code {
+        .final-step-action {
+            font-size: var(--text-lg);
+            font-weight: 600;
+            font-style: normal;
+            color: var(--text-primary);
+            letter-spacing: -0.01em;
+            line-height: 1.4;
+            margin: 0 0 0.375rem 0;
+        }
+
+        .final-step-action .action-extract {
+            color: var(--rbx-red);
+        }
+
+        .final-step-action code.action-migrate {
             font-family: 'SF Mono', monospace;
-            font-size: 0.75rem;
-            background: var(--bg-tertiary);
-            padding: 0.125rem 0.375rem;
-            border-radius: 4px;
+            font-size: 0.875em;
+            color: var(--gold);
+            background: transparent;
+            padding: 0;
+            white-space: nowrap;
+        }
+
+        .final-step-sub {
+            font-size: var(--text-sm);
+            font-style: normal;
+            color: var(--text-muted);
+            margin: 0;
+        }
+
+        @media (max-width: 650px) {
+            .final-step-paths {
+                flex-direction: column;
+                align-items: center;
+                gap: 1.25rem;
+            }
+
+            .final-step-path {
+                max-width: 100%;
+            }
         }
 
         /* Responsive */
@@ -5339,11 +5304,7 @@
             <div class="format-section">
                 <div class="format-info">
                     <div class="section-tag">File Format</div>
-                    <h3 class="headline-beats">
-                        <span class="beat">Human-readable</span>
-                        <span class="beat">AI-readable</span>
-                        <span class="beat">Git-friendly</span>
-                    </h3>
+                    <h3>Human-readable. AI-readable. Git-friendly.</h3>
                     <p>
                         <span class="copy-line">Scripts are .luau files. Everything else is <span class="rbxjson-rainbow">.rbxjson</span>.</span>
                         <span class="copy-line">A clean JSON format with explicit types that preserves every property exactly.</span>
@@ -5911,20 +5872,19 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                     </div>
                 </div>
 
-                <!-- Extract Step -->
-                <div class="install-extract-step">
-                    <div class="extract-step-header">
-                        <span>That's it! Extract your game to VS Code</span>
+                <!-- Final Step -->
+                <div class="install-final-step">
+                    <div class="final-step-paths">
+                        <div class="final-step-path">
+                            <p class="final-step-action">Open Studio. Click <span class="action-extract">Extract</span>.</p>
+                            <p class="final-step-sub">Your game, now in Git.</p>
+                        </div>
+                        <span class="final-step-divider">or</span>
+                        <div class="final-step-path migrate">
+                            <p class="final-step-action">From Rojo? <code class="action-migrate">rbxsync migrate</code></p>
+                            <p class="final-step-sub">Converts project.json instantly</p>
+                        </div>
                     </div>
-                    <button class="extract-btn" id="extract-demo-btn">
-                        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                            <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
-                            <polyline points="7 10 12 15 17 10"/>
-                            <line x1="12" y1="15" x2="12" y2="3"/>
-                        </svg>
-                        Extract
-                    </button>
-                    <span class="extract-hint">Click Extract in Studio plugin window or run <code>rbxsync extract</code></span>
                 </div>
             </div>
 
@@ -6779,17 +6739,17 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                 // Replay animations when switching to simple mode (only on user click)
                 if (mode === 'simple' && fromClick) {
                     const cards = document.querySelectorAll('.install-card-wrapper');
-                    const extractStep = document.querySelector('.install-extract-step');
+                    const finalStep = document.querySelector('.install-final-step');
 
                     // Remove visible class
                     cards.forEach(card => card.classList.remove('visible'));
-                    if (extractStep) extractStep.classList.remove('visible');
+                    if (finalStep) finalStep.classList.remove('visible');
 
                     // Force reflow and re-add visible class
                     requestAnimationFrame(() => {
                         requestAnimationFrame(() => {
                             cards.forEach(card => card.classList.add('visible'));
-                            if (extractStep) extractStep.classList.add('visible');
+                            if (finalStep) finalStep.classList.add('visible');
 
                             // Fire confetti after animations complete
                             if (window.scheduleInstallConfetti) window.scheduleInstallConfetti(1600);
@@ -6816,7 +6776,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
         // Install section fade-in animation on scroll
         (function() {
             const installCards = document.querySelectorAll('.install-card-wrapper');
-            const extractStep = document.querySelector('.install-extract-step');
+            const finalStep = document.querySelector('.install-final-step');
             const installSectionEl = document.querySelector('#install');
             const confettiCanvas = document.getElementById('install-confetti-canvas');
 
@@ -6855,9 +6815,9 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                     confettiTimeout = null;
                 }
 
-                // Get the extract step position relative to the install section
+                // Get the final step position relative to the install section
                 const sectionRect = installSectionEl.getBoundingClientRect();
-                const stepRect = extractStep ? extractStep.getBoundingClientRect() : null;
+                const stepRect = finalStep ? finalStep.getBoundingClientRect() : null;
                 const originY = stepRect
                     ? (stepRect.top - sectionRect.top + stepRect.height * 0.5) / sectionRect.height
                     : 0.4;
@@ -6904,7 +6864,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                 entries.forEach(entry => {
                     if (entry.isIntersecting) {
                         installCards.forEach(card => card.classList.add('visible'));
-                        if (extractStep) extractStep.classList.add('visible');
+                        if (finalStep) finalStep.classList.add('visible');
 
                         // Fire confetti after step 4 appears (0.927s delay + 0.6s transition + small buffer)
                         window.scheduleInstallConfetti(1600);
