@@ -1637,7 +1637,7 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 4rem;
-            align-items: center;
+            align-items: stretch;
         }
 
         .extract-info h3 {
@@ -1658,7 +1658,8 @@
         /* Punchy copy - stacked lines with breathing room */
         .copy-line {
             display: block;
-            margin-bottom: 0.5rem;
+            margin-bottom: 0.625rem;
+            line-height: 1.4;
         }
 
         .copy-line:last-child {
@@ -1734,6 +1735,9 @@
             padding: 2.5rem 2rem;
             text-align: center;
             overflow: hidden;
+            min-height: 400px;
+            display: flex;
+            flex-direction: column;
         }
 
         /* Animated grid background */
@@ -1777,8 +1781,10 @@
             display: flex;
             flex-direction: column;
             align-items: center;
+            justify-content: center;
             gap: 4px;
-            margin: 1.5rem 0;
+            flex: 1;
+            padding: 1.5rem 0;
         }
 
         .extract-arrow span {
@@ -1815,6 +1821,7 @@
             gap: 0.5rem;
             justify-content: center;
             flex-wrap: wrap;
+            margin-top: auto;
         }
 
         .extract-file {
@@ -2317,7 +2324,7 @@
             display: grid;
             grid-template-columns: 1fr 1fr;
             gap: 3rem;
-            align-items: stretch;
+            align-items: start;
             overflow: visible;
         }
 
@@ -2689,15 +2696,14 @@
             border-color: var(--rbx-red);
         }
 
-        .code-example {
+        .format-section > .code-example {
             background: rgba(0, 0, 0, 0.5);
             border: 1px solid rgba(255, 255, 255, 0.12);
             border-radius: 10px;
             overflow: hidden;
             display: flex;
             flex-direction: column;
-            min-height: 400px;
-            max-height: 500px;
+            max-height: 400px;
         }
 
         .code-header {
