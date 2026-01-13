@@ -111,9 +111,9 @@ enum Commands {
         #[arg(short, long)]
         path: Option<PathBuf>,
 
-        /// Delete instances in Studio that don't exist in local files
+        /// Keep orphaned instances in Studio (by default, they are deleted)
         #[arg(long)]
-        delete: bool,
+        no_delete: bool,
     },
 
     /// Build the Studio plugin as .rbxm file
@@ -393,8 +393,8 @@ async fn main() -> Result<()> {
         Commands::Diff => {
             cmd_diff().await?;
         }
-        Commands::Sync { path, delete } => {
-            cmd_sync(path, delete).await?;
+        Commands::Sync { path, no_delete } => {
+            cmd_sync(path, !no_delete).await?;
         }
         Commands::BuildPlugin {
             source,
@@ -1319,8 +1319,12 @@ async fn cmd_sync(path: Option<PathBuf>, delete: bool) -> Result<()> {
     let result: serde_json::Value = sync_response.json().await?;
 
     if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
-        let applied = result.get("applied").and_then(|v| v.as_u64()).unwrap_or(0);
-        println!("\x1b[32m✓ Successfully synced {} operations to Studio.\x1b[0m", applied);
+        // Use our own counts since server response may not include all operations
+        if delete_count > 0 {
+            println!("\x1b[32m✓ Synced {} instances, deleted {} orphans.\x1b[0m", update_count, delete_count);
+        } else {
+            println!("\x1b[32m✓ Synced {} instances to Studio.\x1b[0m", update_count);
+        }
     } else {
         let errors = result.get("errors").and_then(|v| v.as_array()).cloned().unwrap_or_default();
         println!("Sync completed with errors:");
