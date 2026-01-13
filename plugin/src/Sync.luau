@@ -24,13 +24,37 @@ local instanceCache: {[string]: Instance} = {}
 local pendingReferences: {{instance: Instance, propName: string, refId: string}} = {}
 
 -- Reference properties that need deferred resolution
+-- Comprehensive list of all Instance reference properties in Roblox
 local refProps = {
+    -- Welds and basic constraints (WeldConstraint, Weld, Motor6D, Motor, etc.)
     Part0 = true,
     Part1 = true,
+    -- Attachment-based constraints (RopeConstraint, SpringConstraint, HingeConstraint,
+    -- BallSocketConstraint, AlignPosition, AlignOrientation, VectorForce, Torque,
+    -- LinearVelocity, AngularVelocity, LineForce, PlaneConstraint, PathfindingLink, etc.)
     Attachment0 = true,
     Attachment1 = true,
+    -- Model/Assembly
     PrimaryPart = true,
+    -- GUI adornments (BillboardGui, SurfaceGui, SelectionBox, Highlight, HandleAdornments)
     Adornee = true,
+    -- Value objects (ObjectValue)
+    Value = true,
+    -- Humanoid references
+    HumanoidRootPart = true,
+    RootPart = true,
+    SeatPart = true,
+    WalkToPart = true,
+    -- Camera
+    CameraSubject = true,
+    -- Sound
+    SoundGroup = true,
+    -- Animation
+    Controller = true,
+    -- Script linking (deprecated but may exist)
+    LinkedSource = true,
+    -- BindableEvent/Function targets (if applicable)
+    -- These don't typically have instance refs but just in case
 }
 
 -- Decode a property value from our JSON format back to Roblox type

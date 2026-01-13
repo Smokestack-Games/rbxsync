@@ -172,6 +172,16 @@ impl RbxSyncServer {
         // Apply changes
         let result = self.client.sync_batch(&operations).await.map_err(|e| mcp_error(e.to_string()))?;
 
+        // Check if sync was skipped (disabled or extraction in progress)
+        if let Some(ref data) = result.data {
+            if let Some(ref reason) = data.reason {
+                return Ok(CallToolResult::success(vec![Content::text(format!(
+                    "Sync skipped: {}. Enable 'Files → Studio' in the RbxSync plugin or wait for extraction to complete.",
+                    reason
+                ))]));
+            }
+        }
+
         // Extract applied count from nested data or top-level field
         let applied = result.data.as_ref().map(|d| d.applied).unwrap_or(result.applied);
         let errors = result.data.as_ref().map(|d| d.errors.clone()).unwrap_or(result.errors);

@@ -153,23 +153,132 @@ function Reflection.shouldSerializeProperty(prop: PropertyInfo): boolean
         return false
     end
 
+    -- Important properties that MUST be serialized even if CanSave is false
+    -- These are marked as CanSave=false in the API dump but are essential for sync
+    local forceSerialize = {
+        -- BasePart essentials
+        Size = true,
+        Position = true,
+        Orientation = true,
+        CFrame = true,
+        Color = true,
+        BrickColor = true,
+        Material = true,
+        Transparency = true,
+        Reflectance = true,
+        CanCollide = true,
+        Anchored = true,
+        Shape = true,
+        -- MeshPart Content properties
+        MeshId = true,
+        TextureID = true,
+        -- SpecialMesh/FileMesh Content properties
+        MeshType = true,
+        -- Sound Content properties
+        SoundId = true,
+        -- Image Content properties (ImageLabel, ImageButton, etc.)
+        Image = true,
+        -- Decal/Texture Content properties
+        Texture = true,
+        Face = true,
+        -- ParticleEmitter/Beam/Trail Content properties
+        -- (Texture already covered above)
+        -- Animation Content properties
+        AnimationId = true,
+        -- Video Content properties
+        Video = true,
+        -- Sky Content properties
+        SkyboxBk = true,
+        SkyboxDn = true,
+        SkyboxFt = true,
+        SkyboxLf = true,
+        SkyboxRt = true,
+        SkyboxUp = true,
+        MoonTextureId = true,
+        SunTextureId = true,
+        -- Script Source (handled separately but include for safety)
+        Source = true,
+        -- Light properties
+        Brightness = true,
+        Range = true,
+        -- SurfaceAppearance Content properties
+        ColorMap = true,
+        MetalnessMap = true,
+        NormalMap = true,
+        RoughnessMap = true,
+        -- Instance reference properties (constraints, welds, etc.)
+        -- Comprehensive list to ensure ALL references are captured
+
+        -- Welds and basic constraints (WeldConstraint, Weld, Motor6D, Motor, etc.)
+        Part0 = true,
+        Part1 = true,
+        C0 = true,  -- CFrame offset (Weld, Motor6D)
+        C1 = true,  -- CFrame offset (Weld, Motor6D)
+
+        -- Attachment-based constraints (RopeConstraint, SpringConstraint, HingeConstraint,
+        -- BallSocketConstraint, CylindricalConstraint, PrismaticConstraint, UniversalConstraint,
+        -- AlignPosition, AlignOrientation, VectorForce, Torque, LinearVelocity, AngularVelocity,
+        -- LineForce, PlaneConstraint, TorsionSpringConstraint, RigidConstraint, PathfindingLink)
+        Attachment0 = true,
+        Attachment1 = true,
+
+        -- Model/Assembly
+        PrimaryPart = true,
+
+        -- GUI adornments (BillboardGui, SurfaceGui, SelectionBox, Highlight,
+        -- BoxHandleAdornment, ConeHandleAdornment, CylinderHandleAdornment, etc.)
+        Adornee = true,
+
+        -- Value objects
+        Value = true,  -- ObjectValue, CFrameValue, etc.
+
+        -- Humanoid references
+        HumanoidRootPart = true,
+        RootPart = true,
+        SeatPart = true,
+        WalkToPart = true,
+
+        -- Camera
+        CameraSubject = true,
+
+        -- Sound
+        SoundGroup = true,
+
+        -- Animation
+        Controller = true,
+
+        -- Script linking (deprecated but may exist in old games)
+        LinkedSource = true,
+
+        -- Beam/Trail (use Attachment0/Attachment1, already covered)
+        -- NoCollisionConstraint (uses Part0/Part1, already covered)
+    }
+
     -- Check if property is serializable (CanSave)
-    -- This excludes computed/read-only properties like Mass, AssemblyCenterOfMass, etc.
+    -- Skip computed/read-only properties, but allow force-serialized ones
     if prop.Serialization and prop.Serialization.CanSave == false then
-        return false
+        if not forceSerialize[prop.Name] then
+            return false
+        end
     end
 
     -- Check write security - only include properties we can actually modify
+    -- But allow force-serialized properties (like MeshId) even if not writable
     local writeSecurity = prop.Security and prop.Security.Write
     if writeSecurity and writeSecurity ~= "None" and writeSecurity ~= "PluginSecurity" then
-        return false
+        if not forceSerialize[prop.Name] then
+            return false
+        end
     end
 
     -- Check for tags that indicate non-editable properties
     if prop.Tags then
         for _, tag in prop.Tags do
             if tag == "ReadOnly" or tag == "NotScriptable" or tag == "Hidden" or tag == "Deprecated" then
-                return false
+                -- Still allow force-serialized properties
+                if not forceSerialize[prop.Name] then
+                    return false
+                end
             end
         end
     end

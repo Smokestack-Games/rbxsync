@@ -72,10 +72,10 @@ local consoleCapture = {
     FLUSH_INTERVAL = 0.5,  -- Flush every 500ms
 }
 
--- Sync direction settings (disabled by default for safety)
+-- Sync direction settings
 local syncSettings = {
     studioToFiles = false,  -- Auto-extract Studio changes to files
-    filesToStudio = false,  -- Sync file changes to Studio
+    filesToStudio = true,   -- Sync file changes to Studio (enabled for MCP workflow)
 }
 
 -- Update checker state
@@ -1256,7 +1256,7 @@ local function pollLoop()
             elseif response and response.command then
                 print("[RbxSync Debug] Received command: " .. tostring(response.command))
 
-                -- Check if this is a sync command and if files→studio sync is disabled
+                -- Check if this is a sync command and if files→studio sync is disabled or extraction is in progress
                 local command = response.command
                 local isSyncCommand = command == "sync:batch" or command == "sync:create" or command == "sync:update" or command == "sync:delete"
 
@@ -1269,6 +1269,16 @@ local function pollLoop()
                             id = response.id,
                             success = true,
                             data = { skipped = true, reason = "files_to_studio_disabled" },
+                        })
+                    end
+                elseif isSyncCommand and isExtracting then
+                    -- Skip sync commands while extraction is in progress to avoid conflicts
+                    print("[RbxSync] Skipping sync command (extraction in progress)")
+                    if response.id then
+                        httpPost("/rbxsync/response", {
+                            id = response.id,
+                            success = true,
+                            data = { skipped = true, reason = "extraction_in_progress" },
                         })
                     end
                 else

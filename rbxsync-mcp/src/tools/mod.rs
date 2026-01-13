@@ -76,6 +76,7 @@ pub struct SyncBatchResult {
 
 #[derive(Debug, Deserialize)]
 pub struct SyncBatchResponseData {
+    #[serde(default)]
     pub success: bool,
     #[serde(default)]
     pub applied: i32,
@@ -85,6 +86,9 @@ pub struct SyncBatchResponseData {
     pub errors: Vec<String>,
     #[serde(default)]
     pub results: Vec<SyncBatchResult>,
+    // Skip reason when sync is disabled or extraction in progress
+    #[serde(default)]
+    pub reason: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
