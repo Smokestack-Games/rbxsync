@@ -2595,8 +2595,9 @@
             background: var(--bg-secondary);
             border: 1px solid var(--border);
             border-radius: 8px;
-            max-height: min(60vh, 500px);
+            max-height: min(60vh, 400px);
             overflow-y: auto;
+            overflow-x: hidden;
             z-index: 100;
             display: none;
             box-shadow: 0 8px 24px rgba(0, 0, 0, 0.3);
@@ -2608,31 +2609,31 @@
 
         /* Custom scrollbar for class dropdown */
         .class-search-dropdown::-webkit-scrollbar {
-            width: 8px;
+            width: 6px;
         }
         .class-search-dropdown::-webkit-scrollbar-track {
             background: transparent;
         }
         .class-search-dropdown::-webkit-scrollbar-thumb {
-            background: rgba(255, 255, 255, 0.2);
-            border-radius: 4px;
+            background: rgba(255, 255, 255, 0.15);
+            border-radius: 3px;
         }
         .class-search-dropdown::-webkit-scrollbar-thumb:hover {
-            background: rgba(255, 255, 255, 0.35);
+            background: rgba(255, 255, 255, 0.25);
         }
         [data-theme="light"] .class-search-dropdown::-webkit-scrollbar-thumb {
-            background: rgba(0, 0, 0, 0.25);
+            background: rgba(0, 0, 0, 0.15);
         }
         [data-theme="light"] .class-search-dropdown::-webkit-scrollbar-thumb:hover {
-            background: rgba(0, 0, 0, 0.4);
+            background: rgba(0, 0, 0, 0.25);
         }
 
         .class-search-item {
-            padding: 0.625rem 1rem;
+            padding: 0.5rem 0.75rem;
             cursor: pointer;
             display: flex;
-            justify-content: space-between;
-            align-items: center;
+            flex-direction: column;
+            gap: 0.25rem;
             transition: background 0.15s;
             border-bottom: 1px solid var(--border);
         }
@@ -2643,18 +2644,31 @@
 
         .class-search-item:hover,
         .class-search-item.selected {
-            background: rgba(194, 60, 64, 0.1);
+            background: rgba(194, 60, 64, 0.08);
         }
 
         .class-search-item.selected {
-            background: rgba(194, 60, 64, 0.15);
+            background: rgba(194, 60, 64, 0.12);
+        }
+
+        .class-search-item-row {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            gap: 0.5rem;
+            min-width: 0;
         }
 
         .class-search-item-name {
             font-family: 'SF Mono', monospace;
-            font-size: 0.875rem;
+            font-size: 0.8rem;
             font-weight: 500;
             color: var(--text-primary);
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            min-width: 0;
+            flex-shrink: 1;
         }
 
         .class-search-item-name .match {
@@ -2663,10 +2677,16 @@
         }
 
         .class-search-item-meta {
-            font-size: 0.75rem;
+            font-size: 0.7rem;
             color: var(--text-muted);
             display: flex;
-            gap: 0.75rem;
+            align-items: center;
+            gap: 0.5rem;
+            white-space: nowrap;
+        }
+
+        .class-search-item-meta .divider {
+            color: var(--border);
         }
 
         .class-search-empty {
@@ -2678,14 +2698,14 @@
 
         .class-search-badges {
             display: flex;
-            gap: 0.35rem;
-            margin-left: auto;
+            gap: 0.25rem;
+            flex-shrink: 0;
         }
 
         .class-badge {
-            font-size: 0.65rem;
-            padding: 0.15rem 0.4rem;
-            border-radius: 4px;
+            font-size: 0.6rem;
+            padding: 0.125rem 0.35rem;
+            border-radius: 3px;
             font-weight: 500;
             text-transform: uppercase;
             letter-spacing: 0.02em;
@@ -7348,11 +7368,13 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                         : '';
                     return `
                         <div class="class-search-item" data-index="${i}" data-class="${cls.Name}">
-                            <span class="class-search-item-name">${highlightMatch(cls.Name, query)}</span>
-                            <span class="class-search-item-meta">
-                                ${cls.Superclass ? '<span>extends ' + cls.Superclass + '</span>' : ''}
-                                <span>${propCount} props</span>
+                            <div class="class-search-item-row">
+                                <span class="class-search-item-name">${highlightMatch(cls.Name, query)}</span>
                                 ${badgesHtml}
+                            </div>
+                            <span class="class-search-item-meta">
+                                ${cls.Superclass ? `<span>extends ${cls.Superclass}</span><span class="divider">·</span>` : ''}
+                                <span>${propCount} properties</span>
                             </span>
                         </div>
                     `;
@@ -7402,7 +7424,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
             input.addEventListener('input', () => render(input.value));
 
             input.addEventListener('focus', () => {
-                if (creatableClasses.length > 0) render(input.value);
+                if (allClasses.length > 0) render(input.value);
             });
 
             input.addEventListener('keydown', (e) => {
