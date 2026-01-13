@@ -273,6 +273,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/sync/command", post(handle_sync_command))
         .route("/sync/batch", post(handle_sync_batch))
         .route("/sync/read-tree", post(handle_sync_read_tree))
+        .route("/sync/read-terrain", post(handle_sync_read_terrain))
         .route("/sync/from-studio", post(handle_sync_from_studio))
         .route("/sync/pending-changes", post(handle_sync_pending_changes))
         // Diff endpoints
@@ -770,6 +771,7 @@ async fn handle_extract_start(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ExtractStartRequest>,
 ) -> impl IntoResponse {
+    tracing::info!("Extract request: include_terrain={:?}", req.include_terrain);
     let session_uuid = Uuid::new_v4();
     let session_id = session_uuid.to_string();
 
@@ -791,7 +793,7 @@ async fn handle_extract_start(
         payload: serde_json::json!({
             "project_dir": req.project_dir,
             "services": req.services.unwrap_or_default(),
-            "includeTerrain": req.include_terrain.unwrap_or(true),
+            "extractTerrain": req.include_terrain.unwrap_or(false),
             "includeAssets": req.include_assets.unwrap_or(true),
         }),
     };
@@ -1219,9 +1221,11 @@ pub struct TerrainRequest {
     pub project_dir: String,
     pub session_id: Option<String>,
     pub terrain: serde_json::Value,
+    pub batch_index: Option<i32>,
+    pub total_batches: Option<i32>,
 }
 
-/// Handle terrain data from extraction
+/// Handle terrain data from extraction (supports batched uploads)
 async fn handle_extract_terrain(Json(req): Json<TerrainRequest>) -> impl IntoResponse {
     let terrain_dir = PathBuf::from(&req.project_dir).join("src").join("Workspace").join("Terrain");
 
@@ -1236,9 +1240,38 @@ async fn handle_extract_terrain(Json(req): Json<TerrainRequest>) -> impl IntoRes
         );
     }
 
-    // Write terrain data to file
     let terrain_file = terrain_dir.join("terrain.rbxjson");
-    let terrain_json = match serde_json::to_string_pretty(&req.terrain) {
+    let batch_index = req.batch_index.unwrap_or(1);
+    let total_batches = req.total_batches.unwrap_or(1);
+
+    // For batched uploads, merge with existing data
+    let final_terrain = if batch_index == 1 {
+        // First batch - use as base
+        req.terrain.clone()
+    } else {
+        // Subsequent batch - merge chunks with existing file
+        let existing = std::fs::read_to_string(&terrain_file)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+
+        if let Some(mut existing_terrain) = existing {
+            // Append new chunks to existing
+            if let (Some(existing_chunks), Some(new_chunks)) = (
+                existing_terrain.get_mut("chunks").and_then(|c| c.as_array_mut()),
+                req.terrain.get("chunks").and_then(|c| c.as_array()),
+            ) {
+                for chunk in new_chunks {
+                    existing_chunks.push(chunk.clone());
+                }
+            }
+            existing_terrain
+        } else {
+            req.terrain.clone()
+        }
+    };
+
+    // Write terrain data to file
+    let terrain_json = match serde_json::to_string_pretty(&final_terrain) {
         Ok(json) => json,
         Err(e) => {
             return (
@@ -1261,10 +1294,12 @@ async fn handle_extract_terrain(Json(req): Json<TerrainRequest>) -> impl IntoRes
         );
     }
 
-    let chunk_count = req.terrain.get("chunks")
+    let chunk_count = final_terrain.get("chunks")
         .and_then(|c| c.as_array())
         .map(|a| a.len())
         .unwrap_or(0);
+
+    tracing::info!("Terrain batch {}/{} saved: {} total chunks", batch_index, total_batches, chunk_count);
 
     tracing::info!("Terrain saved: {} chunks to {}", chunk_count, terrain_file.display());
 
@@ -1623,6 +1658,12 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                     walk_dir(&path, base, instances, scripts);
                 } else if let Some(ext) = path.extension() {
                     if ext == "rbxjson" {
+                        // Skip terrain.rbxjson - it has different format (terrain chunk data, not instance data)
+                        let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                        if filename == "terrain.rbxjson" {
+                            tracing::debug!("Skipping terrain file: {:?}", path);
+                            continue;
+                        }
                         // Read instance JSON
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
@@ -1707,6 +1748,54 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
             "count": instances.len()
         })),
     )
+}
+
+/// Read terrain data for sync
+async fn handle_sync_read_terrain(Json(req): Json<ReadTreeRequest>) -> impl IntoResponse {
+    let terrain_file = PathBuf::from(&req.project_dir)
+        .join("src")
+        .join("Workspace")
+        .join("Terrain")
+        .join("terrain.rbxjson");
+
+    if !terrain_file.exists() {
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "hasTerrain": false
+            })),
+        );
+    }
+
+    match std::fs::read_to_string(&terrain_file) {
+        Ok(content) => {
+            match serde_json::from_str::<serde_json::Value>(&content) {
+                Ok(terrain_data) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": true,
+                        "hasTerrain": true,
+                        "terrain": terrain_data
+                    })),
+                ),
+                Err(e) => (
+                    StatusCode::OK,
+                    Json(serde_json::json!({
+                        "success": false,
+                        "error": format!("Failed to parse terrain data: {}", e)
+                    })),
+                ),
+            }
+        }
+        Err(e) => (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to read terrain file: {}", e)
+            })),
+        ),
+    }
 }
 
 /// Request to check pending changes count

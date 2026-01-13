@@ -19,7 +19,79 @@ type PropertyInfo = Reflection.PropertyInfo
 local uuidCounter = 0
 local instanceUUIDs: {[Instance]: string} = {}
 
+-- Cache for disambiguated paths (to handle duplicate sibling names)
+local instancePaths: {[Instance]: string} = {}
+
 local Serializer = {}
+
+-- Escape special characters in instance names for use in paths
+-- "/" is our path delimiter, so we must escape it
+local function escapeNameForPath(name: string): string
+    -- Replace / with a safe escape sequence that's unlikely to appear naturally
+    -- Using [SLASH] as it's readable and very unlikely to be in a real name
+    return string.gsub(name, "/", "[SLASH]")
+end
+
+-- Unescape path segment back to original name
+function Serializer.unescapePathSegment(segment: string): string
+    return string.gsub(segment, "%[SLASH%]", "/")
+end
+
+-- Build disambiguated paths for all instances in a subtree
+-- This handles duplicate sibling names by appending a suffix
+-- rootPath should be the path to the root instance (e.g., "Workspace" for game.Workspace)
+function Serializer.buildDisambiguatedPaths(root: Instance, rootPath: string?)
+    local startPath = rootPath or escapeNameForPath(root.Name)
+
+    -- Also store path for the root itself
+    instancePaths[root] = startPath
+
+    local function buildPathsRecursive(instance: Instance, parentPath: string)
+        -- Group children by name to find duplicates
+        local children = instance:GetChildren()
+        local nameCount: {[string]: number} = {}
+        local nameSeen: {[string]: number} = {}
+
+        -- First pass: count occurrences of each name
+        for _, child in children do
+            local name = child.Name
+            nameCount[name] = (nameCount[name] or 0) + 1
+        end
+
+        -- Second pass: assign paths with disambiguation
+        for _, child in children do
+            local name = child.Name
+            local escapedName = escapeNameForPath(name)
+            local childPath: string
+
+            if nameCount[name] > 1 then
+                -- Duplicate name - append index suffix
+                nameSeen[name] = (nameSeen[name] or 0) + 1
+                local index = nameSeen[name]
+                if index == 1 then
+                    -- First occurrence keeps original name
+                    childPath = parentPath .. "/" .. escapedName
+                else
+                    -- Subsequent occurrences get suffix using ~N~ format
+                    -- We use ~N~ instead of _N to distinguish from natural underscores
+                    local disambiguatedName = escapedName .. "~" .. tostring(index) .. "~"
+                    childPath = parentPath .. "/" .. disambiguatedName
+                end
+            else
+                -- Unique name - use as is
+                childPath = parentPath .. "/" .. escapedName
+            end
+
+            instancePaths[child] = childPath
+
+            -- Recurse to children
+            buildPathsRecursive(child, childPath)
+        end
+    end
+
+    -- Start from root, using its path as the prefix for children
+    buildPathsRecursive(root, startPath)
+end
 
 -- Generate a unique ID for an instance
 local function getInstanceUUID(instance: Instance): string
@@ -49,10 +121,18 @@ local function encodeValue(value: any, typeName: string): any
     end
 
     -- Handle primitive types
-    if typeName == "bool" then
+    if typeName == "bool" or typeName == "boolean" then
         return { type = "bool", value = value }
-    elseif typeName == "int" or typeName == "int64" then
-        return { type = typeName, value = value }
+    elseif typeName == "int" or typeName == "int64" or typeName == "number" then
+        -- Check if value is actually a number
+        if type(value) == "number" then
+            if value == math.floor(value) then
+                return { type = "int", value = value }
+            else
+                return { type = "float", value = value }
+            end
+        end
+        return { type = "int", value = value }
     elseif typeName == "float" or typeName == "double" then
         -- Handle special float values
         if value ~= value then -- NaN
@@ -63,8 +143,34 @@ local function encodeValue(value: any, typeName: string): any
             return { type = typeName, value = "-Infinity" }
         end
         return { type = typeName, value = value }
-    elseif typeName == "string" or typeName == "Content" or typeName == "ProtectedString" then
+    elseif typeName == "string" or typeName == "ProtectedString" then
         return { type = typeName, value = value }
+    elseif typeName == "Content" then
+        -- Content is a special type that wraps asset references
+        -- Extract the URI if available
+        if value and typeof(value) == "table" or typeof(value) == "userdata" then
+            local uri = nil
+            pcall(function()
+                uri = value.Uri
+            end)
+            if uri and uri ~= "" then
+                return { type = "Content", value = uri }
+            end
+        end
+        -- Fallback: if value is already a string (older API), use it directly
+        if type(value) == "string" then
+            return { type = "Content", value = value }
+        end
+        return { type = "Content", value = nil }
+    end
+
+    -- If value is a number but type wasn't recognized, encode as number
+    if type(value) == "number" then
+        if value == math.floor(value) then
+            return { type = "int", value = value }
+        else
+            return { type = "float", value = value }
+        end
     end
 
     -- Handle Vector types
@@ -382,14 +488,18 @@ function Serializer.serializeInstance(instance: Instance, apiDump: APIDump): any
 
     -- Get parent info
     local parentId = nil
-    -- Build path manually using '/' delimiter to handle instance names with periods
-    local pathParts = {}
-    local current: Instance? = instance
-    while current and current ~= game do
-        table.insert(pathParts, 1, current.Name)
-        current = current.Parent
+    -- Use cached disambiguated path if available, otherwise build from names
+    local path = instancePaths[instance]
+    if not path then
+        -- Fallback: Build path manually with escaped names
+        local pathParts = {}
+        local current: Instance? = instance
+        while current and current ~= game do
+            table.insert(pathParts, 1, escapeNameForPath(current.Name))
+            current = current.Parent
+        end
+        path = table.concat(pathParts, "/")
     end
-    local path = table.concat(pathParts, "/")
     if instance.Parent then
         parentId = getInstanceUUID(instance.Parent)
     end
@@ -416,12 +526,37 @@ function Serializer.serializeInstance(instance: Instance, apiDump: APIDump): any
     -- Note: Script source is NOT included in rbxjson
     -- The .luau file is the single source of truth for script code
 
+    -- Special handling for MaterialService: extract material override assignments
+    -- Uses GetBaseMaterialOverride which returns the MaterialVariant name as a string
+    if className == "MaterialService" then
+        local MaterialService = instance :: MaterialService
+        local materialOverrides = {}
+
+        -- Get all materials that can be overridden
+        for _, material in Enum.Material:GetEnumItems() do
+            local ok, overrideName = pcall(function()
+                return MaterialService:GetBaseMaterialOverride(material)
+            end)
+            -- GetBaseMaterialOverride returns empty string if no override
+            if ok and overrideName and overrideName ~= "" then
+                materialOverrides[material.Name] = overrideName
+            end
+        end
+
+        if next(materialOverrides) then
+            serialized.materialOverrides = materialOverrides
+            print(string.format("[RbxSync] Extracted %d material overrides from MaterialService",
+                (function() local c = 0 for _ in materialOverrides do c += 1 end return c end)()))
+        end
+    end
+
     return serialized
 end
 
 -- Clear UUID cache (call between extractions)
 function Serializer.clearCache()
     table.clear(instanceUUIDs)
+    table.clear(instancePaths)
     uuidCounter = 0
 end
 

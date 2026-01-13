@@ -23,6 +23,10 @@ local instanceCache: {[string]: Instance} = {}
 -- Format: { { instance: Instance, propName: string, refId: string } }
 local pendingReferences: {{instance: Instance, propName: string, refId: string}} = {}
 
+-- Pending material overrides to apply after all MaterialVariants exist
+-- Format: { { materialName: string, variantName: string } }
+local pendingMaterialOverrides: {{materialName: string, variantName: string}} = {}
+
 -- Reference properties that need deferred resolution
 -- Comprehensive list of all Instance reference properties in Roblox
 local refProps = {
@@ -442,6 +446,12 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     local className = data.className
     local referenceId = data.referenceId
 
+    -- Early check for missing className
+    if not className then
+        warn("[Sync.createInstance] Missing className in data, path:", data.path or "unknown")
+        return nil
+    end
+
     -- Always use data.name (the original instance name from JSON)
     -- The path may have escaping/disambiguation that shouldn't affect the actual name
     local name = data.name
@@ -454,15 +464,26 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
         "Workspace", "ReplicatedStorage", "ReplicatedFirst",
         "ServerScriptService", "ServerStorage", "StarterGui",
         "StarterPack", "StarterPlayer", "Lighting", "SoundService",
-        "Teams", "Chat", "LocalizationService", "TestService"
+        "Teams", "Chat", "LocalizationService", "TestService",
+        "MaterialService"
     }
 
     for _, serviceName in services do
         if className == serviceName or name == serviceName then
-            local service = game:FindFirstChild(serviceName)
+            local service = game:GetService(serviceName)
             if service and referenceId then
                 instanceCache[referenceId] = service
                 Sync.registerInstanceByRefId(referenceId, service)
+            end
+            -- Queue material overrides for MaterialService (apply after all MaterialVariants exist)
+            if serviceName == "MaterialService" and data.materialOverrides then
+                for materialName, variantName in data.materialOverrides do
+                    table.insert(pendingMaterialOverrides, {
+                        materialName = materialName,
+                        variantName = variantName,
+                    })
+                end
+                print(string.format("[RbxSync] Queued %d material overrides for later application", #pendingMaterialOverrides))
             end
             return service
         end
@@ -540,7 +561,7 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     end)
 
     if not ok or not instance then
-        warn("[Sync.createInstance] Failed to create " .. className .. ": " .. tostring(instance))
+        warn("[Sync.createInstance] Failed to create " .. tostring(className) .. ": " .. tostring(instance))
         return nil
     end
 
@@ -617,24 +638,7 @@ function Sync.applyProperties(instance: Instance, properties: {[string]: any}): 
         Name = true,
         Parent = true,
         ClassName = true,
-        -- Content properties (don't serialize correctly)
         Capabilities = true,
-        TextureContent = true,
-        EmissiveMaskContent = true,
-        ColorMapContent = true,
-        NormalMapContent = true,
-        MetalnessMapContent = true,
-        RoughnessMapContent = true,
-        AudioContent = true,
-        ImageContent = true,
-        MoonTextureContent = true,
-        SunTextureContent = true,
-        SkyboxUpContent = true,
-        SkyboxDownContent = true,
-        SkyboxLeftContent = true,
-        SkyboxRightContent = true,
-        SkyboxFrontContent = true,
-        SkyboxBackContent = true,
         -- Other problematic properties
         CurrentCamera = true,
         TargetInstance = true,
@@ -643,6 +647,28 @@ function Sync.applyProperties(instance: Instance, properties: {[string]: any}): 
         HistoryId = true,
         SourceAssetId = true,
         ScriptGuid = true,
+    }
+
+    -- Content properties that need special handling (set via string-based property instead)
+    -- Modern Roblox has both ColorMap (string) and ColorMapContent (Content)
+    -- We'll set the string-based one and skip the Content one if it has no value
+    local contentProps = {
+        TextureContent = "Texture",
+        EmissiveMaskContent = true,  -- No string equivalent, skip
+        ColorMapContent = "ColorMap",
+        NormalMapContent = "NormalMap",
+        MetalnessMapContent = "MetalnessMap",
+        RoughnessMapContent = "RoughnessMap",
+        AudioContent = true,
+        ImageContent = "Image",
+        MoonTextureContent = "MoonTextureId",
+        SunTextureContent = "SunTextureId",
+        SkyboxUpContent = "SkyboxUp",
+        SkyboxDownContent = "SkyboxDn",
+        SkyboxLeftContent = "SkyboxLf",
+        SkyboxRightContent = "SkyboxRt",
+        SkyboxFrontContent = "SkyboxFt",
+        SkyboxBackContent = "SkyboxBk",
     }
 
     for propName, propData in properties do
@@ -671,8 +697,24 @@ function Sync.applyProperties(instance: Instance, properties: {[string]: any}): 
         end)
 
         if not ok then
-            -- Property might be read-only or not exist, that's okay
-            -- warn("[RbxSync] Could not set", instance.ClassName .. "." .. propName, err)
+            -- Check if this is an important property that should have worked
+            local importantProps = {
+                LightingStyle = true,  -- RobloxScriptSecurity - can read but not write
+                Technology = true,     -- RobloxScriptSecurity - can read but not write
+                BaseMaterial = true,   -- Important for MaterialVariant
+                ColorMap = true,       -- Important for MaterialVariant
+                NormalMap = true,      -- Important for MaterialVariant
+                RoughnessMap = true,   -- Important for MaterialVariant
+            }
+            if importantProps[propName] then
+                warn(string.format("[RbxSync] Cannot set %s.%s: %s (value type: %s)",
+                    instance.ClassName, propName, tostring(err), typeof(value)))
+            end
+        else
+            -- Debug: log successful MaterialVariant property sets
+            if instance.ClassName == "MaterialVariant" and (propName == "BaseMaterial" or propName == "ColorMap") then
+                print(string.format("[RbxSync Debug] Set MaterialVariant.%s = %s", propName, tostring(value)))
+            end
         end
     end
 end
@@ -838,6 +880,17 @@ function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?
         pcall(function()
             instance:SetAttribute("_rbxsync_ref", data.referenceId)
         end)
+    end
+
+    -- Queue material overrides for MaterialService (apply after all MaterialVariants exist)
+    if instance.ClassName == "MaterialService" and data.materialOverrides then
+        for materialName, variantName in data.materialOverrides do
+            table.insert(pendingMaterialOverrides, {
+                materialName = materialName,
+                variantName = variantName,
+            })
+        end
+        print(string.format("[RbxSync] Queued %d material overrides for later application", #pendingMaterialOverrides))
     end
 
     return true, nil
@@ -1091,6 +1144,11 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, {str
         end
     end
 
+    -- Check for materialOverrides (MaterialService only)
+    if data.materialOverrides and instance.ClassName == "MaterialService" then
+        table.insert(reasons, "materialOverrides")
+    end
+
     if #reasons > 0 then
         return true, reasons
     end
@@ -1103,6 +1161,7 @@ function Sync.clearCache(): ()
     table.clear(instanceByRefId)
     table.clear(recentlyCreated)
     table.clear(pendingReferences)
+    table.clear(pendingMaterialOverrides)
 end
 
 -- Clear pending references (call before starting a sync batch)
@@ -1139,6 +1198,67 @@ function Sync.resolvePendingReferences(): number
 
     table.clear(pendingReferences)
     return resolved
+end
+
+-- Apply pending material overrides
+-- Call this AFTER all MaterialVariants have been created
+-- Uses SetBaseMaterialOverride(material, variantName) which takes a string name
+function Sync.applyPendingMaterialOverrides(): number
+    if #pendingMaterialOverrides == 0 then
+        return 0
+    end
+
+    local MaterialService = game:GetService("MaterialService")
+    local applied = 0
+    local failed = 0
+
+    print(string.format("[RbxSync] Applying %d material overrides...", #pendingMaterialOverrides))
+
+    for _, pending in pendingMaterialOverrides do
+        local materialName = pending.materialName
+        local variantName = pending.variantName
+
+        -- Skip if variant name equals material name (no custom override)
+        if variantName == materialName then
+            continue
+        end
+
+        -- Find the material enum
+        local ok, material = pcall(function()
+            return (Enum.Material :: any)[materialName]
+        end)
+
+        if not ok or not material then
+            warn(string.format("[RbxSync] Unknown material: %s", materialName))
+            failed += 1
+            continue
+        end
+
+        -- Verify the MaterialVariant exists
+        local variant = MaterialService:FindFirstChild(variantName)
+        if not variant then
+            warn(string.format("[RbxSync] MaterialVariant not found: %s", variantName))
+            failed += 1
+            continue
+        end
+
+        -- Apply the override using SetBaseMaterialOverride (takes string name, not Instance)
+        local setOk, err = pcall(function()
+            MaterialService:SetBaseMaterialOverride(material, variantName)
+        end)
+
+        if setOk then
+            applied += 1
+            print(string.format("[RbxSync] Set material override: %s -> %s", materialName, variantName))
+        else
+            warn(string.format("[RbxSync] Failed to set override %s -> %s: %s", materialName, variantName, tostring(err)))
+            failed += 1
+        end
+    end
+
+    table.clear(pendingMaterialOverrides)
+    print(string.format("[RbxSync] Material overrides complete: %d applied, %d failed", applied, failed))
+    return applied
 end
 
 -- Build instance cache from current game state

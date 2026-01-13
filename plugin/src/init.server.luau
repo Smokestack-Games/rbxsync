@@ -19,7 +19,7 @@ local LogService = game:GetService("LogService")
 
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
-local CHUNK_SIZE = 50 -- instances per chunk (Roblox HttpService has 1MB limit)
+local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
 local PLUGIN_VERSION = "1.0.4" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
@@ -567,6 +567,7 @@ local function extractGame(config: {any})
         "Chat",
         "LocalizationService",
         "TestService",
+        "MaterialService",
     }
     local servicesToExtract = (config.services and #config.services > 0) and config.services or defaultServices
     print("[RbxSync Debug] Using", #servicesToExtract, "services")
@@ -604,7 +605,79 @@ local function extractGame(config: {any})
     local totalChunks = math.ceil(#allInstances / CHUNK_SIZE)
     local sessionId = HttpService:GenerateGUID(false)
 
-    -- Serialize and send in chunks (silently)
+    -- Extract and send terrain FIRST (before instance chunks) to avoid timeout
+    local extractTerrain = config.extractTerrain == true
+    print("[RbxSync Debug] extractTerrain flag:", config.extractTerrain, "resolved to:", extractTerrain)
+    if extractTerrain then
+        local hasWorkspace = false
+        for _, serviceName in servicesToExtract do
+            if serviceName == "Workspace" then
+                hasWorkspace = true
+                break
+            end
+        end
+
+        if hasWorkspace then
+            print("[RbxSync] Extracting terrain (this may take a moment)...")
+            local terrainData = TerrainHandler.extractTerrain()
+            if terrainData and #terrainData.chunks > 0 then
+                print(string.format("[RbxSync] Sending terrain data: %d chunks", #terrainData.chunks))
+
+                -- Send terrain metadata first (without chunks)
+                local terrainMeta = {
+                    chunkSize = terrainData.chunkSize,
+                    resolution = terrainData.resolution,
+                    region = terrainData.region,
+                    properties = terrainData.properties,
+                    totalChunks = #terrainData.chunks,
+                }
+
+                -- Send chunks in batches to stay under 1MB limit
+                local CHUNKS_PER_BATCH = 3
+                local allSuccess = true
+
+                for i = 1, #terrainData.chunks, CHUNKS_PER_BATCH do
+                    local batchChunks = {}
+                    for j = i, math.min(i + CHUNKS_PER_BATCH - 1, #terrainData.chunks) do
+                        table.insert(batchChunks, terrainData.chunks[j])
+                    end
+
+                    local batchData = {
+                        chunkSize = terrainData.chunkSize,
+                        resolution = terrainData.resolution,
+                        region = terrainData.region,
+                        properties = (i == 1) and terrainData.properties or nil, -- Only send properties with first batch
+                        chunks = batchChunks,
+                    }
+
+                    local terrainSuccess, terrainResult = httpPost("/extract/terrain", {
+                        project_dir = projectDir,
+                        session_id = sessionId,
+                        terrain = batchData,
+                        batch_index = math.ceil(i / CHUNKS_PER_BATCH),
+                        total_batches = math.ceil(#terrainData.chunks / CHUNKS_PER_BATCH),
+                    })
+
+                    if not terrainSuccess then
+                        warn("[RbxSync] Failed to send terrain batch:", tostring(terrainResult))
+                        allSuccess = false
+                        break
+                    end
+
+                    task.wait(0.02) -- Minimal delay to yield
+                end
+
+                if allSuccess then
+                    print("[RbxSync] Terrain data sent successfully")
+                end
+            else
+                print("[RbxSync] No terrain data found")
+            end
+        end
+    end
+
+    -- First pass: serialize all chunks
+    local serializedChunks = {}
     for chunkIndex = 0, totalChunks - 1 do
         local startIdx = chunkIndex * CHUNK_SIZE + 1
         local endIdx = math.min(startIdx + CHUNK_SIZE - 1, #allInstances)
@@ -623,42 +696,45 @@ local function extractGame(config: {any})
                 table.insert(chunkInstances, serialized)
             end
         end
-
-        local success = sendChunk(sessionId, chunkIndex, totalChunks, chunkInstances, projectDir)
-        if not success then
-            warn("Extraction failed. Try again.")
-            isExtracting = false
-            return
-        end
-
-        -- Throttle to avoid Roblox rate limits
-        task.wait(0.15)
+        serializedChunks[chunkIndex] = chunkInstances
     end
 
-    -- Extract terrain if Workspace is included
-    local hasWorkspace = false
-    for _, serviceName in servicesToExtract do
-        if serviceName == "Workspace" then
-            hasWorkspace = true
+    -- Second pass: send chunks in parallel with concurrency limit
+    local MAX_CONCURRENT = 5
+    local activeRequests = 0
+    local completedChunks = 0
+    local failedChunk = false
+
+    for chunkIndex = 0, totalChunks - 1 do
+        -- Wait if at concurrency limit
+        while activeRequests >= MAX_CONCURRENT do
+            task.wait(0.01)
+        end
+
+        if failedChunk then
             break
         end
+
+        activeRequests = activeRequests + 1
+        task.spawn(function()
+            local success = sendChunk(sessionId, chunkIndex, totalChunks, serializedChunks[chunkIndex], projectDir)
+            if not success then
+                failedChunk = true
+            end
+            completedChunks = completedChunks + 1
+            activeRequests = activeRequests - 1
+        end)
     end
 
-    if hasWorkspace then
-        local terrainData = TerrainHandler.extractTerrain()
-        if terrainData and #terrainData.chunks > 0 then
-            print(string.format("[RbxSync] Sending terrain data: %d chunks", #terrainData.chunks))
-            local terrainSuccess, terrainResult = httpPost("/extract/terrain", {
-                project_dir = projectDir,
-                session_id = sessionId,
-                terrain = terrainData,
-            })
-            if not terrainSuccess then
-                warn("[RbxSync] Failed to send terrain data:", terrainResult and terrainResult.error or "unknown error")
-            end
-        else
-            print("[RbxSync] No terrain data to extract")
-        end
+    -- Wait for all chunks to complete
+    while completedChunks < totalChunks and not failedChunk do
+        task.wait(0.01)
+    end
+
+    if failedChunk then
+        warn("Extraction failed. Try again.")
+        isExtracting = false
+        return
     end
 
     -- Finalize
@@ -1069,6 +1145,12 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         if resolved > 0 then
             print(string.format("[RbxSync] Resolved %d reference properties", resolved))
         end
+
+        -- Third pass: apply material overrides (must happen after all MaterialVariants are created)
+        local materialsApplied = Sync.applyPendingMaterialOverrides()
+        if materialsApplied > 0 then
+            print(string.format("[RbxSync] Applied %d material overrides", materialsApplied))
+        end
     end)
 
     -- ALWAYS reset isSyncing, even on error
@@ -1388,6 +1470,9 @@ local function pollLoop()
                 updateConnectionUI()
             elseif response and response.command then
                 print("[RbxSync Debug] Received command: " .. tostring(response.command))
+                if response.command == "extract:start" then
+                    print("[RbxSync Debug] Extract payload:", HttpService:JSONEncode(response.payload or {}))
+                end
 
                 -- Check if this is a sync command and if files→studio sync is disabled or extraction is in progress
                 local command = response.command
@@ -2050,7 +2135,7 @@ extractButton.MouseButton1Click:Connect(function()
         showPathMismatchDialog(
             vscodePath,
             function()  -- onContinue: Extract anyway
-                extractGame({})
+                extractGame({ extractTerrain = true })
                 changeTracking.studioChanges = 0
                 updateButtonBadges()
             end,
@@ -2062,7 +2147,7 @@ extractButton.MouseButton1Click:Connect(function()
                 -- Re-register with server using new path
                 registerWithServer()
                 -- Now extract
-                extractGame({})
+                extractGame({ extractTerrain = true })
                 changeTracking.studioChanges = 0
                 updateButtonBadges()
             end,
@@ -2073,7 +2158,7 @@ extractButton.MouseButton1Click:Connect(function()
     end
 
     -- No mismatch, proceed directly
-    extractGame({})
+    extractGame({ extractTerrain = true })
     -- Reset studio changes after extract
     changeTracking.studioChanges = 0
     updateButtonBadges()
@@ -2275,6 +2360,114 @@ syncButton.MouseButton1Click:Connect(function()
     end)
 
     syncBatch({ operations = operations })
+
+    -- Delete orphans (instances in Studio not in files)
+    local filePaths: {[string]: boolean} = {}
+    for _, inst in ipairs(instances) do
+        if inst.path and inst.path ~= "" then
+            filePaths[inst.path] = true
+        end
+    end
+
+    -- Helper to escape name for path (same logic as Serializer)
+    local function escapeNameForPath(name: string): string
+        return string.gsub(name, "/", "[SLASH]")
+    end
+
+    -- Helper to build path for an instance
+    local function buildInstancePath(instance: Instance): string?
+        local pathParts: {string} = {}
+        local current = instance
+        -- Walk up to game, collecting names
+        while current and current ~= game do
+            pathParts[#pathParts + 1] = escapeNameForPath(current.Name)
+            if current.Parent then
+                current = current.Parent :: Instance
+            else
+                break
+            end
+        end
+        if #pathParts == 0 then
+            return nil
+        end
+        -- Reverse the array (we built it bottom-up)
+        local reversed: {string} = {}
+        for i = #pathParts, 1, -1 do
+            reversed[#reversed + 1] = pathParts[i]
+        end
+        return table.concat(reversed, "/")
+    end
+
+    -- Services to check for orphans
+    local trackedServices = {
+        "Workspace", "ReplicatedStorage", "ReplicatedFirst",
+        "ServerScriptService", "ServerStorage", "StarterGui",
+        "StarterPack", "StarterPlayer", "Lighting", "SoundService",
+        "Teams", "Chat", "LocalizationService", "TestService",
+        "MaterialService",
+    }
+
+    -- Collect all orphans with their depths
+    local orphans: {{instance: Instance, path: string, depth: number}} = {}
+    for _, serviceName in trackedServices do
+        local service = game:FindFirstChild(serviceName)
+        if service then
+            for _, descendant in service:GetDescendants() do
+                -- Skip Terrain (handled separately)
+                if descendant.ClassName == "Terrain" then
+                    continue
+                end
+                local path = buildInstancePath(descendant)
+                if path and not filePaths[path] then
+                    local depth = select(2, string.gsub(path, "/", ""))
+                    table.insert(orphans, { instance = descendant, path = path, depth = depth })
+                end
+            end
+        end
+    end
+
+    -- Sort by depth descending (delete children before parents)
+    table.sort(orphans, function(a, b)
+        return a.depth > b.depth
+    end)
+
+    -- Delete orphans
+    local deletedCount = 0
+    for _, orphan in orphans do
+        -- Check if instance still exists (parent might have been deleted)
+        if orphan.instance and orphan.instance.Parent then
+            pcall(function()
+                orphan.instance:Destroy()
+            end)
+            deletedCount += 1
+        end
+    end
+
+    if deletedCount > 0 then
+        print(string.format("[RbxSync] Deleted %d orphan instances", deletedCount))
+    end
+
+    -- Sync terrain if available
+    local terrainSuccess, terrainResult = httpPost("/sync/read-terrain", {
+        project_dir = projectDir,
+    })
+
+    print(string.format("[RbxSync] Terrain read result: success=%s, hasTerrain=%s, hasData=%s",
+        tostring(terrainSuccess),
+        tostring(terrainResult and terrainResult.success and terrainResult.hasTerrain),
+        tostring(terrainResult and terrainResult.terrain ~= nil)))
+
+    if terrainSuccess and terrainResult.success and terrainResult.hasTerrain and terrainResult.terrain then
+        print("[RbxSync] Applying terrain...")
+        local applied, chunkCount = TerrainHandler.applyTerrain(terrainResult.terrain)
+        if applied then
+            print(string.format("[RbxSync] Terrain applied: %d chunks", chunkCount))
+        else
+            warn("[RbxSync] Failed to apply terrain")
+        end
+    elseif terrainResult and terrainResult.error then
+        warn("[RbxSync] Terrain read error:", terrainResult.error)
+    end
 
     -- Reset local changes after sync
     changeTracking.localChanges = 0

@@ -9,7 +9,7 @@
 local Terrain = workspace:FindFirstChildOfClass("Terrain")
 
 -- Configuration
-local CHUNK_SIZE = 64 -- Voxels per chunk dimension
+local CHUNK_SIZE = 32 -- Voxels per chunk dimension
 local RESOLUTION = 4 -- Voxel resolution
 
 export type TerrainChunk = {
@@ -39,17 +39,22 @@ local function getTerrainBounds()
         return nil
     end
 
-    -- Try to get terrain size from properties
-    local ok, maxExtents = pcall(function()
-        return Terrain.MaxExtents
+    -- Use Size property to determine actual terrain bounds
+    -- Size represents the dimensions of filled terrain, centered at origin
+    local ok, size = pcall(function()
+        return Terrain.Size
     end)
 
-    if ok and maxExtents then
-        return maxExtents.Min, maxExtents.Max
+    if ok and size and size.Magnitude > 0 then
+        -- Size is centered at origin, so bounds are -size/2 to +size/2
+        local halfSize = size / 2
+        local min = Vector3.new(-halfSize.X, -halfSize.Y, -halfSize.Z)
+        local max = Vector3.new(halfSize.X, halfSize.Y, halfSize.Z)
+        return min, max
     end
 
-    -- Fallback to manual bounds
-    return Vector3.new(-2048, -512, -2048), Vector3.new(2048, 512, 2048)
+    -- No terrain exists
+    return nil, nil
 end
 
 -- Check if a chunk has any non-air voxels
@@ -160,7 +165,7 @@ local function extractChunk(chunkX: number, chunkY: number, chunkZ: number)
         minPos.Z + worldSize
     )
 
-    local region = Region3.new(minPos, maxPos)
+    local region = Region3.new(minPos, maxPos):ExpandToGrid(RESOLUTION)
 
     -- Read voxels
     local ok, materials, occupancies = pcall(function()
@@ -236,12 +241,12 @@ function TerrainHandler.extractTerrain()
                     table.insert(chunks, chunk)
                     nonEmptyChunks += 1
                 end
-            end
-        end
 
-        -- Yield periodically
-        if x % 4 == 0 then
-            task.wait()
+                -- Yield after every chunk to prevent freezing
+                if totalChunks % 4 == 0 then
+                    task.wait()
+                end
+            end
         end
     end
 
@@ -267,6 +272,30 @@ function TerrainHandler.extractTerrain()
             end
         end
     end
+
+    -- Extract material colors using GetMaterialColor (workaround for NotScriptable MaterialColors property)
+    -- Only include terrain materials that can actually appear in terrain
+    local terrainMaterials = {
+        Enum.Material.Grass, Enum.Material.Sand, Enum.Material.Rock,
+        Enum.Material.Water, Enum.Material.Ground, Enum.Material.Sandstone,
+        Enum.Material.Slate, Enum.Material.Snow, Enum.Material.Mud,
+        Enum.Material.Brick, Enum.Material.Concrete, Enum.Material.Glacier,
+        Enum.Material.WoodPlanks, Enum.Material.CrackedLava, Enum.Material.Basalt,
+        Enum.Material.LeafyGrass, Enum.Material.Limestone, Enum.Material.Asphalt,
+        Enum.Material.Cobblestone, Enum.Material.Ice, Enum.Material.Salt,
+        Enum.Material.Pavement,
+    }
+
+    local materialColors = {}
+    for _, mat in terrainMaterials do
+        local ok, color = pcall(function()
+            return Terrain:GetMaterialColor(mat)
+        end)
+        if ok and color then
+            materialColors[mat.Name] = { r = color.R, g = color.G, b = color.B }
+        end
+    end
+    properties.materialColors = materialColors
 
     return {
         chunkSize = CHUNK_SIZE,
@@ -368,7 +397,7 @@ local function applyChunk(chunk: TerrainChunk, chunkSize: number, resolution: nu
         minPos.Z + worldSize
     )
 
-    local region = Region3.new(minPos, maxPos)
+    local region = Region3.new(minPos, maxPos):ExpandToGrid(resolution)
 
     -- Decompress materials (RLE compressed)
     local flatMaterials = rleDecompress(chunk.materials)
@@ -405,14 +434,33 @@ function TerrainHandler.applyTerrain(data: TerrainData): (boolean, number)
     -- Apply properties first
     if data.properties then
         for propName, value in data.properties do
-            pcall(function()
-                if type(value) == "table" and value.r ~= nil then
-                    -- Convert Color3 from table
-                    (Terrain :: any)[propName] = Color3.new(value.r, value.g, value.b)
-                else
-                    (Terrain :: any)[propName] = value
+            if propName == "materialColors" and type(value) == "table" then
+                -- Apply ALL material colors using SetMaterialColor
+                -- White colors are intentional when using MaterialVariants
+                local appliedCount = 0
+                for matName, colorData in value do
+                    local ok, err = pcall(function()
+                        local material = (Enum.Material :: any)[matName]
+                        if material and colorData.r then
+                            Terrain:SetMaterialColor(material, Color3.new(colorData.r, colorData.g, colorData.b))
+                            appliedCount += 1
+                        end
+                    end)
+                    if not ok then
+                        warn(string.format("[RbxSync] Failed to set terrain color for %s: %s", matName, tostring(err)))
+                    end
                 end
-            end)
+                print(string.format("[RbxSync] Applied %d terrain material colors", appliedCount))
+            else
+                pcall(function()
+                    if type(value) == "table" and value.r ~= nil then
+                        -- Convert Color3 from table
+                        (Terrain :: any)[propName] = Color3.new(value.r, value.g, value.b)
+                    else
+                        (Terrain :: any)[propName] = value
+                    end
+                end)
+            end
         end
     end
 
@@ -423,8 +471,8 @@ function TerrainHandler.applyTerrain(data: TerrainData): (boolean, number)
             appliedChunks += 1
         end
 
-        -- Yield periodically
-        if i % 10 == 0 then
+        -- Yield after every few chunks to prevent freezing
+        if i % 4 == 0 then
             task.wait()
         end
     end
