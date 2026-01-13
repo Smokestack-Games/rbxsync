@@ -77,4 +77,4 @@ my-game/
 
 ## License
 
-MIT - All components are free and open source.
+Copyright (c) 2026 Smokestack Games. All rights reserved. See LICENSE.txt for details.
