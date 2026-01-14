@@ -23,16 +23,8 @@ local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
 local PLUGIN_VERSION = "1.1.0" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
--- Plugin script execution for MCP/AI code runner integration
--- These functions are standard Roblox plugin APIs used by developer tools
-local executeCode = loadstring
-local getEnvironment = getfenv
-local setEnvironment = setfenv
-
--- Check if code execution is available (standard plugin capability)
-if not executeCode then
-    warn("[RbxSync] Code execution not available - run:code feature disabled")
-end
+-- Note: run:code feature removed for Creator Store compatibility
+-- Full version with code execution available on GitHub
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)
@@ -43,7 +35,6 @@ local TestRunner = require(script.TestRunner)
 local ChangeTracker = require(script.ChangeTracker)
 local TerrainHandler = require(script.TerrainHandler)
 local CSGHandler = require(script.CSGHandler)
-local BotController = require(script.BotController)
 
 -- Initialize config with plugin reference
 Config.init(plugin)
@@ -1419,99 +1410,12 @@ local function handleCommand(command: string, payload: any)
             }
         }
     elseif command == "run:code" then
-        -- Execute arbitrary Luau code and return output
-        local code = payload.code
-        if not code or code == "" then
-            return { success = false, error = "No code provided" }
-        end
-        -- Capture print output
-        local output = {}
-        local oldPrint = print
-        local function capturePrint(...)
-            local args = {...}
-            local strs = {}
-            for i, v in ipairs(args) do
-                strs[i] = tostring(v)
-            end
-            table.insert(output, table.concat(strs, "\t"))
-            oldPrint(...)
-        end
-        -- Execute code dynamically using standard plugin APIs
-        local execFn = executeCode or loadstring
-        if not execFn then
-            return { success = false, error = "Code execution not available. Enable LoadStringEnabled in Studio settings.", output = "" }
-        end
-        local fn, loadErr = execFn(code)
-        if not fn then
-            return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
-        end
-        -- Set up environment for print capture
-        local getFn = getEnvironment or getfenv
-        local setFn = setEnvironment or setfenv
-        if getFn and setFn then
-            local env = setmetatable({ print = capturePrint }, { __index = getFn() })
-            setFn(fn, env)
-        end
-        local ok, runErr = pcall(fn)
-        if not ok then
-            return { success = false, error = "Runtime error: " .. tostring(runErr), output = table.concat(output, "\n") }
-        end
-        return { success = true, output = table.concat(output, "\n") }
+        -- Feature disabled in Creator Store version
+        return { success = false, error = "run:code disabled in Creator Store version. Use GitHub version for full features.", output = "" }
     elseif command == "insert:model" then
-        -- Insert a model from the Roblox marketplace
-        local query = payload.query
-        if not query or query == "" then
-            return { success = false, error = "No search query provided" }
-        end
+        -- Model insertion disabled in Creator Store version
+        return { success = false, error = "Feature not available in Creator Store version" }
 
-        -- Use InsertService to search and load the model
-        local InsertService = game:GetService("InsertService")
-        local MarketplaceService = game:GetService("MarketplaceService")
-
-        -- Search for free models matching the query
-        local searchSuccess, searchResult = pcall(function()
-            return InsertService:GetFreeModels(query)
-        end)
-
-        if not searchSuccess then
-            return { success = false, error = "Search failed: " .. tostring(searchResult) }
-        end
-
-        if not searchResult or #searchResult == 0 then
-            return { success = false, error = "No models found for query: " .. query }
-        end
-
-        -- Get the first result
-        local firstResult = searchResult[1]
-        local assetId = firstResult.AssetId
-        local assetName = firstResult.Name or "Unknown"
-
-        -- Load and insert the model using standard InsertService API
-        local loadSuccess, model = pcall(function()
-            return InsertService:LoadAsset(assetId)
-        end)
-
-        if not loadSuccess then
-            return { success = false, error = "Failed to load model: " .. tostring(model) }
-        end
-
-        -- Move contents to workspace
-        if model then
-            for _, child in ipairs(model:GetChildren()) do
-                child.Parent = workspace
-            end
-            model:Destroy()
-
-            return {
-                success = true,
-                data = {
-                    modelName = assetName,
-                    assetId = assetId
-                }
-            }
-        else
-            return { success = false, error = "Model loaded but was empty" }
-        end
     elseif command == "terrain:sync" then
         -- Sync terrain from file data
         local terrainData = payload and payload.terrain
@@ -1578,92 +1482,11 @@ local function handleCommand(command: string, payload: any)
 
         return { success = true, paths = paths, count = #paths }
 
-    -- Bot controller commands (AI-powered automated testing)
-    elseif command == "bot:command" then
-        -- Execute a bot command (movement, action, UI, observation)
-        if not payload or not payload.type or not payload.command then
-            return { success = false, error = "Missing command type or command name" }
-        end
-        return BotController.executeCommand(payload)
-
-    elseif command == "bot:state" then
-        -- Get current game state observation
-        return { success = true, state = BotController.getState() }
-
-    elseif command == "bot:move" then
-        -- Direct movement command
-        if payload.position then
-            return BotController.moveTo(payload.position)
-        elseif payload.object or payload.objectName then
-            return BotController.moveToObject(payload.object or payload.objectName)
-        else
-            return { success = false, error = "Missing position or object name" }
-        end
-
-    elseif command == "bot:stop" then
-        -- Stop current movement
-        BotController.stopMovement()
-        return { success = true }
-
-    elseif command == "bot:action" then
-        -- Execute an action command
-        local actionType = payload.action or payload.type
-        if actionType == "equip" then
-            return BotController.equipTool(payload.name or payload.toolName)
-        elseif actionType == "unequip" then
-            return BotController.unequipTool()
-        elseif actionType == "activate" then
-            return BotController.activateTool()
-        elseif actionType == "deactivate" then
-            return BotController.deactivateTool()
-        elseif actionType == "interact" then
-            return BotController.interact(payload.name or payload.objectName)
-        elseif actionType == "jump" then
-            return BotController.jump()
-        else
-            return { success = false, error = "Unknown action type: " .. tostring(actionType) }
-        end
-
-    elseif command == "bot:ui" then
-        -- Execute a UI command
-        local uiAction = payload.action or payload.type
-        if uiAction == "click" then
-            return BotController.clickButton(payload.path or payload.buttonPath)
-        elseif uiAction == "read" then
-            return BotController.readText(payload.path or payload.labelPath)
-        elseif uiAction == "fill" then
-            return BotController.fillTextBox(payload.path or payload.textBoxPath, payload.text)
-        elseif uiAction == "visible" then
-            return { success = true, ui = BotController.getVisibleUI() }
-        else
-            return { success = false, error = "Unknown UI action: " .. tostring(uiAction) }
-        end
-
-    elseif command == "bot:observe" then
-        -- Observation commands
-        local observeType = payload.type or "state"
-        if observeType == "state" then
-            return { success = true, state = BotController.getState() }
-        elseif observeType == "nearby" then
-            return { success = true, objects = BotController.getNearbyObjects(payload.radius) }
-        elseif observeType == "npcs" then
-            return { success = true, npcs = BotController.getNearbyNPCs(payload.radius) }
-        elseif observeType == "inventory" then
-            return { success = true, inventory = BotController.getInventory() }
-        elseif observeType == "find" then
-            return { success = true, results = BotController.findObjects(payload.query or payload.name) }
-        else
-            return { success = false, error = "Unknown observe type: " .. tostring(observeType) }
-        end
-
-    elseif command == "bot:config" then
-        -- Configure bot settings
-        if payload.get then
-            return { success = true, config = BotController.getConfig() }
-        else
-            BotController.configure(payload)
-            return { success = true, config = BotController.getConfig() }
-        end
+    -- Automated testing commands disabled in Creator Store version
+    elseif command == "bot:command" or command == "bot:state" or command == "bot:move"
+        or command == "bot:stop" or command == "bot:action" or command == "bot:ui"
+        or command == "bot:observe" or command == "bot:config" then
+        return { success = false, error = "Feature not available in Creator Store version" }
 
     else
         return { success = false, error = "Unknown command" }
