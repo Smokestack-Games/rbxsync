@@ -3894,7 +3894,255 @@ showConfirmation = function(title: string, message: string, onConfirm: () -> (),
     end)
 end
 
--- Connect prompt overlay
+-- ============================================================================
+-- VIEWPORT NOTIFICATION (appears in game viewport like Rojo)
+-- ============================================================================
+
+local CoreGui = game:GetService("CoreGui")
+local viewportNotification: ScreenGui? = nil
+
+local function dismissViewportNotification()
+    if viewportNotification then
+        -- Animate out
+        local frame = viewportNotification:FindFirstChild("NotificationFrame")
+        if frame then
+            local tween = game:GetService("TweenService"):Create(
+                frame,
+                TweenInfo.new(0.2, Enum.EasingStyle.Quad, Enum.EasingDirection.In),
+                {Position = UDim2.new(1, 20, 1, -20)}
+            )
+            tween:Play()
+            tween.Completed:Connect(function()
+                if viewportNotification then
+                    viewportNotification:Destroy()
+                    viewportNotification = nil
+                end
+            end)
+        else
+            viewportNotification:Destroy()
+            viewportNotification = nil
+        end
+    end
+end
+
+local function showViewportNotification(projectName: string?, host: string?, port: number?)
+    -- Don't show if already shown or connected
+    if hasShownConnectPrompt or isConnected or viewportNotification then
+        return
+    end
+    hasShownConnectPrompt = true
+
+    -- Create ScreenGui in CoreGui (appears in viewport)
+    local screenGui = Instance.new("ScreenGui")
+    screenGui.Name = "RbxSyncNotification"
+    screenGui.DisplayOrder = 1000
+    screenGui.IgnoreGuiInset = true
+    screenGui.ResetOnSpawn = false
+
+    -- Try to parent to CoreGui (requires plugin permissions)
+    local success = pcall(function()
+        screenGui.Parent = CoreGui
+    end)
+    if not success then
+        screenGui:Destroy()
+        return
+    end
+    viewportNotification = screenGui
+
+    -- Main notification frame (bottom-right corner)
+    local frame = Instance.new("Frame")
+    frame.Name = "NotificationFrame"
+    frame.Size = UDim2.new(0, 320, 0, 100)
+    frame.Position = UDim2.new(1, 20, 1, -20)  -- Start off-screen for animation
+    frame.AnchorPoint = Vector2.new(1, 1)
+    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 34)
+    frame.BorderSizePixel = 0
+    frame.Parent = screenGui
+
+    local frameCorner = Instance.new("UICorner")
+    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.Parent = frame
+
+    local frameStroke = Instance.new("UIStroke")
+    frameStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    frameStroke.Color = Colors.accent
+    frameStroke.Thickness = 1
+    frameStroke.Parent = frame
+
+    -- Drop shadow effect
+    local shadow = Instance.new("ImageLabel")
+    shadow.Name = "Shadow"
+    shadow.Size = UDim2.new(1, 20, 1, 20)
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+    shadow.AnchorPoint = Vector2.new(0.5, 0.5)
+    shadow.BackgroundTransparency = 1
+    shadow.Image = "rbxassetid://5554236805"
+    shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
+    shadow.ImageTransparency = 0.6
+    shadow.ScaleType = Enum.ScaleType.Slice
+    shadow.SliceCenter = Rect.new(23, 23, 277, 277)
+    shadow.ZIndex = -1
+    shadow.Parent = frame
+
+    -- RbxSync logo/icon area
+    local iconFrame = Instance.new("Frame")
+    iconFrame.Size = UDim2.new(0, 40, 0, 40)
+    iconFrame.Position = UDim2.new(0, 12, 0, 12)
+    iconFrame.BackgroundColor3 = Colors.accentMuted
+    iconFrame.BorderSizePixel = 0
+    iconFrame.Parent = frame
+
+    local iconCorner = Instance.new("UICorner")
+    iconCorner.CornerRadius = UDim.new(0, 6)
+    iconCorner.Parent = iconFrame
+
+    local iconLabel = Instance.new("TextLabel")
+    iconLabel.Size = UDim2.new(1, 0, 1, 0)
+    iconLabel.BackgroundTransparency = 1
+    iconLabel.Text = "⟳"
+    iconLabel.TextColor3 = Colors.accent
+    iconLabel.TextSize = 24
+    iconLabel.Font = Enum.Font.GothamBold
+    iconLabel.Parent = iconFrame
+
+    -- Title
+    local title = Instance.new("TextLabel")
+    title.Size = UDim2.new(1, -70, 0, 18)
+    title.Position = UDim2.new(0, 60, 0, 12)
+    title.BackgroundTransparency = 1
+    title.Text = "RbxSync Server Detected"
+    title.TextColor3 = Colors.textPrimary
+    title.TextSize = 13
+    title.Font = Enum.Font.GothamBold
+    title.TextXAlignment = Enum.TextXAlignment.Left
+    title.Parent = frame
+
+    -- Message
+    local displayName = projectName or "Project"
+    local displayHost = host or "localhost"
+    local displayPort = port or 44755
+    local message = Instance.new("TextLabel")
+    message.Size = UDim2.new(1, -70, 0, 28)
+    message.Position = UDim2.new(0, 60, 0, 30)
+    message.BackgroundTransparency = 1
+    message.Text = string.format("%s is ready at %s:%d", displayName, displayHost, displayPort)
+    message.TextColor3 = Colors.textSecondary
+    message.TextSize = 11
+    message.Font = Enum.Font.Gotham
+    message.TextXAlignment = Enum.TextXAlignment.Left
+    message.TextWrapped = true
+    message.Parent = frame
+
+    -- Button container
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -24, 0, 28)
+    buttonContainer.Position = UDim2.new(0, 12, 1, -40)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.Parent = frame
+
+    local buttonLayout = Instance.new("UIListLayout")
+    buttonLayout.FillDirection = Enum.FillDirection.Horizontal
+    buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
+    buttonLayout.Padding = UDim.new(0, 8)
+    buttonLayout.Parent = buttonContainer
+
+    -- Dismiss button
+    local dismissBtn = Instance.new("TextButton")
+    dismissBtn.Size = UDim2.new(0, 70, 0, 28)
+    dismissBtn.BackgroundColor3 = Colors.surface
+    dismissBtn.BorderSizePixel = 0
+    dismissBtn.Text = "Dismiss"
+    dismissBtn.TextColor3 = Colors.textSecondary
+    dismissBtn.TextSize = 11
+    dismissBtn.Font = Enum.Font.GothamMedium
+    dismissBtn.AutoButtonColor = false
+    dismissBtn.LayoutOrder = 1
+    dismissBtn.Parent = buttonContainer
+
+    local dismissCorner = Instance.new("UICorner")
+    dismissCorner.CornerRadius = UDim.new(0, 4)
+    dismissCorner.Parent = dismissBtn
+
+    local dismissStroke = Instance.new("UIStroke")
+    dismissStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
+    dismissStroke.Color = Colors.textMuted
+    dismissStroke.Thickness = 1
+    dismissStroke.Parent = dismissBtn
+
+    -- Connect button
+    local connectBtn = Instance.new("TextButton")
+    connectBtn.Size = UDim2.new(0, 80, 0, 28)
+    connectBtn.BackgroundColor3 = Colors.accent
+    connectBtn.BorderSizePixel = 0
+    connectBtn.Text = "Connect"
+    connectBtn.TextColor3 = Colors.background
+    connectBtn.TextSize = 11
+    connectBtn.Font = Enum.Font.GothamBold
+    connectBtn.AutoButtonColor = false
+    connectBtn.LayoutOrder = 2
+    connectBtn.Parent = buttonContainer
+
+    local connectCorner = Instance.new("UICorner")
+    connectCorner.CornerRadius = UDim.new(0, 4)
+    connectCorner.Parent = connectBtn
+
+    -- Hover effects
+    dismissBtn.MouseEnter:Connect(function()
+        dismissBtn.BackgroundColor3 = Colors.surfaceHover
+    end)
+    dismissBtn.MouseLeave:Connect(function()
+        dismissBtn.BackgroundColor3 = Colors.surface
+    end)
+    connectBtn.MouseEnter:Connect(function()
+        connectBtn.BackgroundColor3 = Colors.accentHover
+    end)
+    connectBtn.MouseLeave:Connect(function()
+        connectBtn.BackgroundColor3 = Colors.accent
+    end)
+
+    -- Button handlers
+    dismissBtn.MouseButton1Click:Connect(function()
+        dismissViewportNotification()
+    end)
+
+    connectBtn.MouseButton1Click:Connect(function()
+        dismissViewportNotification()
+        -- Enable connection
+        userDisconnected = false
+        -- Trigger immediate connection attempt
+        local connectSuccess, _ = httpGet("/health")
+        if connectSuccess then
+            isConnected = true
+            registerWithServer()
+            ChangeTracker.setConnected(true)
+            if syncSettings.studioToFiles then
+                ChangeTracker.start()
+            end
+            startConsoleCapture()
+            print("[RbxSync] Connected via viewport notification")
+            updateConnectionUI()
+        end
+    end)
+
+    -- Animate in from right
+    task.defer(function()
+        local tween = game:GetService("TweenService"):Create(
+            frame,
+            TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
+            {Position = UDim2.new(1, -20, 1, -20)}
+        )
+        tween:Play()
+    end)
+
+    -- Auto-dismiss after 30 seconds if not interacted with
+    task.delay(30, function()
+        if viewportNotification then
+            dismissViewportNotification()
+        end
+    end)
+end
+
+-- Connect prompt overlay (fallback for widget)
 local connectPromptOverlay: Frame? = nil
 
 local function showConnectPrompt()
@@ -4299,12 +4547,13 @@ panelButton.Click:Connect(function()
 
     if widget.Enabled then
         task.spawn(updateInfoDisplay)
-        -- Check if we should show connect prompt
+        -- Check if we should show viewport notification
         if userDisconnected and not hasShownConnectPrompt and not isConnected then
             task.spawn(function()
-                local serverAvailable, _ = httpGet("/health")
+                local serverAvailable, serverInfo = httpGet("/health")
                 if serverAvailable then
-                    showConnectPrompt()
+                    local projectName = serverInfo and serverInfo.project_name or nil
+                    showViewportNotification(projectName, "localhost", 44755)
                 end
             end)
         end
@@ -4320,11 +4569,14 @@ task.spawn(pollLoop)
 -- Connection check loop (respects userDisconnected flag and auto-connect setting)
 task.spawn(function()
     while true do
-        -- Show connect prompt if server is available but user hasn't connected yet
-        if userDisconnected and not hasShownConnectPrompt and not isConnected and widget.Enabled then
-            local serverAvailable, _ = httpGet("/health")
+        -- Show viewport notification if server is available but user hasn't connected yet
+        if userDisconnected and not hasShownConnectPrompt and not isConnected then
+            local serverAvailable, serverInfo = httpGet("/health")
             if serverAvailable then
-                task.defer(showConnectPrompt)
+                local projectName = serverInfo and serverInfo.project_name or nil
+                task.defer(function()
+                    showViewportNotification(projectName, "localhost", 44755)
+                end)
             end
         end
 
