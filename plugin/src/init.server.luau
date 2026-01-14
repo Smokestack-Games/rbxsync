@@ -20,7 +20,7 @@ local LogService = game:GetService("LogService")
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
-local PLUGIN_VERSION = "1.0.4" -- Current plugin version (update on release)
+local PLUGIN_VERSION = "1.1.0" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
 -- Dynamic function access (avoids static analysis for legitimate plugin features)
@@ -48,6 +48,7 @@ local TestRunner = require(script.TestRunner)
 local ChangeTracker = require(script.ChangeTracker)
 local TerrainHandler = require(script.TerrainHandler)
 local CSGHandler = require(script.CSGHandler)
+local BotController = require(script.BotController)
 
 -- Initialize config with plugin reference
 Config.init(plugin)
@@ -1369,6 +1370,8 @@ local function handleCommand(command: string, payload: any)
         return TestRunner.stopBackgroundTest()
     elseif command == "test:isRunning" then
         return { success = true, running = TestRunner.isRunning() }
+    elseif command == "test:forceStop" then
+        return TestRunner.forceStopTest()
     elseif command == "debug:start" then
         -- Start playtest
         local RunService = game:GetService("RunService")
@@ -1580,6 +1583,94 @@ local function handleCommand(command: string, payload: any)
         end
 
         return { success = true, paths = paths, count = #paths }
+
+    -- Bot controller commands (AI-powered automated testing)
+    elseif command == "bot:command" then
+        -- Execute a bot command (movement, action, UI, observation)
+        if not payload or not payload.type or not payload.command then
+            return { success = false, error = "Missing command type or command name" }
+        end
+        return BotController.executeCommand(payload)
+
+    elseif command == "bot:state" then
+        -- Get current game state observation
+        return { success = true, state = BotController.getState() }
+
+    elseif command == "bot:move" then
+        -- Direct movement command
+        if payload.position then
+            return BotController.moveTo(payload.position)
+        elseif payload.object or payload.objectName then
+            return BotController.moveToObject(payload.object or payload.objectName)
+        else
+            return { success = false, error = "Missing position or object name" }
+        end
+
+    elseif command == "bot:stop" then
+        -- Stop current movement
+        BotController.stopMovement()
+        return { success = true }
+
+    elseif command == "bot:action" then
+        -- Execute an action command
+        local actionType = payload.action or payload.type
+        if actionType == "equip" then
+            return BotController.equipTool(payload.name or payload.toolName)
+        elseif actionType == "unequip" then
+            return BotController.unequipTool()
+        elseif actionType == "activate" then
+            return BotController.activateTool()
+        elseif actionType == "deactivate" then
+            return BotController.deactivateTool()
+        elseif actionType == "interact" then
+            return BotController.interact(payload.name or payload.objectName)
+        elseif actionType == "jump" then
+            return BotController.jump()
+        else
+            return { success = false, error = "Unknown action type: " .. tostring(actionType) }
+        end
+
+    elseif command == "bot:ui" then
+        -- Execute a UI command
+        local uiAction = payload.action or payload.type
+        if uiAction == "click" then
+            return BotController.clickButton(payload.path or payload.buttonPath)
+        elseif uiAction == "read" then
+            return BotController.readText(payload.path or payload.labelPath)
+        elseif uiAction == "fill" then
+            return BotController.fillTextBox(payload.path or payload.textBoxPath, payload.text)
+        elseif uiAction == "visible" then
+            return { success = true, ui = BotController.getVisibleUI() }
+        else
+            return { success = false, error = "Unknown UI action: " .. tostring(uiAction) }
+        end
+
+    elseif command == "bot:observe" then
+        -- Observation commands
+        local observeType = payload.type or "state"
+        if observeType == "state" then
+            return { success = true, state = BotController.getState() }
+        elseif observeType == "nearby" then
+            return { success = true, objects = BotController.getNearbyObjects(payload.radius) }
+        elseif observeType == "npcs" then
+            return { success = true, npcs = BotController.getNearbyNPCs(payload.radius) }
+        elseif observeType == "inventory" then
+            return { success = true, inventory = BotController.getInventory() }
+        elseif observeType == "find" then
+            return { success = true, results = BotController.findObjects(payload.query or payload.name) }
+        else
+            return { success = false, error = "Unknown observe type: " .. tostring(observeType) }
+        end
+
+    elseif command == "bot:config" then
+        -- Configure bot settings
+        if payload.get then
+            return { success = true, config = BotController.getConfig() }
+        else
+            BotController.configure(payload)
+            return { success = true, config = BotController.getConfig() }
+        end
+
     else
         return { success = false, error = "Unknown command" }
     end

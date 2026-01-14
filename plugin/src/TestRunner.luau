@@ -168,9 +168,160 @@ local testComplete = false
 local testError: string? = nil
 local testResult: any = nil
 
+-- Bot injection state
+local injectedBotController: ModuleScript? = nil
+local injectedBotRunnerServer: Script? = nil
+local injectedBotRunnerClient: LocalScript? = nil
+local injectedRemoteEvent: RemoteEvent? = nil
+local injectedRemoteFunction: RemoteFunction? = nil
+
 -- Check if game is currently running
 function TestRunner.isRunning(): boolean
 	return RunService:IsRunning()
+end
+
+-- Inject bot controller and runner for AI-powered testing
+local function injectBotScripts()
+	local ReplicatedStorage = game:GetService("ReplicatedStorage")
+	local ServerScriptService = game:GetService("ServerScriptService")
+	local StarterPlayer = game:GetService("StarterPlayer")
+	local StarterPlayerScripts = StarterPlayer:FindFirstChild("StarterPlayerScripts")
+
+	-- Try to enable LoadStringEnabled for server-side code execution (queryServer)
+	-- This property may not be accessible from plugin edit-mode context
+	-- If it fails here, the BotRunnerServer will try to enable it at runtime
+	pcall(function()
+		if not ServerScriptService.LoadStringEnabled then
+			ServerScriptService.LoadStringEnabled = true
+			print("[TestRunner] Enabled LoadStringEnabled for bot testing")
+		end
+	end)
+
+	-- Clean up any existing injected scripts
+	if injectedBotController and injectedBotController.Parent then
+		injectedBotController:Destroy()
+	end
+	if injectedBotRunnerServer and injectedBotRunnerServer.Parent then
+		injectedBotRunnerServer:Destroy()
+	end
+	if injectedBotRunnerClient and injectedBotRunnerClient.Parent then
+		injectedBotRunnerClient:Destroy()
+	end
+	if injectedRemoteEvent and injectedRemoteEvent.Parent then
+		injectedRemoteEvent:Destroy()
+	end
+	if injectedRemoteFunction and injectedRemoteFunction.Parent then
+		injectedRemoteFunction:Destroy()
+	end
+
+	-- Also clean up any orphaned scripts from previous runs
+	local existingController = ReplicatedStorage:FindFirstChild("BotController")
+	if existingController then
+		existingController:Destroy()
+	end
+	local existingServerRunner = ServerScriptService:FindFirstChild("BotRunnerServer")
+	if existingServerRunner then
+		existingServerRunner:Destroy()
+	end
+	local existingClientRunner = StarterPlayerScripts and StarterPlayerScripts:FindFirstChild("BotRunnerClient")
+	if existingClientRunner then
+		existingClientRunner:Destroy()
+	end
+	local existingRemote = ReplicatedStorage:FindFirstChild("BotCommandRemote")
+	if existingRemote then
+		existingRemote:Destroy()
+	end
+	local existingStateRemote = ReplicatedStorage:FindFirstChild("BotStateRemote")
+	if existingStateRemote then
+		existingStateRemote:Destroy()
+	end
+
+	-- Get the source modules from the plugin
+	local pluginScript = script.Parent
+	local botControllerSource = pluginScript:FindFirstChild("BotController")
+	local botRunnerServerSourceModule = pluginScript:FindFirstChild("BotRunnerServerSource")
+	local botRunnerClientSourceModule = pluginScript:FindFirstChild("BotRunnerClientSource")
+
+	-- Create RemoteEvent for server-client communication
+	injectedRemoteEvent = Instance.new("RemoteEvent")
+	injectedRemoteEvent.Name = "BotCommandRemote"
+	injectedRemoteEvent.Parent = ReplicatedStorage
+	print("[TestRunner] Created BotCommandRemote in ReplicatedStorage")
+
+	-- Create RemoteFunction for state queries
+	injectedRemoteFunction = Instance.new("RemoteFunction")
+	injectedRemoteFunction.Name = "BotStateRemote"
+	injectedRemoteFunction.Parent = ReplicatedStorage
+	print("[TestRunner] Created BotStateRemote in ReplicatedStorage")
+
+	if botControllerSource and botControllerSource:IsA("ModuleScript") then
+		-- Clone BotController to ReplicatedStorage
+		injectedBotController = botControllerSource:Clone()
+		injectedBotController.Parent = ReplicatedStorage
+		print("[TestRunner] Injected BotController into ReplicatedStorage")
+	else
+		warn("[TestRunner] BotController module not found in plugin")
+	end
+
+	if botRunnerServerSourceModule and botRunnerServerSourceModule:IsA("ModuleScript") then
+		-- Get source code from module and create Script
+		local success, sourceCode = pcall(function()
+			return require(botRunnerServerSourceModule)
+		end)
+		if success and sourceCode then
+			injectedBotRunnerServer = Instance.new("Script")
+			injectedBotRunnerServer.Name = "BotRunnerServer"
+			injectedBotRunnerServer.Source = sourceCode
+			injectedBotRunnerServer.Parent = ServerScriptService
+			print("[TestRunner] Injected BotRunnerServer into ServerScriptService")
+		else
+			warn("[TestRunner] Failed to load BotRunnerServerSource:", sourceCode)
+		end
+	else
+		warn("[TestRunner] BotRunnerServerSource module not found in plugin")
+	end
+
+	if botRunnerClientSourceModule and botRunnerClientSourceModule:IsA("ModuleScript") and StarterPlayerScripts then
+		-- Get source code from module and create LocalScript
+		local success, sourceCode = pcall(function()
+			return require(botRunnerClientSourceModule)
+		end)
+		if success and sourceCode then
+			injectedBotRunnerClient = Instance.new("LocalScript")
+			injectedBotRunnerClient.Name = "BotRunnerClient"
+			injectedBotRunnerClient.Source = sourceCode
+			injectedBotRunnerClient.Parent = StarterPlayerScripts
+			print("[TestRunner] Injected BotRunnerClient into StarterPlayerScripts")
+		else
+			warn("[TestRunner] Failed to load BotRunnerClientSource:", sourceCode)
+		end
+	else
+		warn("[TestRunner] BotRunnerClientSource module not found in plugin or StarterPlayerScripts missing")
+	end
+end
+
+-- Clean up injected bot scripts
+local function cleanupBotScripts()
+	if injectedBotController and injectedBotController.Parent then
+		injectedBotController:Destroy()
+		injectedBotController = nil
+	end
+	if injectedBotRunnerServer and injectedBotRunnerServer.Parent then
+		injectedBotRunnerServer:Destroy()
+		injectedBotRunnerServer = nil
+	end
+	if injectedBotRunnerClient and injectedBotRunnerClient.Parent then
+		injectedBotRunnerClient:Destroy()
+		injectedBotRunnerClient = nil
+	end
+	if injectedRemoteEvent and injectedRemoteEvent.Parent then
+		injectedRemoteEvent:Destroy()
+		injectedRemoteEvent = nil
+	end
+	if injectedRemoteFunction and injectedRemoteFunction.Parent then
+		injectedRemoteFunction:Destroy()
+		injectedRemoteFunction = nil
+	end
 end
 
 -- Start an automated test in the background (non-blocking)
@@ -179,6 +330,19 @@ function TestRunner.startBackgroundTest(options: TestOptions?): { success: boole
 	local duration = (options and options.duration) or 5
 	local mode = (options and options.mode) or "Play"
 	local testArg = options and options.testArg
+
+	-- Auto-recover from stale state: if testInProgress but game isn't running, reset
+	if testInProgress and not RunService:IsRunning() then
+		warn("[TestRunner] Recovering from stale test state")
+		testInProgress = false
+		testComplete = false
+		testError = nil
+		testResult = nil
+		if isCapturing then
+			TestRunner.stopCapture()
+		end
+		cleanupBotScripts()
+	end
 
 	if testInProgress then
 		return { success = false, message = "Test already in progress" }
@@ -200,6 +364,9 @@ function TestRunner.startBackgroundTest(options: TestOptions?): { success: boole
 		testInProgress = false
 		return { success = false, message = captureResult.message }
 	end
+
+	-- Inject bot scripts for AI-powered testing
+	injectBotScripts()
 
 	-- Create auto-stop script that runs inside the game
 	local autoStopScript = Instance.new("Script")
@@ -227,6 +394,9 @@ end)
 		if autoStopScript and autoStopScript.Parent then
 			autoStopScript:Destroy()
 		end
+
+		-- Clean up injected bot scripts
+		cleanupBotScripts()
 
 		-- Test finished
 		task.wait(0.5) -- Let final output come through
@@ -275,6 +445,9 @@ function TestRunner.stopBackgroundTest(): CaptureResult
 
 	testInProgress = false
 
+	-- Clean up injected bot scripts
+	cleanupBotScripts()
+
 	local result = TestRunner.stopCapture()
 	result.success = testError == nil
 	result.error = testError
@@ -286,6 +459,32 @@ function TestRunner.stopBackgroundTest(): CaptureResult
 	testResult = nil
 
 	return result
+end
+
+-- Force-stop any running playtest immediately
+-- This can be called from the plugin to terminate a test without waiting
+function TestRunner.forceStopTest(): { success: boolean, message: string }
+	local success, err = pcall(function()
+		StudioTestService:EndTest({ forceStopped = true })
+	end)
+
+	if not success then
+		return { success = false, message = "Failed to stop test: " .. tostring(err) }
+	end
+
+	-- Clean up capture state
+	testInProgress = false
+	testComplete = true
+
+	-- Clean up injected bot scripts
+	cleanupBotScripts()
+
+	-- Stop capture if active
+	if isCapturing then
+		TestRunner.stopCapture()
+	end
+
+	return { success = true, message = "Test force stopped" }
 end
 
 return TestRunner

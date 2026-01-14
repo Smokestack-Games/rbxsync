@@ -90,6 +90,95 @@ pub struct InsertModelParams {
     pub query: String,
 }
 
+// ============================================================================
+// Bot Controller Parameters (AI-powered automated gameplay testing)
+// ============================================================================
+
+/// Parameters for bot_observe tool - get current game state
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BotObserveParams {
+    /// Type of observation: "state", "nearby", "npcs", "inventory", "find"
+    #[schemars(description = "Observation type: state (full), nearby (objects), npcs, inventory, find (search)")]
+    #[serde(rename = "type", default = "default_observe_type")]
+    pub observe_type: String,
+    /// Radius for nearby/npcs observations (default: 50 studs)
+    #[schemars(description = "Search radius in studs (for nearby/npcs)")]
+    pub radius: Option<f64>,
+    /// Query string for find observations
+    #[schemars(description = "Search query (for find type)")]
+    pub query: Option<String>,
+}
+
+fn default_observe_type() -> String {
+    "state".to_string()
+}
+
+/// Parameters for bot_move tool - move character to a position or object
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BotMoveParams {
+    /// Target position as {x, y, z}
+    #[schemars(description = "Target position {x, y, z} - use this OR objectName")]
+    pub position: Option<serde_json::Value>,
+    /// Name of object to move to
+    #[schemars(description = "Name of object to navigate to - use this OR position")]
+    #[serde(rename = "objectName")]
+    pub object_name: Option<String>,
+}
+
+/// Parameters for bot_action tool - perform character actions
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BotActionParams {
+    /// Action type: equip, unequip, activate, deactivate, interact, jump
+    #[schemars(description = "Action: equip, unequip, activate, deactivate, interact, jump")]
+    pub action: String,
+    /// Name of tool/object (for equip, interact)
+    #[schemars(description = "Tool or object name (for equip, interact actions)")]
+    pub name: Option<String>,
+}
+
+/// Parameters for bot_command tool - send generic bot command
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BotCommandParams {
+    /// Command type: move, action, ui, observe
+    #[schemars(description = "Command type: move, action, ui, observe")]
+    #[serde(rename = "type")]
+    pub command_type: String,
+    /// Specific command within the type
+    #[schemars(description = "Command name (e.g., moveTo, equipTool, clickButton)")]
+    pub command: String,
+    /// Command arguments
+    #[schemars(description = "Command arguments as JSON object")]
+    pub args: Option<serde_json::Value>,
+}
+
+/// Parameters for bot_query_server tool - execute Luau code on server during playtest
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BotQueryServerParams {
+    /// Luau code to execute on the server. Can be an expression (returns value) or statement.
+    /// Examples: "#game.Players:GetPlayers()" returns player count,
+    /// "game.Players:GetPlayers()[1].leaderstats.Coins.Value" returns currency
+    #[schemars(description = "Luau code to execute on server during playtest")]
+    pub code: String,
+}
+
+/// Parameters for bot_wait_for tool - wait for a condition during playtest
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct BotWaitForParams {
+    /// Luau code that returns a boolean. Polling continues until this returns true.
+    /// Example: "workspace:FindFirstChild('Ball') == nil" waits until Ball is removed
+    #[schemars(description = "Luau condition code that returns true when condition is met")]
+    pub condition: String,
+    /// Maximum time to wait in seconds (default: 30)
+    #[schemars(description = "Timeout in seconds (default: 30)")]
+    pub timeout: Option<f64>,
+    /// Polling interval in milliseconds (default: 100)
+    #[schemars(description = "Poll interval in ms (default: 100)")]
+    pub poll_interval: Option<u32>,
+    /// Where to evaluate: "server" for server-side state, "client" for client-side (default: server)
+    #[schemars(description = "Execution context: 'server' or 'client' (default: server)")]
+    pub context: Option<String>,
+}
+
 fn mcp_error(msg: impl Into<String>) -> McpError {
     McpError {
         code: ErrorCode(-32603),
@@ -385,6 +474,257 @@ impl RbxSyncServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))
+    }
+
+    // ========================================================================
+    // Bot Controller Tools (AI-powered automated gameplay testing)
+    // ========================================================================
+
+    /// Observe current game state during a playtest.
+    /// Returns character position, health, inventory, nearby objects/NPCs, and visible UI.
+    /// Must be called during an active playtest (after run_test or manual F5).
+    #[tool(description = "Observe game state during playtest - get position, health, inventory, nearby objects")]
+    async fn bot_observe(
+        &self,
+        Parameters(params): Parameters<BotObserveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .bot_observe(&params.observe_type, params.radius, params.query.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Observation failed: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        // Format the state nicely
+        let state_json = serde_json::to_string_pretty(&result.data)
+            .unwrap_or_else(|_| "{}".to_string());
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Game State:\n{}",
+            state_json
+        ))]))
+    }
+
+    /// Move character to a position or named object using pathfinding.
+    /// The character will navigate around obstacles using PathfindingService.
+    /// Must be called during an active playtest.
+    #[tool(description = "Move character to position {x,y,z} or object name using pathfinding")]
+    async fn bot_move(
+        &self,
+        Parameters(params): Parameters<BotMoveParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .bot_move(params.position, params.object_name.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Movement failed: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        let reached = result.data.as_ref()
+            .and_then(|d| d.get("reached"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(false);
+
+        let final_pos = result.data.as_ref()
+            .and_then(|d| d.get("finalPosition"))
+            .map(|v| format!("{}", v))
+            .unwrap_or_default();
+
+        if reached {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Successfully reached destination. Final position: {}",
+                final_pos
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Movement completed but may not have reached exact destination. Final position: {}. Error: {}",
+                final_pos,
+                result.data.as_ref().and_then(|d| d.get("error")).and_then(|e| e.as_str()).unwrap_or("none")
+            ))]))
+        }
+    }
+
+    /// Perform character actions: equip/unequip tools, activate abilities, interact with objects.
+    /// Actions: equip, unequip, activate, deactivate, interact, jump
+    /// Must be called during an active playtest.
+    #[tool(description = "Perform actions: equip/unequip tools, activate, interact with objects, jump")]
+    async fn bot_action(
+        &self,
+        Parameters(params): Parameters<BotActionParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .bot_action(&params.action, params.name.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Action '{}' failed: {}",
+                params.action,
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        let action_result = result.data.as_ref()
+            .and_then(|d| d.get("result"))
+            .map(|v| format!("{}", v))
+            .unwrap_or_else(|| "completed".to_string());
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Action '{}' completed: {}",
+            params.action,
+            action_result
+        ))]))
+    }
+
+    /// Send a generic bot command for advanced control.
+    /// Supports movement, actions, UI interactions, and observations.
+    /// Must be called during an active playtest.
+    #[tool(description = "Send generic bot command for advanced character control")]
+    async fn bot_command(
+        &self,
+        Parameters(params): Parameters<BotCommandParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .bot_command(&params.command_type, &params.command, params.args.clone())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Command '{}.{}' failed: {}",
+                params.command_type,
+                params.command,
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        let result_json = serde_json::to_string_pretty(&result.data)
+            .unwrap_or_else(|_| "{}".to_string());
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Command '{}.{}' result:\n{}",
+            params.command_type,
+            params.command,
+            result_json
+        ))]))
+    }
+
+    /// Execute Luau code on the game server during an active playtest.
+    /// Use this to query game state that only exists on the server (currency, DataStores, services).
+    /// Returns the result of the code execution.
+    /// Must be called during an active playtest.
+    #[tool(description = "Execute Luau code on game server during playtest - query currency, DataStores, services")]
+    async fn bot_query_server(
+        &self,
+        Parameters(params): Parameters<BotQueryServerParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Send as a bot command with queryServer action
+        let result = self.client
+            .bot_command("query", "queryServer", Some(serde_json::json!({
+                "code": params.code
+            })))
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Server query failed: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        // Extract the result from the response
+        let query_result = result.data.as_ref()
+            .and_then(|d| d.get("result"))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null);
+
+        let context = result.data.as_ref()
+            .and_then(|d| d.get("context"))
+            .and_then(|c| c.as_str())
+            .unwrap_or("unknown");
+
+        let result_str = serde_json::to_string_pretty(&query_result)
+            .unwrap_or_else(|_| format!("{:?}", query_result));
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Server query result (context: {}):\n{}",
+            context,
+            result_str
+        ))]))
+    }
+
+    /// Wait for a condition to become true during an active playtest.
+    /// Polls the condition at regular intervals until it returns true or timeout.
+    /// Use context "server" for server-side state, "client" for client-side.
+    /// Must be called during an active playtest.
+    #[tool(description = "Wait for a Luau condition to become true during playtest")]
+    async fn bot_wait_for(
+        &self,
+        Parameters(params): Parameters<BotWaitForParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let context = params.context.as_deref().unwrap_or("server");
+        let command = if context == "server" { "waitForServer" } else { "waitFor" };
+
+        let result = self.client
+            .bot_command("query", command, Some(serde_json::json!({
+                "condition": params.condition,
+                "timeout": params.timeout.unwrap_or(30.0),
+                "pollInterval": params.poll_interval.unwrap_or(100)
+            })))
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Wait failed: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        let condition_met = result.data.as_ref()
+            .and_then(|d| d.get("result"))
+            .and_then(|r| r.as_bool())
+            .unwrap_or(false);
+
+        let timed_out = result.data.as_ref()
+            .and_then(|d| d.get("timedOut"))
+            .and_then(|t| t.as_bool())
+            .unwrap_or(false);
+
+        let elapsed = result.data.as_ref()
+            .and_then(|d| d.get("elapsed"))
+            .and_then(|e| e.as_f64())
+            .unwrap_or(0.0);
+
+        if condition_met {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Condition met after {:.2}s",
+                elapsed
+            ))]))
+        } else if timed_out {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Condition NOT met - timed out after {:.2}s",
+                elapsed
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Wait completed in {:.2}s, result: {:?}",
+                elapsed,
+                result.data
+            ))]))
+        }
     }
 }
 

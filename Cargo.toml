@@ -8,7 +8,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.0.5"
+version = "1.1.0"
 edition = "2021"
 license = "MIT"
 authors = ["RbxSync Team"]

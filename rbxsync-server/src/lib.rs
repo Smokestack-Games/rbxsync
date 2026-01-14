@@ -2092,7 +2092,8 @@ pub struct ReadTreeRequest {
 }
 
 async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoResponse {
-    let src_dir = PathBuf::from(&req.project_dir).join("src");
+    let project_dir = PathBuf::from(&req.project_dir);
+    let src_dir = project_dir.join("src");
 
     if !src_dir.exists() {
         return (
@@ -2104,6 +2105,26 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         );
     }
 
+    // Load project config for package settings
+    let config = load_project_config(&req.project_dir);
+    let packages_config = config.as_ref().and_then(|c| c.get("packages"));
+    let packages_enabled = packages_config
+        .and_then(|p| p.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or(false);
+    let packages_folder = packages_config
+        .and_then(|p| p.get("packagesFolder"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("Packages");
+    let shared_packages_path = packages_config
+        .and_then(|p| p.get("sharedPackagesPath"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("ReplicatedStorage/Packages");
+    let server_packages_path = packages_config
+        .and_then(|p| p.get("serverPackagesPath"))
+        .and_then(|v| v.as_str())
+        .unwrap_or("ServerScriptService/Packages");
+
     // Recursively read all .rbxjson files
     let mut instances: Vec<serde_json::Value> = Vec::new();
     let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
@@ -2111,6 +2132,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     fn walk_dir(
         dir: &std::path::Path,
         base: &std::path::Path,
+        path_prefix: &str,
         instances: &mut Vec<serde_json::Value>,
         scripts: &mut std::collections::HashMap<String, String>,
     ) {
@@ -2118,7 +2140,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    walk_dir(&path, base, instances, scripts);
+                    walk_dir(&path, base, path_prefix, instances, scripts);
                 } else if let Some(ext) = path.extension() {
                     if ext == "rbxjson" {
                         // Skip terrain.rbxjson - it has different format (terrain chunk data, not instance data)
@@ -2137,12 +2159,20 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                                 // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
                                 // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
                                 let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let inst_path = if is_meta {
+                                let rel_inst_path = if is_meta {
                                     // _meta.rbxjson represents the parent folder
                                     path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
                                 } else {
                                     path_str.replace(".rbxjson", "")
                                 };
+
+                                // Apply path prefix (for packages mapping to DataModel paths)
+                                let inst_path = if path_prefix.is_empty() {
+                                    rel_inst_path
+                                } else {
+                                    format!("{}/{}", path_prefix, rel_inst_path)
+                                };
+
                                 if path_str.contains("_meta") {
                                     tracing::info!("DEBUG: path_str='{}', is_meta={}, inst_path='{}'", path_str, is_meta, inst_path);
                                 }
@@ -2168,11 +2198,19 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                         let path_str = rel_path.to_string_lossy().to_string();
                         // Keep '/' as delimiter (matches instance path format)
                         // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService/MyScript"
-                        let inst_path = path_str
+                        let rel_inst_path = path_str
                             .trim_end_matches(".server.luau")
                             .trim_end_matches(".client.luau")
                             .trim_end_matches(".luau")
                             .to_string();
+
+                        // Apply path prefix (for packages mapping to DataModel paths)
+                        let inst_path = if path_prefix.is_empty() {
+                            rel_inst_path
+                        } else {
+                            format!("{}/{}", path_prefix, rel_inst_path)
+                        };
+
                         if let Ok(source) = std::fs::read_to_string(&path) {
                             scripts.insert(inst_path, source);
                         }
@@ -2182,7 +2220,24 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         }
     }
 
-    walk_dir(&src_dir, &src_dir, &mut instances, &mut scripts);
+    // Walk the main src directory (no prefix - paths map directly to DataModel)
+    walk_dir(&src_dir, &src_dir, "", &mut instances, &mut scripts);
+
+    // Walk packages directory if enabled
+    if packages_enabled {
+        let packages_dir = project_dir.join(packages_folder);
+        if packages_dir.exists() && packages_dir.is_dir() {
+            tracing::info!("Reading Wally packages from {} -> {}", packages_folder, shared_packages_path);
+            walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut instances, &mut scripts);
+
+            // Also check for server packages subdirectory
+            let server_pkg_dir = packages_dir.join("ServerPackages");
+            if server_pkg_dir.exists() && server_pkg_dir.is_dir() {
+                tracing::info!("Reading server packages from ServerPackages -> {}", server_packages_path);
+                walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut instances, &mut scripts);
+            }
+        }
+    }
 
     // Merge script sources into their instance data
     for inst in &mut instances {

@@ -482,4 +482,114 @@ impl RbxSyncClient {
 
         Ok(resp)
     }
+
+    // ========================================================================
+    // Bot Controller Methods (AI-powered automated gameplay testing)
+    // ========================================================================
+
+    /// Observe game state during playtest
+    pub async fn bot_observe(
+        &self,
+        observe_type: &str,
+        radius: Option<f64>,
+        query: Option<&str>,
+    ) -> anyhow::Result<BotCommandResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/bot/observe", self.base_url))
+            .json(&serde_json::json!({
+                "type": observe_type,
+                "radius": radius,
+                "query": query
+            }))
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Move character to position or object
+    pub async fn bot_move(
+        &self,
+        position: Option<serde_json::Value>,
+        object_name: Option<&str>,
+    ) -> anyhow::Result<BotCommandResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/bot/move", self.base_url))
+            .json(&serde_json::json!({
+                "position": position,
+                "objectName": object_name
+            }))
+            .timeout(std::time::Duration::from_secs(60)) // Longer timeout for movement
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Perform character action
+    pub async fn bot_action(
+        &self,
+        action: &str,
+        name: Option<&str>,
+    ) -> anyhow::Result<BotCommandResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/bot/action", self.base_url))
+            .json(&serde_json::json!({
+                "action": action,
+                "name": name
+            }))
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Send generic bot command
+    pub async fn bot_command(
+        &self,
+        command_type: &str,
+        command: &str,
+        args: Option<serde_json::Value>,
+    ) -> anyhow::Result<BotCommandResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/bot/command", self.base_url))
+            .json(&serde_json::json!({
+                "type": command_type,
+                "command": command,
+                "args": args.unwrap_or(serde_json::json!({}))
+            }))
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+}
+
+// ============================================================================
+// Bot Controller Response Types
+// ============================================================================
+
+/// Generic bot command response
+#[derive(Debug, Deserialize)]
+pub struct BotCommandResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
 }

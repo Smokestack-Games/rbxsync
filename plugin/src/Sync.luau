@@ -969,10 +969,17 @@ function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?
     end
 
     -- Update script source
-    if data.source and (instance:IsA("LuaSourceContainer")) then
-        pcall(function()
-            (instance :: any).Source = data.source
-        end)
+    -- Check both data.source (top-level) and data.properties.Source.value (from server)
+    if instance:IsA("LuaSourceContainer") then
+        local newSource = data.source
+        if not newSource and data.properties and data.properties.Source then
+            newSource = data.properties.Source.value
+        end
+        if newSource then
+            pcall(function()
+                (instance :: any).Source = newSource
+            end)
+        end
     end
 
     -- Update attributes (clear and re-apply, skip reserved RBX_ attributes and source tracking)
