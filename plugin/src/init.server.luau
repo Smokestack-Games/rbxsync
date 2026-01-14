@@ -47,6 +47,7 @@ local Config = require(script.Config)
 local TestRunner = require(script.TestRunner)
 local ChangeTracker = require(script.ChangeTracker)
 local TerrainHandler = require(script.TerrainHandler)
+local CSGHandler = require(script.CSGHandler)
 
 -- Initialize config with plugin reference
 Config.init(plugin)
@@ -693,6 +694,73 @@ local function extractGame(config: {any})
                         instance:SetAttribute("_rbxsync_ref", serialized.referenceId)
                     end)
                 end
+
+                -- Special handling for UnionOperation: separate into component parts
+                if instance:IsA("UnionOperation") or instance:IsA("IntersectOperation") then
+                    local separated = CSGHandler.separate(plugin, instance :: BasePart)
+                    if separated.success and (#separated.addParts > 0 or #separated.subtractParts > 0) then
+                        -- Build CSG metadata
+                        local operations = {}
+                        local partIndex = 1
+
+                        -- Serialize and add the component parts
+                        for _, part in separated.addParts do
+                            local partName = "CSGPart_" .. partIndex
+                            local partPath = serialized.path .. "/_csg/" .. partName
+                            local partSerialized = Serializer.serializeInstance(part, apiDump)
+                            if partSerialized then
+                                partSerialized.path = partPath
+                                partSerialized.name = partName
+                                table.insert(chunkInstances, partSerialized)
+                                table.insert(operations, {
+                                    type = "add",
+                                    partRef = partName,
+                                })
+                            end
+                            -- Clean up the separated part
+                            part:Destroy()
+                            partIndex += 1
+                        end
+
+                        -- Serialize subtracted parts (NegateOperations)
+                        for _, part in separated.subtractParts do
+                            local partName = "CSGNegate_" .. partIndex
+                            local partPath = serialized.path .. "/_csg/" .. partName
+                            local partSerialized = Serializer.serializeInstance(part, apiDump)
+                            if partSerialized then
+                                partSerialized.path = partPath
+                                partSerialized.name = partName
+                                table.insert(chunkInstances, partSerialized)
+                                table.insert(operations, {
+                                    type = "subtract",
+                                    partRef = partName,
+                                })
+                            end
+                            -- Clean up the separated part
+                            part:Destroy()
+                            partIndex += 1
+                        end
+
+                        -- Add CSG metadata to the union
+                        if #operations > 0 then
+                            serialized.csg = {
+                                version = 1,
+                                separable = true,
+                                operations = operations,
+                            }
+                            print(string.format("[RbxSync] Separated union '%s' into %d parts", serialized.name, #operations))
+                        end
+                    elseif separated.error then
+                        -- Mark as non-separable with error
+                        serialized.csg = {
+                            version = 1,
+                            separable = false,
+                            error = separated.error,
+                        }
+                        warn(string.format("[RbxSync] Could not separate union '%s': %s", serialized.name, separated.error))
+                    end
+                end
+
                 table.insert(chunkInstances, serialized)
             end
         end
@@ -872,6 +940,20 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
     table.remove(pathParts) -- Remove the instance name itself
     local parentPath = table.concat(pathParts, "/")
 
+    -- Special handling for CSG component parts (paths containing /_csg/)
+    -- These are temporary parts used for union reconstruction, not parented to anything
+    local isCSGPart = string.find(path, "/_csg/") ~= nil
+    if isCSGPart then
+        -- CSG parts are created without a parent - they're temporary for reconstruction
+        local instance = Sync.createInstance(data, nil)
+        if instance then
+            Sync.registerCreated(path, instance)
+            return { success = true, action = "created (CSG part)" }
+        else
+            return { success = false, error = "Failed to create CSG component part" }
+        end
+    end
+
     local parent: Instance? = nil
     if #parentPath > 0 then
         parent = Sync.findInstanceAtPath(parentPath)
@@ -886,6 +968,13 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
         Sync.registerCreated(path, instance)
         return { success = true, action = "created" }
     else
+        -- Check if this was a CSG union deferred for reconstruction
+        local className = data.className or ""
+        if (className == "UnionOperation" or className == "IntersectOperation")
+            and data.csg and data.csg.separable then
+            -- Not a failure - deferred for CSG reconstruction
+            return { success = true, skipped = true }
+        end
         return { success = false, error = "Can't create instance. Parent may be locked." }
     end
 end
@@ -957,6 +1046,12 @@ local function syncUpdate(payload: any): {success: boolean, error: string?, skip
             Sync.registerCreated(path, newInstance)
             return { success = true, action = "replaced", reasons = {"className:" .. (instance.ClassName) .. "->" .. data.className} }
         else
+            -- Check if this was a CSG union deferred for reconstruction
+            if (data.className == "UnionOperation" or data.className == "IntersectOperation")
+                and data.csg and data.csg.separable then
+                -- Not a failure - deferred for CSG reconstruction
+                return { success = true, skipped = true }
+            end
             return { success = false, error = "Can't create replacement instance" }
         end
     end
@@ -1146,7 +1241,13 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
             print(string.format("[RbxSync] Resolved %d reference properties", resolved))
         end
 
-        -- Third pass: apply material overrides (must happen after all MaterialVariants are created)
+        -- Third pass: reconstruct CSG operations (unions from component parts)
+        local csgReconstructed = Sync.reconstructPendingCSG()
+        if csgReconstructed > 0 then
+            print(string.format("[RbxSync] Reconstructed %d CSG operations", csgReconstructed))
+        end
+
+        -- Fourth pass: apply material overrides (must happen after all MaterialVariants are created)
         local materialsApplied = Sync.applyPendingMaterialOverrides()
         if materialsApplied > 0 then
             print(string.format("[RbxSync] Applied %d material overrides", materialsApplied))

@@ -10,6 +10,7 @@ local HttpService = game:GetService("HttpService")
 local CollectionService = game:GetService("CollectionService")
 
 local Reflection = require(script.Parent.Reflection)
+local CSGHandler = require(script.Parent.CSGHandler)
 
 local Sync = {}
 
@@ -26,6 +27,13 @@ local pendingReferences: {{instance: Instance, propName: string, refId: string}}
 -- Pending material overrides to apply after all MaterialVariants exist
 -- Format: { { materialName: string, variantName: string } }
 local pendingMaterialOverrides: {{materialName: string, variantName: string}} = {}
+
+-- Pending CSG reconstructions to perform after all parts exist
+-- Format: { { path: string, data: any, parent: Instance } }
+local pendingCSGReconstructions: {{path: string, data: any, parent: Instance}} = {}
+
+-- Track instances by path for CSG reconstruction
+local instancesByPath: {[string]: Instance} = {}
 
 -- Reference properties that need deferred resolution
 -- Comprehensive list of all Instance reference properties in Roblox
@@ -489,6 +497,83 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
         end
     end
 
+    -- Special handling for UnionOperation/IntersectOperation with CSG data
+    -- If separable, queue for reconstruction instead of creating empty shell
+    if (className == "UnionOperation" or className == "IntersectOperation") and data.csg then
+        if data.csg.separable and data.csg.operations and #data.csg.operations > 0 then
+            -- Queue for reconstruction after all parts are created
+            table.insert(pendingCSGReconstructions, {
+                path = data.path,
+                data = data,
+                parent = parent :: Instance,
+            })
+            print(string.format("[RbxSync] Queued union '%s' for CSG reconstruction (%d parts)", name, #data.csg.operations))
+            return nil  -- Don't create the instance yet
+        elseif data.csg.error then
+            warn(string.format("[RbxSync] Union '%s' not separable: %s", name, data.csg.error))
+            -- Fall through to create empty shell
+        end
+    end
+
+    -- Special handling for CSG component parts (paths containing /_csg/)
+    -- These are temporary parts used for union reconstruction
+    -- Create them without a parent, track by path for later lookup
+    local isCSGPart = data.path and string.find(data.path, "/_csg/") ~= nil
+    if isCSGPart then
+        -- For CSG operations (NegateOperation, UnionOperation, IntersectOperation),
+        -- create a regular Part instead. These via Instance.new() create empty shells
+        -- with no geometry. SubtractAsync/UnionAsync need actual geometry.
+        local createClassName = className
+        if className == "NegateOperation"
+            or className == "UnionOperation"
+            or className == "IntersectOperation" then
+            createClassName = "Part"
+        end
+
+        -- Create the part without parenting (will be used for union reconstruction)
+        local ok, instance = pcall(function()
+            return Instance.new(createClassName)
+        end)
+
+        if not ok or not instance then
+            warn("[Sync.createInstance] Failed to create CSG part " .. tostring(className))
+            return nil
+        end
+
+        instance.Name = name
+
+        -- Apply properties
+        if data.properties then
+            Sync.applyProperties(instance, data.properties)
+        end
+
+        -- Apply attributes
+        if data.attributes then
+            for attrName, attrData in data.attributes do
+                if string.sub(attrName, 1, 4) == "RBX_" then
+                    continue
+                end
+                local attrValue = decodeValue(attrData)
+                if attrValue ~= nil then
+                    pcall(function()
+                        instance:SetAttribute(attrName, attrValue)
+                    end)
+                end
+            end
+        end
+
+        -- Track by path for CSG reconstruction (don't parent yet)
+        instancesByPath[data.path] = instance
+
+        -- Cache for reference resolution
+        if referenceId then
+            instanceCache[referenceId] = instance
+            Sync.registerInstanceByRefId(referenceId, instance)
+        end
+
+        return instance  -- Return but don't parent
+    end
+
     -- Special handling for MeshPart - use CreateMeshPartAsync to set MeshId
     -- (MeshId property is not writable by plugins, must be set at creation)
     if className == "MeshPart" and data.properties and data.properties.MeshId then
@@ -626,6 +711,11 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     -- Set parent last (triggers instance creation in workspace)
     if parent then
         instance.Parent = parent
+    end
+
+    -- Track instance by path for CSG reconstruction
+    if data.path then
+        instancesByPath[data.path] = instance
     end
 
     return instance
@@ -1162,6 +1252,8 @@ function Sync.clearCache(): ()
     table.clear(recentlyCreated)
     table.clear(pendingReferences)
     table.clear(pendingMaterialOverrides)
+    table.clear(pendingCSGReconstructions)
+    table.clear(instancesByPath)
 end
 
 -- Clear pending references (call before starting a sync batch)
@@ -1259,6 +1351,167 @@ function Sync.applyPendingMaterialOverrides(): number
     table.clear(pendingMaterialOverrides)
     print(string.format("[RbxSync] Material overrides complete: %d applied, %d failed", applied, failed))
     return applied
+end
+
+-- Reconstruct pending CSG operations (unions/intersections)
+-- Call this AFTER all component parts have been created
+function Sync.reconstructPendingCSG(): number
+    if #pendingCSGReconstructions == 0 then
+        return 0
+    end
+
+    print(string.format("[RbxSync] Reconstructing %d CSG operations...", #pendingCSGReconstructions))
+
+    local reconstructed = 0
+    local failed = 0
+
+    for _, pending in pendingCSGReconstructions do
+        local data = pending.data
+        local parent = pending.parent
+        local csgData = data.csg
+
+        -- Collect component parts by path
+        local basePath = pending.path .. "/_csg/"
+        local addParts: {BasePart} = {}
+        local subtractParts: {BasePart} = {}
+        local missingParts = 0
+
+        for _, op in csgData.operations do
+            local partPath = basePath .. op.partRef
+            local part = instancesByPath[partPath]
+
+            if part and part:IsA("BasePart") then
+                if op.type == "add" then
+                    table.insert(addParts, part :: BasePart)
+                elseif op.type == "subtract" then
+                    table.insert(subtractParts, part :: BasePart)
+                end
+            else
+                missingParts += 1
+                warn(string.format("[RbxSync] CSG part not found: %s", partPath))
+            end
+        end
+
+        if missingParts > 0 then
+            warn(string.format("[RbxSync] Missing %d parts for union '%s', skipping", missingParts, data.name))
+            failed += 1
+            continue
+        end
+
+        if #addParts == 0 then
+            warn(string.format("[RbxSync] No add parts for union '%s', skipping", data.name))
+            failed += 1
+            continue
+        end
+
+        -- CSG APIs require parts to be in the DataModel
+        -- Create a temporary folder and parent all parts there
+        local tempFolder = Instance.new("Folder")
+        tempFolder.Name = "_RbxSync_CSG_Temp"
+        tempFolder.Parent = game:GetService("ServerStorage")
+
+        -- Parent all parts to the temp folder
+        for _, part in addParts do
+            part.Parent = tempFolder
+        end
+        for _, part in subtractParts do
+            part.Parent = tempFolder
+        end
+
+        -- Reconstruct the union using CSGHandler
+        local basePart = table.remove(addParts, 1) :: BasePart
+        local success, union = CSGHandler.reconstruct(basePart, addParts, subtractParts)
+
+        if success and union then
+            -- Apply original properties, but skip CFrame since the geometry
+            -- is already correctly positioned from the component parts.
+            -- Applying CFrame would double-transform the union.
+            if data.properties then
+                local propsWithoutCFrame = {}
+                for propName, propValue in data.properties do
+                    if propName ~= "CFrame" then
+                        propsWithoutCFrame[propName] = propValue
+                    end
+                end
+                Sync.applyProperties(union, propsWithoutCFrame)
+            end
+
+            -- Set name and parent
+            union.Name = data.name
+            union.Parent = parent
+
+            -- Apply attributes
+            if data.attributes then
+                for attrName, attrData in data.attributes do
+                    if string.sub(attrName, 1, 4) == "RBX_" then
+                        continue
+                    end
+                    local attrValue = decodeValue(attrData)
+                    if attrValue ~= nil then
+                        pcall(function()
+                            union:SetAttribute(attrName, attrValue)
+                        end)
+                    end
+                end
+            end
+
+            -- Apply tags
+            if data.tags then
+                for _, tag in data.tags do
+                    CollectionService:AddTag(union, tag)
+                end
+            end
+
+            -- Set source tracking
+            if data.path then
+                pcall(function()
+                    union:SetAttribute(SOURCE_ATTR, data.path)
+                end)
+            end
+
+            -- Cache for reference resolution
+            if data.referenceId then
+                instanceCache[data.referenceId] = union
+                Sync.registerInstanceByRefId(data.referenceId, union)
+                pcall(function()
+                    union:SetAttribute("_rbxsync_ref", data.referenceId)
+                end)
+            end
+
+            -- Track by path
+            instancesByPath[data.path] = union
+
+            -- Clean up the component parts (they're now part of the union)
+            basePart:Destroy()
+            for _, part in addParts do
+                part:Destroy()
+            end
+            for _, part in subtractParts do
+                part:Destroy()
+            end
+
+            -- Clean up the temp folder
+            tempFolder:Destroy()
+
+            -- Also remove CSG parts from instancesByPath
+            for _, op in csgData.operations do
+                local partPath = basePath .. op.partRef
+                instancesByPath[partPath] = nil
+            end
+
+            reconstructed += 1
+            print(string.format("[RbxSync] Reconstructed union '%s'", data.name))
+        else
+            warn(string.format("[RbxSync] Failed to reconstruct union '%s'", data.name))
+            -- Clean up temp folder on failure too
+            tempFolder:Destroy()
+            failed += 1
+        end
+    end
+
+    table.clear(pendingCSGReconstructions)
+    print(string.format("[RbxSync] CSG reconstruction complete: %d reconstructed, %d failed", reconstructed, failed))
+    return reconstructed
 end
 
 -- Build instance cache from current game state

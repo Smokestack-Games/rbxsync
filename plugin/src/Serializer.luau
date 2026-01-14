@@ -29,7 +29,8 @@ local Serializer = {}
 local function escapeNameForPath(name: string): string
     -- Replace / with a safe escape sequence that's unlikely to appear naturally
     -- Using [SLASH] as it's readable and very unlikely to be in a real name
-    return string.gsub(name, "/", "[SLASH]")
+    -- Note: Wrap in parentheses to return only the first value (string.gsub returns 2 values)
+    return (string.gsub(name, "/", "[SLASH]"))
 end
 
 -- Unescape path segment back to original name
