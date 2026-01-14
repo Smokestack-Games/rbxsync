@@ -56,7 +56,8 @@ Config.init(plugin)
 local isConnected = false
 local isExtracting = false
 local isSyncing = false
-local userDisconnected = false  -- True when user explicitly clicks Disconnect (prevents auto-reconnect)
+local userDisconnected = true  -- Start disconnected - user must explicitly connect
+local hasShownConnectPrompt = false  -- Track if we've shown the connect prompt
 local cachedPlaceName: string? = nil
 local lastExtractTime: number? = nil  -- Track last extraction time for estimates
 local lastInstanceCount: number? = nil  -- Track last instance count
@@ -1745,6 +1746,24 @@ local function unregisterWithServer()
     return success
 end
 
+-- Unlink from workspace (keeps Studio visible but clears project_dir)
+local function unlinkFromServer()
+    local placeName = getPlaceName()
+    -- Use register with empty project_dir to stay visible but unlinked
+    local success, _ = httpPost("/rbxsync/register", {
+        place_id = game.PlaceId,
+        place_name = placeName,
+        project_dir = "",  -- Empty project_dir = unlinked but still registered
+        session_id = SESSION_ID,
+    })
+
+    if success then
+        print("[RbxSync] Unlinked from workspace")
+    end
+
+    return success
+end
+
 -- Check server connection
 local function checkConnection()
     local success, _ = httpGet("/health")
@@ -2010,6 +2029,7 @@ end
 connectButton.MouseButton1Click:Connect(function()
     if isConnected then
         -- User clicked Disconnect
+        unlinkFromServer()  -- Clear project_dir but stay visible in VS Code
         isConnected = false
         userDisconnected = true  -- Prevent auto-reconnect
         hasLoggedLink = false  -- Reset so we log again on reconnect
@@ -2263,7 +2283,7 @@ local extractButton = Instance.new("TextButton")
 extractButton.Size = UDim2.new(0.5, -4, 1, 0)
 extractButton.BackgroundColor3 = Colors.accent
 extractButton.BorderSizePixel = 0
-extractButton.Text = "⬆  Extract"
+extractButton.Text = "📤  Extract"
 extractButton.TextColor3 = Colors.background
 extractButton.TextSize = 13
 extractButton.Font = Enum.Font.GothamBold
@@ -2325,7 +2345,7 @@ local syncButton = Instance.new("TextButton")
 syncButton.Size = UDim2.new(0.5, -4, 1, 0)
 syncButton.BackgroundColor3 = Colors.surface
 syncButton.BorderSizePixel = 0
-syncButton.Text = "⬇  Sync"
+syncButton.Text = "📥  Sync"
 syncButton.TextColor3 = Colors.textPrimary
 syncButton.TextSize = 13
 syncButton.Font = Enum.Font.GothamBold
@@ -2364,9 +2384,9 @@ updateSyncButtonState = function(state: string)
         syncButton.TextColor3 = Colors.textPrimary
         -- Show last sync time if available
         if operationState.lastSyncDuration and operationState.lastSyncCount then
-            syncButton.Text = string.format("⬇  Sync (%.1fs)", operationState.lastSyncDuration)
+            syncButton.Text = string.format("📥  Sync (%.1fs)", operationState.lastSyncDuration)
         else
-            syncButton.Text = "⬇  Sync"
+            syncButton.Text = "📥  Sync"
         end
         syncStroke.Color = Colors.textMuted
         syncStroke.Transparency = 0.8
@@ -2386,7 +2406,7 @@ updateSyncButtonState = function(state: string)
         operationState.timerThread = task.spawn(function()
             while operationState.syncStartTime do
                 local elapsed = os.clock() - operationState.syncStartTime
-                syncButton.Text = string.format("⬇  %.1fs", elapsed)
+                syncButton.Text = string.format("📥  %.1fs", elapsed)
                 task.wait(0.1)
             end
         end)
@@ -2397,7 +2417,7 @@ updateSyncButtonState = function(state: string)
         -- Disabled/disconnected: muted appearance
         syncButton.BackgroundColor3 = Colors.surface
         syncButton.TextColor3 = Colors.textMuted
-        syncButton.Text = "⬇  Sync"
+        syncButton.Text = "📥  Sync"
         syncStroke.Color = Colors.textMuted
         syncStroke.Transparency = 0.9
         syncButton.BackgroundTransparency = 0.5
@@ -2444,17 +2464,17 @@ end
 updateButtonBadges = function()
     -- Update Extract button
     if changeTracking.studioChanges > 0 then
-        extractButton.Text = "⬆ Extract (" .. changeTracking.studioChanges .. ")"
+        extractButton.Text = "📤 Extract (" .. changeTracking.studioChanges .. ")"
     else
-        extractButton.Text = "⬆ Extract"
+        extractButton.Text = "📤 Extract"
     end
 
     -- Update Sync button (only when idle)
     if currentSyncState == SyncButtonState.IDLE or currentSyncState == SyncButtonState.DISCONNECTED then
         if changeTracking.localChanges > 0 then
-            syncButton.Text = "⬇ Sync (" .. changeTracking.localChanges .. ")"
+            syncButton.Text = "📥 Sync (" .. changeTracking.localChanges .. ")"
         else
-            syncButton.Text = "⬇ Sync"
+            syncButton.Text = "📥 Sync"
         end
     end
 end
@@ -3142,6 +3162,157 @@ local function showConfirmation(title: string, message: string, onConfirm: () ->
     end)
 end
 
+-- Connect prompt overlay
+local connectPromptOverlay: Frame? = nil
+
+local function showConnectPrompt()
+    -- Don't show if already shown or already connected
+    if hasShownConnectPrompt or isConnected then
+        return
+    end
+    hasShownConnectPrompt = true
+
+    -- Remove existing overlay if present
+    if connectPromptOverlay then
+        connectPromptOverlay:Destroy()
+    end
+
+    -- Create overlay
+    local overlay = Instance.new("Frame")
+    overlay.Name = "ConnectPromptOverlay"
+    overlay.Size = UDim2.new(1, 0, 1, 0)
+    overlay.Position = UDim2.new(0, 0, 0, 0)
+    overlay.BackgroundColor3 = Color3.fromRGB(0, 0, 0)
+    overlay.BackgroundTransparency = 0.4
+    overlay.ZIndex = 100
+    overlay.Parent = mainFrame
+    connectPromptOverlay = overlay
+
+    -- Dialog box
+    local dialog = Instance.new("Frame")
+    dialog.Name = "Dialog"
+    dialog.Size = UDim2.new(1, -32, 0, 140)
+    dialog.Position = UDim2.new(0.5, 0, 0.5, 0)
+    dialog.AnchorPoint = Vector2.new(0.5, 0.5)
+    dialog.BackgroundColor3 = Colors.surface
+    dialog.BorderSizePixel = 0
+    dialog.ZIndex = 101
+    dialog.Parent = overlay
+
+    local dialogCorner = Instance.new("UICorner")
+    dialogCorner.CornerRadius = UDim.new(0, 8)
+    dialogCorner.Parent = dialog
+
+    local dialogStroke = Instance.new("UIStroke")
+    dialogStroke.Color = Colors.border
+    dialogStroke.Thickness = 1
+    dialogStroke.Parent = dialog
+
+    -- Title
+    local titleLabel = Instance.new("TextLabel")
+    titleLabel.Size = UDim2.new(1, -16, 0, 24)
+    titleLabel.Position = UDim2.new(0, 8, 0, 12)
+    titleLabel.BackgroundTransparency = 1
+    titleLabel.Text = "Connect to RbxSync?"
+    titleLabel.TextColor3 = Colors.textPrimary
+    titleLabel.TextSize = 14
+    titleLabel.Font = Enum.Font.GothamBold
+    titleLabel.TextXAlignment = Enum.TextXAlignment.Left
+    titleLabel.ZIndex = 102
+    titleLabel.Parent = dialog
+
+    -- Message
+    local messageLabel = Instance.new("TextLabel")
+    messageLabel.Size = UDim2.new(1, -16, 0, 40)
+    messageLabel.Position = UDim2.new(0, 8, 0, 38)
+    messageLabel.BackgroundTransparency = 1
+    messageLabel.Text = "RbxSync server detected. Connect to sync files between Studio and your local filesystem."
+    messageLabel.TextColor3 = Colors.textSecondary
+    messageLabel.TextSize = 11
+    messageLabel.Font = Enum.Font.Gotham
+    messageLabel.TextXAlignment = Enum.TextXAlignment.Left
+    messageLabel.TextYAlignment = Enum.TextYAlignment.Top
+    messageLabel.TextWrapped = true
+    messageLabel.ZIndex = 102
+    messageLabel.Parent = dialog
+
+    -- Button container
+    local buttonContainer = Instance.new("Frame")
+    buttonContainer.Size = UDim2.new(1, -16, 0, 28)
+    buttonContainer.Position = UDim2.new(0, 8, 1, -40)
+    buttonContainer.BackgroundTransparency = 1
+    buttonContainer.ZIndex = 102
+    buttonContainer.Parent = dialog
+
+    -- Dismiss button
+    local dismissBtn = Instance.new("TextButton")
+    dismissBtn.Size = UDim2.new(0.48, 0, 1, 0)
+    dismissBtn.Position = UDim2.new(0, 0, 0, 0)
+    dismissBtn.BackgroundColor3 = Colors.surface
+    dismissBtn.BorderSizePixel = 0
+    dismissBtn.Text = "Dismiss"
+    dismissBtn.TextColor3 = Colors.textSecondary
+    dismissBtn.TextSize = 11
+    dismissBtn.Font = Enum.Font.GothamMedium
+    dismissBtn.ZIndex = 103
+    dismissBtn.Parent = buttonContainer
+
+    local dismissCorner = Instance.new("UICorner")
+    dismissCorner.CornerRadius = UDim.new(0, 4)
+    dismissCorner.Parent = dismissBtn
+
+    local dismissStroke = Instance.new("UIStroke")
+    dismissStroke.Color = Colors.textMuted
+    dismissStroke.Thickness = 1
+    dismissStroke.Parent = dismissBtn
+
+    -- Connect button (primary)
+    local connectBtn = Instance.new("TextButton")
+    connectBtn.Size = UDim2.new(0.48, 0, 1, 0)
+    connectBtn.Position = UDim2.new(0.52, 0, 0, 0)
+    connectBtn.BackgroundColor3 = Colors.accent
+    connectBtn.BorderSizePixel = 0
+    connectBtn.Text = "Connect"
+    connectBtn.TextColor3 = Colors.background
+    connectBtn.TextSize = 11
+    connectBtn.Font = Enum.Font.GothamMedium
+    connectBtn.ZIndex = 103
+    connectBtn.Parent = buttonContainer
+
+    local connectCorner = Instance.new("UICorner")
+    connectCorner.CornerRadius = UDim.new(0, 4)
+    connectCorner.Parent = connectBtn
+
+    -- Button handlers
+    dismissBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        connectPromptOverlay = nil
+        -- User dismissed - they can manually connect later via the connect button
+    end)
+
+    connectBtn.MouseButton1Click:Connect(function()
+        overlay:Destroy()
+        connectPromptOverlay = nil
+        -- Enable connection
+        userDisconnected = false
+        -- Trigger immediate connection attempt
+        local success, _ = httpGet("/health")
+        if success then
+            isConnected = true
+            print("Connected")
+            registerWithServer()
+            if syncSettings.studioToFiles then
+                ChangeTracker.start()
+            end
+            startConsoleCapture()
+            -- Update UI to show connected state
+            updateConnectionUI()
+        else
+            warn("Could not connect to server")
+        end
+    end)
+end
+
 -- Helper function to create a checkbox with confirmation support
 local function createCheckbox(parent: Frame, yOffset: number, text: string, checked: boolean, onBeforeChange: ((boolean) -> boolean)?, onChange: (boolean) -> ())
     local checkboxFrame = Instance.new("Frame")
@@ -3372,6 +3543,15 @@ panelButton.Click:Connect(function()
 
     if widget.Enabled then
         task.spawn(updateInfoDisplay)
+        -- Check if we should show connect prompt
+        if userDisconnected and not hasShownConnectPrompt and not isConnected then
+            task.spawn(function()
+                local serverAvailable, _ = httpGet("/health")
+                if serverAvailable then
+                    showConnectPrompt()
+                end
+            end)
+        end
     end
 end)
 
@@ -3384,6 +3564,14 @@ task.spawn(pollLoop)
 -- Connection check loop (respects userDisconnected flag and auto-connect setting)
 task.spawn(function()
     while true do
+        -- Show connect prompt if server is available but user hasn't connected yet
+        if userDisconnected and not hasShownConnectPrompt and not isConnected and widget.Enabled then
+            local serverAvailable, _ = httpGet("/health")
+            if serverAvailable then
+                task.defer(showConnectPrompt)
+            end
+        end
+
         -- Only auto-reconnect if user hasn't explicitly disconnected AND auto-connect is enabled
         if not userDisconnected and Config.getAutoConnect() then
             local wasConnected = isConnected
@@ -3464,6 +3652,21 @@ task.spawn(function()
                 -- Still connected - refresh registration to keep heartbeat alive
                 registerWithServer()
 
+                -- Check if we were unlinked by VS Code
+                local statusSuccess, statusData = httpPost("/rbxsync/check-status", {
+                    session_id = SESSION_ID,
+                })
+                if statusSuccess and statusData and statusData.success and not statusData.linked then
+                    -- VS Code unlinked us - disconnect locally (server already has us as unlinked)
+                    print("[RbxSync] Unlinked by VS Code - disconnecting")
+                    isConnected = false
+                    userDisconnected = true
+                    hasLoggedLink = false
+                    ChangeTracker.stop()
+                    stopConsoleCapture()
+                    updateConnectionUI()
+                end
+
                 -- Check if VS Code just connected with a different path
                 if not hasShownPathMismatch then
                     local infoSuccess, infoData = httpGet("/rbxsync/server-info")
@@ -3505,9 +3708,17 @@ task.spawn(function()
                 end
             end
         else
-            -- User disconnected - still check if server is actually available
-            -- (so we can show accurate status if they want to reconnect)
+            -- User disconnected - still send heartbeat to stay visible in VS Code
             local success, _ = httpGet("/health")
+            if success then
+                -- Send heartbeat with empty project_dir to show as unlinked but visible
+                httpPost("/rbxsync/register", {
+                    place_id = game.PlaceId,
+                    place_name = getPlaceName(),
+                    project_dir = "",  -- Empty = unlinked
+                    session_id = SESSION_ID,
+                })
+            end
             if not success and isConnected then
                 isConnected = false
                 updateConnectionUI()
@@ -3538,9 +3749,7 @@ end)
 -- Check for updates on startup
 task.spawn(checkForUpdates)
 
--- Cleanup when Studio closes - unregister from server
-game:BindToClose(function()
-    if isConnected then
-        unregisterWithServer()
-    end
+-- Cleanup when plugin unloads (Studio closes or plugin reloads) - unregister from server
+plugin.Unloading:Connect(function()
+    unregisterWithServer()
 end)

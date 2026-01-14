@@ -201,6 +201,9 @@ function Reflection.shouldSerializeProperty(prop: PropertyInfo): boolean
         -- Light properties
         Brightness = true,
         Range = true,
+        -- Lighting properties (RobloxScriptSecurity write, but we can read them)
+        LightingStyle = true,
+        Technology = true,
         -- SurfaceAppearance Content properties
         ColorMap = true,
         MetalnessMap = true,

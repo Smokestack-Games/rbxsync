@@ -68,8 +68,8 @@ enum Commands {
         #[arg(short, long)]
         service: Option<Vec<String>>,
 
-        /// Include terrain data
-        #[arg(long, default_value = "true")]
+        /// Include terrain data (opt-in, can be slow)
+        #[arg(long)]
         terrain: bool,
 
         /// Include binary assets
@@ -825,8 +825,8 @@ async fn cmd_extract(
         .post("http://localhost:44755/extract/start")
         .json(&serde_json::json!({
             "services": services,
-            "includeTerrain": terrain,
-            "includeAssets": assets,
+            "include_terrain": terrain,
+            "include_assets": assets,
         }))
         .send()
         .await

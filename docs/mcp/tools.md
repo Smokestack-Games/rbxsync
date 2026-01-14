@@ -2,14 +2,37 @@
 
 Complete reference for all RbxSync MCP tools.
 
+## Prerequisites
+
+### Plugin Security
+
+The `run_code` and `run_test` tools require `loadstring` to be available. This should work automatically for plugins with PluginSecurity level.
+
+If you see "loadstring not available" errors, check:
+1. The plugin is installed correctly in your Plugins folder
+2. Studio output shows `[RbxSync] loadstring available - run:code enabled`
+
+::: warning
+If loadstring is not available, the `run_code` and `run_test` tools will not work. Other sync features will still function normally.
+:::
+
 ## extract_game
 
 Extract the connected game to files.
 
 **Input:**
 ```json
-{}
+{
+  "project_dir": "/Users/you/MyGame",  // required - where to extract files
+  "services": ["Workspace", "ReplicatedStorage"]  // optional - specific services to extract
+}
 ```
+
+**Parameters:**
+| Parameter | Type | Required | Description |
+|-----------|------|----------|-------------|
+| `project_dir` | string | Yes | Directory to extract files to (must have rbxsync.json) |
+| `services` | string[] | No | Specific services to extract (defaults to all) |
 
 **Output:**
 ```json

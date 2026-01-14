@@ -171,12 +171,12 @@ function Config.setUpdateAvailable(version: string?)
     pluginRef:SetSetting("RbxSync_UpdateAvailable", version)
 end
 
--- Get auto-connect setting (default: true for backward compatibility)
+-- Get auto-connect setting (default: false - user must click Connect)
 function Config.getAutoConnect(): boolean
-    if not pluginRef then return true end
+    if not pluginRef then return false end
     local value = pluginRef:GetSetting("RbxSync_AutoConnect")
-    -- Default to true if not set
-    if value == nil then return true end
+    -- Default to false - require manual connect
+    if value == nil then return false end
     return value == true
 end
 

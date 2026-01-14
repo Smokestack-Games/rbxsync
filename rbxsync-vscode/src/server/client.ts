@@ -226,6 +226,27 @@ export class RbxSyncClient {
     }
   }
 
+  // Undo last extraction by restoring from backup
+  async undoExtract(projectDir?: string): Promise<boolean> {
+    try {
+      const dir = projectDir || this._projectDir;
+      const response = await this.client.post('/rbxsync/undo-extract', {
+        project_dir: dir
+      });
+
+      if (response.data.success) {
+        vscode.window.showInformationMessage('Extraction undone - src restored from backup');
+        return true;
+      } else {
+        vscode.window.showErrorMessage(response.data.error || 'Failed to undo extraction');
+        return false;
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage('Failed to undo extraction - no backup found');
+      return false;
+    }
+  }
+
   // Extraction
   async startExtraction(projectDir: string, services?: string[]): Promise<ExtractStartResponse | null> {
     try {

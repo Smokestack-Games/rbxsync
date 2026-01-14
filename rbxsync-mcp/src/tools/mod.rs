@@ -50,6 +50,21 @@ pub struct SyncReadTreeResponse {
     pub count: i32,
 }
 
+#[derive(Debug, Deserialize)]
+pub struct IncrementalSyncResponse {
+    pub success: bool,
+    pub instances: Vec<serde_json::Value>,
+    pub count: i32,
+    #[serde(default)]
+    pub full_sync: bool,
+    #[serde(default)]
+    pub files_checked: usize,
+    #[serde(default)]
+    pub files_modified: usize,
+    #[serde(default)]
+    pub marked_synced: bool,
+}
+
 /// Build sync operations from raw instance data
 /// Returns operations in the format expected by the plugin:
 /// { type: "update", path: "...", data: { className, name, referenceId, attributes, properties, ... } }
@@ -288,6 +303,36 @@ impl RbxSyncClient {
             .await?;
 
         Ok(resp)
+    }
+
+    /// Read only files changed since last sync (incremental sync)
+    pub async fn read_incremental(&self, project_dir: &str) -> anyhow::Result<IncrementalSyncResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/sync/incremental", self.base_url))
+            .json(&serde_json::json!({
+                "project_dir": project_dir
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Mark the project as synced (call after successful sync)
+    pub async fn mark_synced(&self, project_dir: &str) -> anyhow::Result<()> {
+        self.client
+            .post(format!("{}/sync/incremental", self.base_url))
+            .json(&serde_json::json!({
+                "project_dir": project_dir,
+                "mark_synced": true
+            }))
+            .send()
+            .await?;
+
+        Ok(())
     }
 
     pub async fn sync_batch(&self, operations: &[serde_json::Value]) -> anyhow::Result<SyncBatchResponse> {

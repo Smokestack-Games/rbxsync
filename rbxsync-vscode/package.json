@@ -67,6 +67,10 @@
         "title": "RbxSync: Extract"
       },
       {
+        "command": "rbxsync.undoExtract",
+        "title": "RbxSync: Undo Extract"
+      },
+      {
         "command": "rbxsync.sync",
         "title": "RbxSync: Sync"
       },

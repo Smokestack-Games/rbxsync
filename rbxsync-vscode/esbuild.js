@@ -29,6 +29,9 @@ const serverBuild = esbuild.build({
   // Handle Node.js built-ins
   platform: 'node',
   target: 'node18',
+  // Ensure all modules are properly bundled
+  mainFields: ['module', 'main'],
+  resolveExtensions: ['.ts', '.js', '.json'],
 });
 
 // Run builds

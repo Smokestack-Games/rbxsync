@@ -8,6 +8,7 @@ export class StatusBarManager {
   private isBusy = false;
   private allPlaces: PlaceInfo[] = [];
   private currentProjectDir: string = '';
+  private onPlacesChangeCallback?: (places: PlaceInfo[], projectDir: string) => void;
 
   constructor(private client: RbxSyncClient) {
     this.statusBarItem = vscode.window.createStatusBarItem(
@@ -32,6 +33,12 @@ export class StatusBarManager {
     if (!this.isBusy) {
       this.updateStatus(this.client.connectionState);
     }
+    // Notify callback of places change
+    this.onPlacesChangeCallback?.(places, currentProjectDir);
+  }
+
+  onPlacesChange(callback: (places: PlaceInfo[], projectDir: string) => void): void {
+    this.onPlacesChangeCallback = callback;
   }
 
   private updateStatus(state: ConnectionState): void {

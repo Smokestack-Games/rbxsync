@@ -62,6 +62,22 @@ fn apply_tree_mapping(datamodel_path: &str, tree_mapping: &HashMap<String, Strin
     }
 }
 
+/// Recursively copy a directory
+fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
+    std::fs::create_dir_all(dst)?;
+    for entry in std::fs::read_dir(src)? {
+        let entry = entry?;
+        let path = entry.path();
+        let dest_path = dst.join(entry.file_name());
+        if path.is_dir() {
+            copy_dir_recursive(&path, &dest_path)?;
+        } else {
+            std::fs::copy(&path, &dest_path)?;
+        }
+    }
+    Ok(())
+}
+
 /// Apply reverse tree mapping to convert filesystem path to DataModel path
 fn apply_reverse_tree_mapping(fs_path: &str, tree_mapping: &HashMap<String, String>) -> String {
     // Try to find longest matching prefix (reverse lookup)
@@ -272,6 +288,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rbxsync/update-project-path", post(handle_update_project_path))
         .route("/rbxsync/link-studio", post(handle_link_studio))
         .route("/rbxsync/unlink-studio", post(handle_unlink_studio))
+        .route("/rbxsync/check-status", post(handle_check_status))
+        .route("/rbxsync/undo-extract", post(handle_undo_extract))
         .route("/rbxsync/places", get(handle_list_places))
         .route("/rbxsync/workspaces", get(handle_list_workspaces))
         .route("/rbxsync/server-info", get(handle_server_info))
@@ -379,12 +397,12 @@ async fn handle_register(
     let mut logged = state.logged_studio_places.write().await;
     if !logged.contains(&key) {
         logged.insert(key.clone());
-        let session_id = state.session_counter.fetch_add(1, std::sync::atomic::Ordering::SeqCst);
         tracing::info!(
-            "Studio registered: {} (PlaceId: {}, Session: {}) -> {}",
+            "Studio registered: {} (PlaceId: {}, SessionId: {:?}, Key: {}) -> {}",
             req.place_name,
             req.place_id,
-            session_id,
+            req.session_id,
+            key,
             req.project_dir
         );
 
@@ -769,6 +787,84 @@ async fn handle_unlink_studio(
     }))
 }
 
+/// Check link status for a Studio session (used by Studio to detect VS Code unlink)
+#[derive(Deserialize)]
+struct CheckStatusRequest {
+    session_id: String,
+}
+
+async fn handle_check_status(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<CheckStatusRequest>,
+) -> impl IntoResponse {
+    let registry = state.place_registry.read().await;
+
+    if let Some(place_info) = registry.get(&req.session_id) {
+        Json(serde_json::json!({
+            "success": true,
+            "linked": !place_info.project_dir.is_empty(),
+            "project_dir": place_info.project_dir,
+            "place_name": place_info.place_name
+        }))
+    } else {
+        Json(serde_json::json!({
+            "success": false,
+            "linked": false,
+            "error": "Session not found"
+        }))
+    }
+}
+
+/// Undo last extraction by restoring from backup
+#[derive(Deserialize)]
+struct UndoExtractRequest {
+    project_dir: String,
+}
+
+async fn handle_undo_extract(
+    Json(req): Json<UndoExtractRequest>,
+) -> impl IntoResponse {
+    let src_dir = PathBuf::from(&req.project_dir).join("src");
+    let backup_dir = PathBuf::from(&req.project_dir).join(".rbxsync-backup");
+    let backup_src = backup_dir.join("src");
+
+    if !backup_src.exists() {
+        return Json(serde_json::json!({
+            "success": false,
+            "error": "No backup found to restore"
+        }));
+    }
+
+    // Remove current src
+    if src_dir.exists() {
+        if let Err(e) = std::fs::remove_dir_all(&src_dir) {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to remove current src: {}", e)
+            }));
+        }
+    }
+
+    // Restore from backup
+    if let Err(e) = std::fs::rename(&backup_src, &src_dir) {
+        // If rename fails, try copy
+        if let Err(e) = copy_dir_recursive(&backup_src, &src_dir) {
+            return Json(serde_json::json!({
+                "success": false,
+                "error": format!("Failed to restore from backup: {}", e)
+            }));
+        }
+        let _ = std::fs::remove_dir_all(&backup_src);
+    }
+
+    tracing::info!("Restored src from backup for {}", req.project_dir);
+
+    Json(serde_json::json!({
+        "success": true,
+        "message": "Extraction undone - src restored from backup"
+    }))
+}
+
 /// Clean up stale VS Code workspace registrations (no heartbeat in 30 seconds)
 async fn cleanup_stale_vscode_workspaces(state: &Arc<AppState>) {
     let mut workspaces = state.vscode_workspaces.write().await;
@@ -950,6 +1046,42 @@ async fn handle_extract_start(
     // Pause live sync during extraction to avoid syncing back files we just extracted
     state.live_sync_paused.store(true, std::sync::atomic::Ordering::Relaxed);
     tracing::info!("Live sync paused for extraction");
+
+    // Clear any pending sync commands from queues to prevent them from interfering with extraction
+    // This is important because sync commands queued before extraction would try to sync
+    // files back to Studio before extraction completes
+    {
+        let mut global_queue = state.request_queue.lock().await;
+        let before_count = global_queue.len();
+        global_queue.retain(|req| !req.command.starts_with("sync:"));
+        let removed = before_count - global_queue.len();
+        if removed > 0 {
+            tracing::info!("Cleared {} pending sync commands from global queue before extraction", removed);
+        }
+    }
+    {
+        let mut project_queues = state.project_queues.write().await;
+        for (project_dir, queue) in project_queues.iter_mut() {
+            let before_count = queue.len();
+            queue.retain(|req| !req.command.starts_with("sync:"));
+            let removed = before_count - queue.len();
+            if removed > 0 {
+                tracing::info!("Cleared {} pending sync commands from queue for {} before extraction", removed, project_dir);
+            }
+        }
+    }
+
+    // Also drain any pending file change events to prevent them from being queued after extraction
+    {
+        let mut rx = state.file_change_rx.lock().await;
+        let mut drained = 0;
+        while rx.try_recv().is_ok() {
+            drained += 1;
+        }
+        if drained > 0 {
+            tracing::info!("Drained {} pending file change events before extraction", drained);
+        }
+    }
 
     // Queue request to plugin
     let plugin_request = PluginRequest {
@@ -1171,21 +1303,36 @@ async fn handle_extract_finalize(
     let tree_mapping = get_tree_mapping(&config);
     tracing::info!("Tree mapping loaded: {:?}", tree_mapping);
 
-    // Clear existing src directory before extraction to remove stale files
+    // Backup existing src directory before clearing (for undo support)
+    let backup_dir = PathBuf::from(&req.project_dir).join(".rbxsync-backup");
+    let backup_src = backup_dir.join("src");
     if src_dir.exists() {
-        tracing::info!("Clearing existing src directory for fresh extraction: {}", src_dir.display());
-        for entry in std::fs::read_dir(&src_dir).unwrap_or_else(|_| std::fs::read_dir(".").unwrap()) {
-            if let Ok(entry) = entry {
-                let path = entry.path();
-                if path.is_dir() {
-                    if let Err(e) = std::fs::remove_dir_all(&path) {
-                        tracing::warn!("Failed to remove directory {:?}: {}", path, e);
+        // Remove old backup if exists
+        if backup_src.exists() {
+            let _ = std::fs::remove_dir_all(&backup_src);
+        }
+        // Create backup directory
+        let _ = std::fs::create_dir_all(&backup_dir);
+        // Move src to backup (rename is atomic and fast)
+        if let Err(e) = std::fs::rename(&src_dir, &backup_src) {
+            // If rename fails (cross-device), fall back to copy+delete
+            tracing::warn!("Rename failed, falling back to copy: {}", e);
+            if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
+                tracing::warn!("Failed to backup src directory: {}", e);
+            }
+            // Clear existing src directory
+            for entry in std::fs::read_dir(&src_dir).unwrap_or_else(|_| std::fs::read_dir(".").unwrap()) {
+                if let Ok(entry) = entry {
+                    let path = entry.path();
+                    if path.is_dir() {
+                        let _ = std::fs::remove_dir_all(&path);
+                    } else {
+                        let _ = std::fs::remove_file(&path);
                     }
-                } else if let Err(e) = std::fs::remove_file(&path) {
-                    tracing::warn!("Failed to remove file {:?}: {}", path, e);
                 }
             }
         }
+        tracing::info!("Backed up src to .rbxsync-backup/src");
     }
 
     // Flatten all chunks into a single array of instances
@@ -1386,9 +1533,30 @@ async fn handle_extract_finalize(
 
     tracing::info!("Finalize complete: {} .rbxjson files, {} .luau scripts, {} services", files_written, scripts_written, service_folders.len());
 
-    // Resume live sync after extraction is complete (with a small delay to let file system settle)
-    state.live_sync_paused.store(false, std::sync::atomic::Ordering::Relaxed);
-    tracing::info!("Live sync resumed after extraction");
+    // Clear any file change events that accumulated during extraction (from the files we just wrote)
+    // This prevents them from being synced back to Studio after extraction
+    // We do this in a spawned task to avoid blocking the response
+    let state_for_cleanup = state.clone();
+    tokio::spawn(async move {
+        // Wait for file system events to settle
+        tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+
+        // Drain any accumulated file changes
+        {
+            let mut rx = state_for_cleanup.file_change_rx.lock().await;
+            let mut drained = 0;
+            while rx.try_recv().is_ok() {
+                drained += 1;
+            }
+            if drained > 0 {
+                tracing::info!("Drained {} file change events generated during extraction", drained);
+            }
+        }
+
+        // Resume live sync after cleanup
+        state_for_cleanup.live_sync_paused.store(false, std::sync::atomic::Ordering::Relaxed);
+        tracing::info!("Live sync resumed after extraction");
+    });
 
     (
         StatusCode::OK,

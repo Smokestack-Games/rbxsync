@@ -163,11 +163,11 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<SyncParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Read the local tree
-        let tree = self.client.read_tree(&params.project_dir).await.map_err(|e| mcp_error(e.to_string()))?;
+        // Use incremental sync - only reads files modified since last sync
+        let incremental = self.client.read_incremental(&params.project_dir).await.map_err(|e| mcp_error(e.to_string()))?;
 
         // Build sync operations in the format expected by the plugin
-        let mut operations = tools::build_sync_operations(tree.instances);
+        let mut operations = tools::build_sync_operations(incremental.instances);
 
         // If delete flag is set, add delete operations for orphaned instances
         let delete_count = if params.delete.unwrap_or(false) {
@@ -206,10 +206,20 @@ impl RbxSyncServer {
         let errors = result.data.as_ref().map(|d| d.errors.clone()).unwrap_or(result.errors);
 
         if result.success && errors.is_empty() {
+            // Mark as synced for next incremental sync
+            let _ = self.client.mark_synced(&params.project_dir).await;
+
+            let sync_type = if incremental.full_sync { "full" } else { "incremental" };
             let msg = if delete_count > 0 {
-                format!("Successfully synced {} instances and deleted {} orphans.", applied, delete_count)
+                format!(
+                    "Successfully synced {} instances ({} sync, checked {} files) and deleted {} orphans.",
+                    applied, sync_type, incremental.files_checked, delete_count
+                )
             } else {
-                format!("Successfully synced {} instances to Studio.", applied)
+                format!(
+                    "Successfully synced {} instances to Studio ({} sync, {} of {} files modified).",
+                    applied, sync_type, incremental.files_modified, incremental.files_checked
+                )
             };
             Ok(CallToolResult::success(vec![Content::text(msg)]))
         } else {

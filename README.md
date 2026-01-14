@@ -308,6 +308,10 @@ RbxSync includes an MCP server for AI agent integration:
 | `git_status` | Get project git status |
 | `git_commit` | Commit changes |
 
+### Plugin Requirements
+
+The `run_code` and `run_test` tools require `loadstring` which should be available automatically for plugins. Check Studio output for `[RbxSync] loadstring available - run:code enabled`.
+
 ### MCP Client Config
 
 ```json

@@ -401,6 +401,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       text-transform: uppercase;
       letter-spacing: 0.3px;
     }
+    .studio-name .badge.unlinked {
+      background: var(--text-secondary);
+      opacity: 0.7;
+    }
     .studio-meta {
       font-size: 10px;
       color: var(--text-secondary);
@@ -781,7 +785,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
               <div class="studio-info">
                 <div class="studio-name">
                   \${place.place_name || 'Unnamed Place'}
-                  \${isLinked ? '<span class="badge">Linked</span>' : ''}
+                  \${isLinked ? '<span class="badge">Linked</span>' : '<span class="badge unlinked">Unlinked</span>'}
                 </div>
                 <div class="studio-meta">ID: \${place.place_id || 'Unknown'}</div>
                 <div class="studio-path" title="\${place.project_dir}">\${shortenPath(place.project_dir)}</div>
@@ -789,24 +793,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             </div>
             \${statusHtml}
             <div class="studio-actions">
-              \${isLinked ? \`
-              <button class="studio-btn unlink" data-action="unlink" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M18.84 12.25l1.72-1.71a5 5 0 00-7.07-7.07l-3 3a5 5 0 00-.27 6.79"/>
-                  <path d="M5.16 11.75l-1.72 1.71a5 5 0 007.07 7.07l3-3a5 5 0 00.27-6.79"/>
-                  <line x1="2" y1="2" x2="22" y2="22"/>
-                </svg>
-                Unlink
-              </button>
-              \` : \`
-              <button class="studio-btn link" data-action="link" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
-                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
-                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
-                </svg>
-                Link
-              </button>
-              \`}
               <button class="studio-btn sync" data-action="sync" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
@@ -840,15 +826,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             const action = btn.dataset.action;
             const placeId = parseInt(btn.dataset.placeId, 10);
             const sessionId = btn.dataset.sessionId || null;
-            if (action === 'link') {
-              vscode.postMessage({ command: 'linkStudio', placeId: placeId, sessionId: sessionId });
-            } else if (action === 'unlink') {
-              vscode.postMessage({ command: 'unlinkStudio', placeId: placeId, sessionId: sessionId });
-            } else {
-              // sync, extract, test - pass projectDir, placeId, and sessionId
-              const dir = btn.dataset.dir;
-              vscode.postMessage({ command: action, projectDir: dir, placeId: placeId, sessionId: sessionId });
-            }
+            // sync, extract, test - pass projectDir, placeId, and sessionId
+            const dir = btn.dataset.dir;
+            vscode.postMessage({ command: action, projectDir: dir, placeId: placeId, sessionId: sessionId });
           };
         });
       }

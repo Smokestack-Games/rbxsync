@@ -267,6 +267,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       sidebarView.setE2EMode(enabled);
     }),
 
+    // Undo extraction command
+    vscode.commands.registerCommand('rbxsync.undoExtract', async () => {
+      await client.undoExtract();
+    }),
+
     // Trash recovery command
     vscode.commands.registerCommand('rbxsync.recoverDeleted', async () => {
       await recoverDeletedFolder();

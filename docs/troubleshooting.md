@@ -104,6 +104,30 @@ Common issues and solutions.
 2. Open console: `RbxSync: Open Console`
 3. Verify Studio plugin is connected
 
+## MCP/AI Integration Issues
+
+### "loadstring not available" error when using run:code
+
+**Symptom:** The `/run` endpoint or MCP `run_code` tool returns error: "loadstring not available"
+
+**Cause:** The `loadstring` function is not available in your Studio environment.
+
+**What to check:**
+1. Studio output shows `[RbxSync] loadstring available - run:code enabled`
+2. If you see `[RbxSync] loadstring not available`, this feature won't work
+
+**Note:** The `run_code` feature is optional and used for AI/MCP integration. Other sync features (extract, sync) work without it.
+
+### run:code returns timeout
+
+**Symptom:** `/run` endpoint times out after 30 seconds
+
+**Solutions:**
+1. Verify Studio is connected: check for green connection indicator
+2. Ensure Studio window is not minimized (plugin polling may slow down)
+3. Check Output window for `[RbxSync Debug] Received command: run:code`
+4. If you see "Failed to send response: HTTP 422", update to the latest plugin version
+
 ## Getting Help
 
 If you're still stuck:
