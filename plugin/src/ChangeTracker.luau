@@ -17,6 +17,9 @@ local ChangeTracker = {}
 -- Track whether we're actively monitoring
 local isTracking = false
 
+-- Track connection state - don't queue changes when disconnected
+local isConnectedToServer = false
+
 -- Services to track for changes
 local trackedServices = {
     "Workspace",
@@ -180,6 +183,11 @@ local DEBOUNCE_TIME = 0.3   -- 300ms debounce
 -- Send pending changes to server
 local function sendPendingChanges()
     if not isTracking then
+        return
+    end
+
+    -- Don't attempt to send when not connected
+    if not isConnectedToServer then
         return
     end
 
@@ -423,6 +431,91 @@ end
 -- Check if tracking is active
 function ChangeTracker.isTracking(): boolean
     return isTracking
+end
+
+-- Set connection state (controls whether changes are queued)
+function ChangeTracker.setConnected(connected: boolean)
+    isConnectedToServer = connected
+    if connected then
+        print("[RbxSync] Change tracking: connected")
+    else
+        print("[RbxSync] Change tracking: disconnected (changes will not be queued)")
+    end
+end
+
+-- Check if connected
+function ChangeTracker.isConnected(): boolean
+    return isConnectedToServer
+end
+
+-- Get count of pending changes in queue
+function ChangeTracker.getQueuedCount(): number
+    local count = 0
+    for _ in pairs(pendingChanges) do
+        count = count + 1
+    end
+    return count
+end
+
+-- Clear all pending changes without sending
+function ChangeTracker.clearQueue()
+    local count = ChangeTracker.getQueuedCount()
+    table.clear(pendingChanges)
+    if count > 0 then
+        print("[RbxSync] Cleared " .. count .. " queued change(s)")
+    end
+end
+
+-- Force send all pending changes immediately (ignores debounce)
+function ChangeTracker.flushQueue()
+    if not isConnectedToServer then
+        warn("[RbxSync] Cannot flush queue - not connected")
+        return false
+    end
+
+    local count = ChangeTracker.getQueuedCount()
+    if count == 0 then
+        return true
+    end
+
+    -- Build request payload from all pending changes
+    local operations = {}
+    for path, change in pairs(pendingChanges) do
+        table.insert(operations, {
+            type = change.changeType,
+            path = change.path,
+            className = change.className,
+            data = change.data,
+        })
+    end
+
+    -- Clear queue before sending
+    table.clear(pendingChanges)
+
+    -- Send to server
+    local HttpService = game:GetService("HttpService")
+    local url = Config.getServerUrl() .. "/sync/from-studio"
+    local payload = HttpService:JSONEncode({
+        operations = operations,
+        projectDir = Config.getProjectDir(),
+    })
+
+    local ok, result = pcall(function()
+        return HttpService:RequestAsync({
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = payload,
+        })
+    end)
+
+    if ok and result.Success then
+        print("[RbxSync] Synced " .. count .. " queued change(s)")
+        return true
+    else
+        warn("[RbxSync] Failed to sync queued changes")
+        return false
+    end
 end
 
 return ChangeTracker

@@ -1508,6 +1508,7 @@ local function pollLoop()
             -- Detect disconnection from failed request
             if not success then
                 isConnected = false
+                ChangeTracker.setConnected(false)
                 print("Disconnected")
                 updateConnectionUI()
             elseif response and response.command then
@@ -1680,10 +1681,12 @@ local function checkConnection()
         isConnected = success
         if isConnected then
             print("Connected")
+            ChangeTracker.setConnected(true)
             -- Register with server for multi-workspace routing
             registerWithServer()
         else
             print("Disconnected")
+            ChangeTracker.setConnected(false)
         end
     end
 end
@@ -1941,9 +1944,11 @@ connectButton.MouseButton1Click:Connect(function()
         isConnected = false
         userDisconnected = true  -- Prevent auto-reconnect
         hasLoggedLink = false  -- Reset so we log again on reconnect
+        ChangeTracker.setConnected(false)  -- Mark as disconnected
         ChangeTracker.stop()  -- Stop change tracking when disconnected
         stopConsoleCapture()  -- Stop console capture when disconnected
         print("Disconnected by user")
+        updateConnectionUI()
     else
         -- User clicked Connect
         userDisconnected = false  -- Allow reconnection
@@ -1951,18 +1956,58 @@ connectButton.MouseButton1Click:Connect(function()
         if success then
             isConnected = true
             registerWithServer()
-            -- Start change tracker for auto-extract (if enabled)
-            if syncSettings.studioToFiles then
-                ChangeTracker.start()
+
+            -- Check for queued changes before fully connecting
+            local queuedCount = ChangeTracker.getQueuedCount()
+            if queuedCount > 0 then
+                -- Show confirmation dialog for queued changes
+                showConfirmation(
+                    "Pending Changes",
+                    queuedCount .. " change(s) were queued while disconnected. Sync them now?",
+                    function()
+                        -- User confirmed - sync the changes
+                        ChangeTracker.setConnected(true)
+                        ChangeTracker.flushQueue()
+                        -- Start change tracker for auto-extract (if enabled)
+                        if syncSettings.studioToFiles then
+                            ChangeTracker.start()
+                        end
+                        -- Start console capture for E2E testing
+                        startConsoleCapture()
+                        print("Connected")
+                    end,
+                    function()
+                        -- User cancelled - discard the changes
+                        ChangeTracker.clearQueue()
+                        ChangeTracker.setConnected(true)
+                        -- Start change tracker for auto-extract (if enabled)
+                        if syncSettings.studioToFiles then
+                            ChangeTracker.start()
+                        end
+                        -- Start console capture for E2E testing
+                        startConsoleCapture()
+                        print("Connected (queued changes discarded)")
+                    end,
+                    "Sync",
+                    "Discard"
+                )
+            else
+                -- No queued changes, just connect normally
+                ChangeTracker.setConnected(true)
+                -- Start change tracker for auto-extract (if enabled)
+                if syncSettings.studioToFiles then
+                    ChangeTracker.start()
+                end
+                -- Start console capture for E2E testing
+                startConsoleCapture()
+                print("Connected")
             end
-            -- Start console capture for E2E testing
-            startConsoleCapture()
         else
             isConnected = false
             warn("Could not connect to server")
         end
+        updateConnectionUI()
     end
-    updateConnectionUI()
 end)
 
 -- ============================================================================
@@ -2929,7 +2974,7 @@ end
 -- Confirmation dialog helper
 local confirmationOverlay: Frame? = nil
 
-local function showConfirmation(title: string, message: string, onConfirm: () -> (), onCancel: () -> ())
+local function showConfirmation(title: string, message: string, onConfirm: () -> (), onCancel: () -> (), confirmText: string?, cancelText: string?)
     -- Remove existing overlay if present
     if confirmationOverlay then
         confirmationOverlay:Destroy()
@@ -3008,7 +3053,7 @@ local function showConfirmation(title: string, message: string, onConfirm: () ->
     cancelBtn.Position = UDim2.new(0, 0, 0, 0)
     cancelBtn.BackgroundColor3 = Colors.surface
     cancelBtn.BorderSizePixel = 0
-    cancelBtn.Text = "Cancel"
+    cancelBtn.Text = cancelText or "Cancel"
     cancelBtn.TextColor3 = Colors.textSecondary
     cancelBtn.TextSize = 11
     cancelBtn.Font = Enum.Font.GothamMedium
@@ -3030,7 +3075,7 @@ local function showConfirmation(title: string, message: string, onConfirm: () ->
     confirmBtn.Position = UDim2.new(0.52, 0, 0, 0)
     confirmBtn.BackgroundColor3 = Colors.accent
     confirmBtn.BorderSizePixel = 0
-    confirmBtn.Text = "Sync Now"
+    confirmBtn.Text = confirmText or "Confirm"
     confirmBtn.TextColor3 = Colors.background
     confirmBtn.TextSize = 11
     confirmBtn.Font = Enum.Font.GothamMedium
@@ -3207,14 +3252,49 @@ local function showConnectPrompt()
         local success, _ = httpGet("/health")
         if success then
             isConnected = true
-            print("Connected")
             registerWithServer()
-            if syncSettings.studioToFiles then
-                ChangeTracker.start()
+
+            -- Check for queued changes
+            local queuedCount = ChangeTracker.getQueuedCount()
+            if queuedCount > 0 then
+                -- Show confirmation dialog for queued changes
+                showConfirmation(
+                    "Pending Changes",
+                    queuedCount .. " change(s) were queued while disconnected. Sync them now?",
+                    function()
+                        -- User confirmed - sync the changes
+                        ChangeTracker.setConnected(true)
+                        ChangeTracker.flushQueue()
+                        if syncSettings.studioToFiles then
+                            ChangeTracker.start()
+                        end
+                        startConsoleCapture()
+                        print("Connected")
+                        updateConnectionUI()
+                    end,
+                    function()
+                        -- User cancelled - discard the changes
+                        ChangeTracker.clearQueue()
+                        ChangeTracker.setConnected(true)
+                        if syncSettings.studioToFiles then
+                            ChangeTracker.start()
+                        end
+                        startConsoleCapture()
+                        print("Connected (queued changes discarded)")
+                        updateConnectionUI()
+                    end,
+                    "Sync",
+                    "Discard"
+                )
+            else
+                ChangeTracker.setConnected(true)
+                if syncSettings.studioToFiles then
+                    ChangeTracker.start()
+                end
+                startConsoleCapture()
+                print("Connected")
+                updateConnectionUI()
             end
-            startConsoleCapture()
-            -- Update UI to show connected state
-            updateConnectionUI()
         else
             warn("Could not connect to server")
         end
@@ -3545,13 +3625,46 @@ task.spawn(function()
                     end
 
                     registerWithServer()
-                    -- Start change tracker only if enabled
-                    if syncSettings.studioToFiles then
-                        ChangeTracker.start()
+
+                    -- Check for queued changes on auto-reconnect
+                    local queuedCount = ChangeTracker.getQueuedCount()
+                    if queuedCount > 0 then
+                        -- Show confirmation dialog for queued changes
+                        showConfirmation(
+                            "Pending Changes",
+                            queuedCount .. " change(s) were queued while disconnected. Sync them now?",
+                            function()
+                                -- User confirmed - sync the changes
+                                ChangeTracker.setConnected(true)
+                                ChangeTracker.flushQueue()
+                                if syncSettings.studioToFiles then
+                                    ChangeTracker.start()
+                                end
+                                startConsoleCapture()
+                            end,
+                            function()
+                                -- User cancelled - discard the changes
+                                ChangeTracker.clearQueue()
+                                ChangeTracker.setConnected(true)
+                                if syncSettings.studioToFiles then
+                                    ChangeTracker.start()
+                                end
+                                startConsoleCapture()
+                            end,
+                            "Sync",
+                            "Discard"
+                        )
+                    else
+                        ChangeTracker.setConnected(true)
+                        -- Start change tracker only if enabled
+                        if syncSettings.studioToFiles then
+                            ChangeTracker.start()
+                        end
+                        startConsoleCapture()
                     end
-                    startConsoleCapture()
                 else
                     print("Disconnected")
+                    ChangeTracker.setConnected(false)
                     ChangeTracker.stop()
                     stopConsoleCapture()
                 end
@@ -3570,6 +3683,7 @@ task.spawn(function()
                     isConnected = false
                     userDisconnected = true
                     hasLoggedLink = false
+                    ChangeTracker.setConnected(false)
                     ChangeTracker.stop()
                     stopConsoleCapture()
                     updateConnectionUI()

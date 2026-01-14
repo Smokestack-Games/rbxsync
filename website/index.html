@@ -3837,12 +3837,26 @@
             background: #0078d4;
         }
 
-        .install-store-btn.openvsx {
+        /* Extension buttons - refined two-option layout */
+        .extension-buttons {
+            display: flex;
+            align-items: center;
+            gap: 0.75rem;
+        }
+
+        .extension-buttons .install-store-btn {
+            flex: 1;
+            font-size: 0.75rem;
+            height: 36px;
+            padding: 0 0.875rem;
+        }
+
+        .extension-buttons .install-store-btn.openvsx {
             background: #a60ee5;
             color: white;
         }
 
-        .install-store-btn.openvsx:hover {
+        .extension-buttons .install-store-btn.openvsx:hover {
             background: #b835f0;
         }
 
@@ -5966,19 +5980,19 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                                 <h4>Extension</h4>
                                 <span class="optional-badge">Optional</span>
                             </div>
-                            <a href="https://marketplace.visualstudio.com/items?itemName=rbxsync.rbxsync" target="_blank" rel="noopener noreferrer" class="install-store-btn vscode">
-                                <svg class="store-icon" viewBox="0 0 100 100" fill="currentColor">
-                                    <path d="M95.2 12.2L77.2 4.4a4.2 4.2 0 00-4.8.9L28.2 45.6 11.5 33a2.8 2.8 0 00-3.6.3l-4.7 4.3a2.8 2.8 0 000 4.1l14.5 13.3-14.5 13.3a2.8 2.8 0 000 4.1l4.7 4.3a2.8 2.8 0 003.6.3l16.7-12.6 44.2 40.3a4.2 4.2 0 004.8.9l18-7.8a4.2 4.2 0 002.6-3.9V16.1a4.2 4.2 0 00-2.6-3.9zM77 75L40.3 50 77 25v50z"/>
-                                </svg>
-                                <span>VS Code Marketplace</span>
-                            </a>
-                            <a href="https://open-vsx.org/extension/rbxsync/rbxsync" target="_blank" rel="noopener noreferrer" class="install-store-btn openvsx">
-                                <svg class="store-icon" viewBox="0 0 100 100" fill="currentColor">
-                                    <circle cx="50" cy="50" r="45" fill="none" stroke="currentColor" stroke-width="8"/>
-                                    <circle cx="50" cy="50" r="20"/>
-                                </svg>
-                                <span>Open VSX</span>
-                            </a>
+                            <div class="extension-buttons">
+                                <a href="https://marketplace.visualstudio.com/items?itemName=rbxsync.rbxsync" target="_blank" rel="noopener noreferrer" class="install-store-btn vscode">
+                                    <img class="store-icon" src="https://code.visualstudio.com/assets/branding/code-stable-white.png" alt="VS Code">
+                                    <span>Marketplace</span>
+                                </a>
+                                <a href="https://open-vsx.org/extension/rbxsync/rbxsync" target="_blank" rel="noopener noreferrer" class="install-store-btn openvsx">
+                                    <svg class="store-icon" viewBox="0 0 100 128">
+                                        <path d="M30 44.2L52.6 5H7.3zM4.6 88.5h45.3L27.2 49.4zm51 0l22.6 39.2 22.6-39.2z" fill="rgba(255,255,255,0.7)"/>
+                                        <path d="M52.6 5L30 44.2h45.2zM27.2 49.4l22.7 39.1 22.6-39.1zm51 0L55.6 88.5h45.2z" fill="white"/>
+                                    </svg>
+                                    <span>Open VSX</span>
+                                </a>
+                            </div>
                         </div>
                         <a href="https://github.com/devmarissa/rbxsync/releases/latest" class="install-alt-link">
                             or download .vsix
@@ -6096,24 +6110,14 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
             <div class="section-header">
                 <div class="section-tag">Stay Current</div>
                 <h2 class="section-title">Updating RbxSync</h2>
-                <p class="section-desc">Updates are <strong>not automatic</strong>. You must manually update each component.</p>
+                <p class="section-desc">Keep your tools in sync with the latest features and fixes.</p>
             </div>
 
             <div class="update-cards">
                 <!-- CLI Card -->
                 <div class="update-card" data-glow>
-                    <div class="update-card-header">
-                        <span class="update-label">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <polyline points="4 17 10 11 4 5"></polyline>
-                                <line x1="12" y1="19" x2="20" y2="19"></line>
-                            </svg>
-                            CLI
-                        </span>
-                    </div>
-                    <h4>Update the CLI</h4>
-                    <p>Pull latest changes, rebuild CLI and plugin.</p>
-
+                    <h4>CLI</h4>
+                    <p>Run the update command to pull latest changes.</p>
                     <div class="code-block-wrapper" style="margin-top: 1rem;">
                         <div class="code-block" data-copy="rbxsync update">
                             <span class="cmd">rbxsync</span> update
@@ -6127,42 +6131,14 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
 
                 <!-- Plugin Card -->
                 <div class="update-card" data-glow>
-                    <div class="update-card-header">
-                        <span class="update-label">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5"/></svg>
-                            Plugin
-                        </span>
-                        <span class="auto-badge" style="background: var(--warning-bg); color: var(--warning);">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                                <line x1="12" y1="9" x2="12" y2="13"></line>
-                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                            </svg>
-                            Manual
-                        </span>
-                    </div>
                     <h4>Studio Plugin</h4>
-                    <p>In Studio: <strong>Toolbox</strong> &rarr; <strong>Inventory</strong> &rarr; <strong>My Plugins</strong> &rarr; click <strong>Update</strong>. Then restart Studio.</p>
+                    <p>In Studio: <strong>Toolbox</strong> &rarr; <strong>Inventory</strong> &rarr; <strong>My Plugins</strong> &rarr; click <strong>Update</strong>.</p>
                 </div>
 
-                <!-- VS Code Card -->
+                <!-- Extension Card -->
                 <div class="update-card" data-glow>
-                    <div class="update-card-header">
-                        <span class="update-label">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M17.583 2.603L8.431 11.25l-3.52-2.877L2 9.691v4.618l2.912 1.318 3.52-2.877 9.152 8.646L22 19.59V4.41l-4.417-1.807zM5 11.847v.306l-.762-.344.762-.344v.382zm12.33 5.644l-5.441-5.141 5.441-5.14v10.281z"/></svg>
-                            VS Code
-                        </span>
-                        <span class="auto-badge" style="background: var(--warning-bg); color: var(--warning);">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5" stroke-linecap="round" stroke-linejoin="round">
-                                <path d="M10.29 3.86L1.82 18a2 2 0 0 0 1.71 3h16.94a2 2 0 0 0 1.71-3L13.71 3.86a2 2 0 0 0-3.42 0z"></path>
-                                <line x1="12" y1="9" x2="12" y2="13"></line>
-                                <line x1="12" y1="17" x2="12.01" y2="17"></line>
-                            </svg>
-                            Manual
-                        </span>
-                    </div>
-                    <h4>VS Code Extension</h4>
-                    <p>In VS Code: <strong>Extensions</strong> (Ctrl/Cmd+Shift+X) &rarr; find RbxSync &rarr; click <strong>Update</strong>. Then restart VS Code.</p>
+                    <h4>Extension</h4>
+                    <p>In VS Code or Open VSX-compatible editor: <strong>Extensions</strong> &rarr; find RbxSync &rarr; click <strong>Update</strong>.</p>
                 </div>
             </div>
         </div>
