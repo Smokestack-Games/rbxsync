@@ -44,6 +44,41 @@ $DOWNLOAD_URL = "https://github.com/devmarissa/rbxsync/releases/download/$VERSIO
 # Install directory
 $INSTALL_DIR = "$env:LOCALAPPDATA\rbxsync"
 
+# Check for existing installations and clean them up
+Write-Host "Checking for existing installations..." -ForegroundColor Blue
+$existingPaths = @()
+try {
+    $whereOutput = & where.exe rbxsync 2>$null
+    if ($whereOutput) {
+        $existingPaths = $whereOutput -split "`n" | ForEach-Object { $_.Trim() } | Where-Object { $_ -ne "" }
+    }
+} catch {
+    # where.exe not found or no existing installations
+}
+
+if ($existingPaths.Count -gt 0) {
+    Write-Host ""
+    Write-Host "Found existing RbxSync installation(s):" -ForegroundColor Yellow
+    foreach ($path in $existingPaths) {
+        Write-Host "  $path" -ForegroundColor Yellow
+    }
+    Write-Host ""
+
+    foreach ($oldPath in $existingPaths) {
+        # Don't remove if it's our target install location
+        if ($oldPath -ne "$INSTALL_DIR\rbxsync.exe") {
+            Write-Host "Removing old version: $oldPath" -ForegroundColor Blue
+            try {
+                Remove-Item $oldPath -Force -ErrorAction SilentlyContinue
+                Write-Host "  Removed!" -ForegroundColor Green
+            } catch {
+                Write-Host "  Could not remove (may need admin). Delete manually: $oldPath" -ForegroundColor Yellow
+            }
+        }
+    }
+    Write-Host ""
+}
+
 # Create install directory if it doesn't exist
 if (-not (Test-Path $INSTALL_DIR)) {
     Write-Host "Creating install directory: $INSTALL_DIR" -ForegroundColor Blue
@@ -62,12 +97,26 @@ try {
     exit 1
 }
 
-# Add to PATH if not already there
+# Clean up PATH - remove old rbxsync directories and add new one at the START
 $UserPath = [Environment]::GetEnvironmentVariable("PATH", "User")
-if ($UserPath -notlike "*$INSTALL_DIR*") {
-    Write-Host "Adding to PATH..." -ForegroundColor Blue
-    [Environment]::SetEnvironmentVariable("PATH", "$UserPath;$INSTALL_DIR", "User")
-    $env:PATH = "$env:PATH;$INSTALL_DIR"
+$pathParts = $UserPath -split ";" | Where-Object { $_ -ne "" }
+
+# Remove any old rbxsync-related paths (except our new one)
+$cleanedPaths = $pathParts | Where-Object {
+    $_ -ne $INSTALL_DIR -and
+    $_ -notlike "*\.rbxsync\bin*" -and
+    -not (Test-Path "$_\rbxsync.exe" -ErrorAction SilentlyContinue)
+}
+
+# Prepend our install dir (so it takes priority)
+if ($cleanedPaths -notcontains $INSTALL_DIR) {
+    Write-Host "Adding to PATH (with priority)..." -ForegroundColor Blue
+    $newPath = @($INSTALL_DIR) + $cleanedPaths -join ";"
+    [Environment]::SetEnvironmentVariable("PATH", $newPath, "User")
+    # Also update current session
+    $env:PATH = "$INSTALL_DIR;$env:PATH"
+} else {
+    Write-Host "Already in PATH." -ForegroundColor Blue
 }
 
 # Verify installation
