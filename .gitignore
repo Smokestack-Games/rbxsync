@@ -23,9 +23,18 @@ output_new/
 output_v2/
 game_project/
 game_project_new/
+test-*/
+testing/
 
 # Plugin build artifacts in wrong locations
 plugin/*.rbxm
+*.rbxm
+
+# Build artifacts (keep in build/ only)
+build/*.vsix
+
+# Local config
+.mcp.json
 
 # Experimental
 flux-agent/

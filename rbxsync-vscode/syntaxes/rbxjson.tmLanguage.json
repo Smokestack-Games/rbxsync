@@ -1,0 +1,158 @@
+{
+  "$schema": "https://raw.githubusercontent.com/martinring/tmlanguage/master/tmlanguage.json",
+  "name": "Roblox JSON",
+  "scopeName": "source.rbxjson",
+  "patterns": [
+    { "include": "#value" }
+  ],
+  "repository": {
+    "value": {
+      "patterns": [
+        { "include": "#className" },
+        { "include": "#typeField" },
+        { "include": "#propertyKey" },
+        { "include": "#enumType" },
+        { "include": "#vectorComponents" },
+        { "include": "#colorComponents" },
+        { "include": "#constant" },
+        { "include": "#number" },
+        { "include": "#string" },
+        { "include": "#array" },
+        { "include": "#object" }
+      ]
+    },
+    "className": {
+      "comment": "className field with Roblox class name",
+      "match": "(\"className\")\\s*:\\s*(\"[A-Z][a-zA-Z0-9]*\")",
+      "captures": {
+        "1": { "name": "support.type.property-name.classname.rbxjson" },
+        "2": { "name": "entity.name.class.rbxjson" }
+      }
+    },
+    "typeField": {
+      "comment": "type field with property type",
+      "match": "(\"type\")\\s*:\\s*(\"(?:bool|int|int64|float|double|string|Vector[23](?:int16)?|CFrame|Color3(?:uint8)?|BrickColor|UDim2?|Rect|NumberSequence|ColorSequence|NumberRange|Enum|Ref|Content|BinaryString|SharedString|Font|Faces|Axes|PhysicalProperties|Ray|Region3(?:int16)?|ProtectedString|OptionalCFrame|UniqueId|SecurityCapabilities|number)\")",
+      "captures": {
+        "1": { "name": "storage.type.property.rbxjson" },
+        "2": { "name": "support.type.rbxjson" }
+      }
+    },
+    "enumType": {
+      "comment": "enumType field",
+      "match": "(\"enumType\")\\s*:\\s*(\"[A-Z][a-zA-Z0-9]*\")",
+      "captures": {
+        "1": { "name": "storage.modifier.enum.rbxjson" },
+        "2": { "name": "entity.name.type.enum.rbxjson" }
+      }
+    },
+    "propertyKey": {
+      "comment": "Property names like Name, Size, etc.",
+      "match": "(\"(?:Name|Size|Position|CFrame|Anchored|CanCollide|Material|Color|BrickColor|Transparency|Parent|Children|Enabled|Visible|Text|Value|Part[01]|Attachment[01]|C[01]|PrimaryPart)[A-Za-z0-9]*\")\\s*:",
+      "captures": {
+        "1": { "name": "variable.other.property.rbxjson" }
+      }
+    },
+    "vectorComponents": {
+      "comment": "Vector component keys x, y, z",
+      "match": "(\"[xyzrgb]\")\\s*:",
+      "captures": {
+        "1": { "name": "variable.parameter.vector.rbxjson" }
+      }
+    },
+    "colorComponents": {
+      "comment": "Color and other special keys",
+      "match": "(\"(?:scale|offset|min|max|time|envelope|position|rotation|origin|direction|family|weight|style|hash|file|top|bottom|left|right|front|back|density|friction|elasticity|friction_weight|elasticity_weight|keypoints|color)\")\\s*:",
+      "captures": {
+        "1": { "name": "variable.parameter.component.rbxjson" }
+      }
+    },
+    "constant": {
+      "patterns": [
+        {
+          "name": "constant.language.boolean.true.rbxjson",
+          "match": "\\btrue\\b"
+        },
+        {
+          "name": "constant.language.boolean.false.rbxjson",
+          "match": "\\bfalse\\b"
+        },
+        {
+          "name": "constant.language.null.rbxjson",
+          "match": "\\bnull\\b"
+        }
+      ]
+    },
+    "number": {
+      "patterns": [
+        {
+          "name": "constant.numeric.float.rbxjson",
+          "match": "-?(?:0|[1-9]\\d*)(?:\\.\\d+)?(?:[eE][+-]?\\d+)?"
+        }
+      ]
+    },
+    "string": {
+      "patterns": [
+        {
+          "name": "string.quoted.double.rbxjson",
+          "begin": "\"",
+          "end": "\"",
+          "patterns": [
+            {
+              "name": "constant.character.escape.rbxjson",
+              "match": "\\\\(?:[\"\\\\\/bfnrt]|u[0-9a-fA-F]{4})"
+            }
+          ]
+        }
+      ]
+    },
+    "array": {
+      "begin": "\\[",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.array.begin.rbxjson" }
+      },
+      "end": "\\]",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.array.end.rbxjson" }
+      },
+      "name": "meta.structure.array.rbxjson",
+      "patterns": [
+        { "include": "#value" },
+        {
+          "match": ",",
+          "name": "punctuation.separator.array.rbxjson"
+        }
+      ]
+    },
+    "object": {
+      "begin": "\\{",
+      "beginCaptures": {
+        "0": { "name": "punctuation.definition.dictionary.begin.rbxjson" }
+      },
+      "end": "\\}",
+      "endCaptures": {
+        "0": { "name": "punctuation.definition.dictionary.end.rbxjson" }
+      },
+      "name": "meta.structure.dictionary.rbxjson",
+      "patterns": [
+        { "include": "#className" },
+        { "include": "#typeField" },
+        { "include": "#enumType" },
+        { "include": "#propertyKey" },
+        { "include": "#vectorComponents" },
+        { "include": "#colorComponents" },
+        {
+          "comment": "Generic object key",
+          "match": "(\"[^\"]+\")\\s*:",
+          "captures": {
+            "1": { "name": "support.type.property-name.rbxjson" }
+          }
+        },
+        { "include": "#value" },
+        {
+          "match": ",",
+          "name": "punctuation.separator.dictionary.rbxjson"
+        }
+      ]
+    }
+  }
+}
