@@ -107,7 +107,11 @@ Install from the [VS Code Marketplace](https://marketplace.visualstudio.com/item
 
 The extension will automatically run `rbxsync serve` when you connect.
 
-**Option B: Download from GitHub**
+**Option B: Open VSX (for VSCodium, Cursor, etc.)**
+
+If you're using a VS Code fork like VSCodium, Cursor, or Windsurf, install from [Open VSX](https://open-vsx.org/extension/rbxsync/rbxsync).
+
+**Option C: Download from GitHub**
 
 1. Download `rbxsync-*.vsix` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
 2. In VS Code: `Ctrl+Shift+P` (Windows) or `Cmd+Shift+P` (Mac)
