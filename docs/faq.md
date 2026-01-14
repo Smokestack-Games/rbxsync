@@ -62,15 +62,26 @@ If you installed a new version but the old one is still being used:
    rbxsync version
    ```
 
-::: tip Quick fix
-If the new install went to `%USERPROFILE%\.rbxsync\bin`, you can just delete the old exe:
-```powershell
-# Find and show all rbxsync locations
-where.exe rbxsync
+::: warning System32 requires Admin rights
+If the old version is in `C:\Windows\System32\`, you need Administrator privileges to delete it:
+1. Open PowerShell **as Administrator** (right-click → Run as Administrator)
+2. Run: `Remove-Item C:\Windows\System32\rbxsync.exe`
+3. Or manually delete via File Explorer (will prompt for admin)
 
-# Delete the OLD one (not the new one in .rbxsync\bin!)
-Remove-Item "C:\path\to\old\rbxsync.exe"
-```
+**Note:** IDE terminals (VS Code, etc.) usually don't have admin rights. Use a separate PowerShell window.
+:::
+
+### Windows: Still showing old version after install?
+
+If `rbxsync version` shows an old version after running the installer:
+
+1. **Restart your terminal** - PATH changes don't take effect until you open a new terminal window
+2. **Check all locations:** `where.exe rbxsync` - should show only one path
+3. **If multiple locations exist**, delete the old one (see above)
+4. **If old version is in System32**, you need admin rights to delete it (see warning above)
+
+::: tip IDE terminals
+If you're using the terminal inside VS Code or another IDE, close and reopen the entire IDE - not just the terminal tab.
 :::
 
 ## Sync Issues
