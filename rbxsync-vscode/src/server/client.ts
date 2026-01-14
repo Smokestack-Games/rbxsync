@@ -21,7 +21,9 @@ import {
   TestFinishResponse,
   CommandResponse,
   PlaceInfo,
-  PlacesResponse
+  PlacesResponse,
+  RegisterWorkspaceResponse,
+  PathMismatch
 } from './types';
 
 export class RbxSyncClient {
@@ -96,13 +98,50 @@ export class RbxSyncClient {
   }
 
   // Register VS Code workspace with server
-  async registerWorkspace(workspaceDir: string): Promise<boolean> {
+  async registerWorkspace(workspaceDir: string): Promise<PathMismatch | null> {
     try {
-      await this.client.post('/rbxsync/register-vscode', {
+      const response = await this.client.post<RegisterWorkspaceResponse>('/rbxsync/register-vscode', {
         workspace_dir: workspaceDir
       });
-      return true;
+
+      // Check for path mismatch and show warning with action button
+      if (response.data.path_mismatch) {
+        const mismatch = response.data.path_mismatch;
+        const studioPath = mismatch.studio_paths[0] || 'unknown';
+
+        const action = await vscode.window.showWarningMessage(
+          `Path Mismatch: VS Code is open at "${workspaceDir}" but Studio project is at "${studioPath}". Extracted files will go to the Studio path!`,
+          'Update Studio Path',
+          'Ignore'
+        );
+
+        if (action === 'Update Studio Path') {
+          // Update the Studio plugin to use the VS Code workspace path
+          await this.updateStudioProjectPath(workspaceDir);
+        }
+
+        return mismatch;
+      }
+
+      return null;
     } catch (error) {
+      return null;
+    }
+  }
+
+  // Update the project path in the connected Studio plugin
+  async updateStudioProjectPath(newPath: string): Promise<boolean> {
+    try {
+      const response = await this.client.post('/rbxsync/update-project-path', {
+        project_dir: newPath
+      });
+      if (response.data.success) {
+        vscode.window.showInformationMessage(`Studio project path updated to: ${newPath}`);
+        return true;
+      }
+      return false;
+    } catch (error) {
+      vscode.window.showErrorMessage('Failed to update Studio project path. Make sure Studio is connected.');
       return false;
     }
   }
@@ -123,6 +162,68 @@ export class RbxSyncClient {
 
     const places = await this.getConnectedPlaces();
     return places.find(p => p.project_dir === this._projectDir);
+  }
+
+  // Link a specific Studio place to this workspace
+  async linkStudio(placeId: number): Promise<boolean> {
+    if (!this._projectDir) {
+      vscode.window.showErrorMessage('No workspace folder open');
+      return false;
+    }
+
+    try {
+      const response = await this.client.post('/rbxsync/link-studio', {
+        place_id: placeId,
+        new_project_dir: this._projectDir
+      });
+
+      if (response.data.success) {
+        vscode.window.showInformationMessage(`Linked ${response.data.place_name} to this workspace`);
+        // Trigger connection change to refresh places
+        const places = await this.getConnectedPlaces();
+        const place = places.find(p => p.project_dir === this._projectDir);
+        this.updateConnectionState({
+          connected: true,
+          serverVersion: this._connectionState.serverVersion,
+          place
+        });
+        return true;
+      } else {
+        vscode.window.showErrorMessage(response.data.error || 'Failed to link studio');
+        return false;
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage('Failed to link studio');
+      return false;
+    }
+  }
+
+  // Unlink a Studio place from this workspace
+  async unlinkStudio(placeId: number): Promise<boolean> {
+    try {
+      const response = await this.client.post('/rbxsync/unlink-studio', {
+        place_id: placeId
+      });
+
+      if (response.data.success) {
+        vscode.window.showInformationMessage(`Unlinked ${response.data.place_name} from this workspace`);
+        // Trigger connection change to refresh places
+        const places = await this.getConnectedPlaces();
+        const place = places.find(p => p.project_dir === this._projectDir);
+        this.updateConnectionState({
+          connected: true,
+          serverVersion: this._connectionState.serverVersion,
+          place
+        });
+        return true;
+      } else {
+        vscode.window.showErrorMessage(response.data.error || 'Failed to unlink studio');
+        return false;
+      }
+    } catch (error) {
+      vscode.window.showErrorMessage('Failed to unlink studio');
+      return false;
+    }
   }
 
   // Extraction

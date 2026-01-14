@@ -1,6 +1,14 @@
 import * as vscode from 'vscode';
 import { PlaceInfo } from '../server/types';
 
+interface StudioOperation {
+  type: 'sync' | 'extract' | 'test';
+  status: 'running' | 'success' | 'error';
+  message: string;
+  startTime: number;
+  endTime?: number;
+}
+
 interface SidebarState {
   connectionStatus: 'connected' | 'disconnected' | 'connecting';
   places: PlaceInfo[];
@@ -9,6 +17,26 @@ interface SidebarState {
   lastResult: { label: string; success: boolean; time: number } | null;
   e2eModeEnabled: boolean;
   serverRunning: boolean;
+  // Keyed by studioKey (place_id or fallback name-based key)
+  studioOperations: { [studioKey: string]: StudioOperation };
+}
+
+/**
+ * Generate a unique key for a studio place.
+ * Uses session_id if available (most reliable), then place_id if > 0, otherwise falls back to place_name.
+ */
+function getStudioKey(place: PlaceInfo | { place_id?: number; place_name?: string; session_id?: string }, index?: number): string {
+  // Prefer session_id as it's unique per Studio instance
+  if ('session_id' in place && place.session_id) {
+    return `session_${place.session_id}`;
+  }
+  // For published places, place_id is unique
+  if (place.place_id && place.place_id > 0) {
+    return `id_${place.place_id}`;
+  }
+  // Fallback: use place_name with optional index for uniqueness
+  const name = place.place_name || 'unknown';
+  return index !== undefined ? `name_${name}_${index}` : `name_${name}`;
 }
 
 export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
@@ -24,7 +52,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     currentOperation: null,
     lastResult: null,
     e2eModeEnabled: false,
-    serverRunning: false
+    serverRunning: false,
+    studioOperations: {}
   };
 
   constructor(extensionUri: vscode.Uri) {
@@ -55,13 +84,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           vscode.commands.executeCommand('rbxsync.disconnect');
           break;
         case 'sync':
-          vscode.commands.executeCommand('rbxsync.syncTo', message.projectDir || this.state.currentProjectDir);
+          // Pass projectDir, placeId, and sessionId for proper routing and operation tracking
+          vscode.commands.executeCommand('rbxsync.syncTo', message.projectDir || this.state.currentProjectDir, message.placeId, message.sessionId);
           break;
         case 'extract':
-          vscode.commands.executeCommand('rbxsync.extractFrom', message.projectDir || this.state.currentProjectDir);
+          vscode.commands.executeCommand('rbxsync.extractFrom', message.projectDir || this.state.currentProjectDir, message.placeId, message.sessionId);
           break;
         case 'test':
-          vscode.commands.executeCommand('rbxsync.runTestOn', message.projectDir || this.state.currentProjectDir);
+          vscode.commands.executeCommand('rbxsync.runTestOn', message.projectDir || this.state.currentProjectDir, message.placeId, message.sessionId);
           break;
         case 'openConsole':
           vscode.commands.executeCommand('rbxsync.openConsole');
@@ -74,6 +104,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           break;
         case 'refresh':
           vscode.commands.executeCommand('rbxsync.refresh');
+          break;
+        case 'linkStudio':
+          vscode.commands.executeCommand('rbxsync.linkStudio', message.placeId);
+          break;
+        case 'unlinkStudio':
+          vscode.commands.executeCommand('rbxsync.unlinkStudio', message.placeId);
           break;
         case 'ready':
           this._updateWebview();
@@ -97,6 +133,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   public updatePlaces(places: PlaceInfo[], currentProjectDir: string): void {
     this.state.places = places;
     this.state.currentProjectDir = currentProjectDir;
+
+    // Clear any stale "running" operations that are older than 2 minutes
+    const now = Date.now();
+    for (const studioKey in this.state.studioOperations) {
+      const op = this.state.studioOperations[studioKey];
+      if (op.status === 'running' && (now - op.startTime) > 120000) {
+        delete this.state.studioOperations[studioKey];
+      }
+    }
+
     this._updateWebview();
   }
 
@@ -110,19 +156,65 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     this._updateWebview();
   }
 
-  public logSync(count: number): void {
-    this._setResult(`Synced ${count} change${count !== 1 ? 's' : ''}`, true);
+  // Studio operation tracking - keyed by sessionId or placeId
+  public startStudioOperation(placeId: number, type: 'sync' | 'extract' | 'test', sessionId?: string | null): void {
+    const studioKey = getStudioKey({ place_id: placeId, session_id: sessionId || undefined });
+    this.state.studioOperations[studioKey] = {
+      type,
+      status: 'running',
+      message: type === 'sync' ? 'Syncing...' : type === 'extract' ? 'Extracting...' : 'Testing...',
+      startTime: Date.now()
+    };
+    this._updateWebview();
   }
 
-  public logExtract(count: number): void {
-    this._setResult(`Extracted ${count} file${count !== 1 ? 's' : ''}`, true);
+  public completeStudioOperation(placeId: number, success: boolean, message: string, sessionId?: string | null): void {
+    const studioKey = getStudioKey({ place_id: placeId, session_id: sessionId || undefined });
+    const op = this.state.studioOperations[studioKey];
+    if (op) {
+      op.status = success ? 'success' : 'error';
+      op.message = message;
+      op.endTime = Date.now();
+      this._updateWebview();
+
+      // Clear after 30 seconds
+      setTimeout(() => {
+        if (this.state.studioOperations[studioKey] === op) {
+          delete this.state.studioOperations[studioKey];
+          this._updateWebview();
+        }
+      }, 30000);
+    }
   }
 
-  public logTest(duration: number, messages: number): void {
-    this._setResult(`Test complete (${messages} messages)`, true);
+  public logSync(count: number, placeId?: number, sessionId?: string | null): void {
+    const message = `Synced ${count} change${count !== 1 ? 's' : ''}`;
+    if (placeId !== undefined) {
+      this.completeStudioOperation(placeId, true, message, sessionId);
+    }
+    this._setResult(message, true);
   }
 
-  public logError(message: string): void {
+  public logExtract(count: number, placeId?: number, sessionId?: string | null): void {
+    const message = `Extracted ${count} file${count !== 1 ? 's' : ''}`;
+    if (placeId !== undefined) {
+      this.completeStudioOperation(placeId, true, message, sessionId);
+    }
+    this._setResult(message, true);
+  }
+
+  public logTest(duration: number, messages: number, placeId?: number, sessionId?: string | null): void {
+    const message = `Test complete (${messages} messages)`;
+    if (placeId !== undefined) {
+      this.completeStudioOperation(placeId, true, message, sessionId);
+    }
+    this._setResult(message, true);
+  }
+
+  public logError(message: string, placeId?: number, sessionId?: string | null): void {
+    if (placeId !== undefined) {
+      this.completeStudioOperation(placeId, false, message, sessionId);
+    }
     this._setResult(message, false);
   }
 
@@ -224,20 +316,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       to { opacity: 1; transform: translateY(0); }
     }
 
-    /* Operation Banner */
-    .operation {
-      display: flex;
-      align-items: center;
-      gap: 10px;
-      padding: 12px;
-      background: var(--blue-soft);
-      border: 1px solid var(--blue);
-      border-radius: var(--radius);
-      margin-bottom: 12px;
-      font-size: 11px;
-      font-weight: 500;
-      color: var(--blue);
-    }
     .spinner {
       width: 14px; height: 14px;
       border: 2px solid transparent;
@@ -366,6 +444,41 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .studio-btn.sync:hover { border-color: var(--blue); color: var(--blue); }
     .studio-btn.extract:hover { border-color: var(--purple); color: var(--purple); }
     .studio-btn.test:hover { border-color: var(--success); color: var(--success); }
+    .studio-btn.link { background: var(--success-soft); border-color: var(--success); color: var(--success); }
+    .studio-btn.link:hover { background: var(--success); color: #fff; }
+    .studio-btn.unlink { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
+    .studio-btn.unlink:hover { background: var(--warning); color: #fff; }
+
+    /* Operation Status */
+    .studio-status {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 6px 8px;
+      margin-top: 8px;
+      border-radius: var(--radius-sm);
+      font-size: 10px;
+      font-weight: 500;
+    }
+    .studio-status.running {
+      background: var(--blue-soft);
+      color: var(--blue);
+    }
+    .studio-status.success {
+      background: var(--success-soft);
+      color: var(--success);
+    }
+    .studio-status.error {
+      background: var(--error-soft);
+      color: var(--error);
+    }
+    .studio-status .spinner {
+      width: 10px; height: 10px;
+    }
+    .studio-status .time {
+      margin-left: auto;
+      opacity: 0.7;
+    }
 
     /* Empty State */
     .empty-state {
@@ -512,12 +625,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     <span class="toast-time" id="toastTime"></span>
   </div>
 
-  <!-- Operation -->
-  <div class="operation hidden" id="operation">
-    <div class="spinner"></div>
-    <span id="operationText"></span>
-  </div>
-
   <!-- Studios Section -->
   <div class="section">
     <div class="section-title">
@@ -603,15 +710,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         toast.classList.add('hidden');
       }
 
-      // Operation
-      const op = document.getElementById('operation');
-      if (s.currentOperation) {
-        op.classList.remove('hidden');
-        document.getElementById('operationText').textContent = s.currentOperation;
-      } else {
-        op.classList.add('hidden');
-      }
-
       // Server
       const isOn = s.connectionStatus === 'connected';
       const isConnecting = s.connectionStatus === 'connecting';
@@ -646,10 +744,32 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           return bLinked - aLinked;
         });
 
-        sorted.forEach(place => {
+        sorted.forEach((place, idx) => {
           const isLinked = place.project_dir === s.currentProjectDir;
+          // Generate studioKey matching the server logic - prefer session_id
+          const studioKey = place.session_id
+            ? 'session_' + place.session_id
+            : (place.place_id && place.place_id > 0)
+              ? 'id_' + place.place_id
+              : 'name_' + (place.place_name || 'unknown') + '_' + idx;
+          const op = s.studioOperations[studioKey];
           const card = document.createElement('div');
           card.className = 'studio-card' + (isLinked ? ' linked' : '');
+
+          let statusHtml = '';
+          if (op) {
+            const elapsed = op.endTime
+              ? ((op.endTime - op.startTime) / 1000).toFixed(1) + 's'
+              : relTime(op.startTime);
+            statusHtml = \`
+              <div class="studio-status \${op.status}">
+                \${op.status === 'running' ? '<div class="spinner"></div>' : ''}
+                <span>\${op.message}</span>
+                <span class="time">\${elapsed}</span>
+              </div>
+            \`;
+          }
+
           card.innerHTML = \`
             <div class="studio-header">
               <div class="studio-icon\${isLinked ? ' linked' : ''}">
@@ -667,8 +787,27 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 <div class="studio-path" title="\${place.project_dir}">\${shortenPath(place.project_dir)}</div>
               </div>
             </div>
+            \${statusHtml}
             <div class="studio-actions">
-              <button class="studio-btn sync" data-action="sync" data-dir="\${place.project_dir}">
+              \${isLinked ? \`
+              <button class="studio-btn unlink" data-action="unlink" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M18.84 12.25l1.72-1.71a5 5 0 00-7.07-7.07l-3 3a5 5 0 00-.27 6.79"/>
+                  <path d="M5.16 11.75l-1.72 1.71a5 5 0 007.07 7.07l3-3a5 5 0 00.27-6.79"/>
+                  <line x1="2" y1="2" x2="22" y2="22"/>
+                </svg>
+                Unlink
+              </button>
+              \` : \`
+              <button class="studio-btn link" data-action="link" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                </svg>
+                Link
+              </button>
+              \`}
+              <button class="studio-btn sync" data-action="sync" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                   <polyline points="17 8 12 3 7 8"/>
@@ -676,7 +815,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 </svg>
                 Sync
               </button>
-              <button class="studio-btn extract" data-action="extract" data-dir="\${place.project_dir}">
+              <button class="studio-btn extract" data-action="extract" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>
@@ -684,7 +823,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 </svg>
                 Extract
               </button>
-              <button class="studio-btn test" data-action="test" data-dir="\${place.project_dir}">
+              <button class="studio-btn test" data-action="test" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polygon points="5 3 19 12 5 21 5 3"/>
                 </svg>
@@ -699,8 +838,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         list.querySelectorAll('.studio-btn').forEach(btn => {
           btn.onclick = () => {
             const action = btn.dataset.action;
-            const dir = btn.dataset.dir;
-            vscode.postMessage({ command: action, projectDir: dir });
+            const placeId = parseInt(btn.dataset.placeId, 10);
+            const sessionId = btn.dataset.sessionId || null;
+            if (action === 'link') {
+              vscode.postMessage({ command: 'linkStudio', placeId: placeId, sessionId: sessionId });
+            } else if (action === 'unlink') {
+              vscode.postMessage({ command: 'unlinkStudio', placeId: placeId, sessionId: sessionId });
+            } else {
+              // sync, extract, test - pass projectDir, placeId, and sessionId
+              const dir = btn.dataset.dir;
+              vscode.postMessage({ command: action, projectDir: dir, placeId: placeId, sessionId: sessionId });
+            }
           };
         });
       }

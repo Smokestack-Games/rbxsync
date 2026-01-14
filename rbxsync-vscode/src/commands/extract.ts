@@ -7,7 +7,9 @@ export async function extractCommand(
   client: RbxSyncClient,
   statusBar: StatusBarManager,
   sidebarView: SidebarWebviewProvider,
-  targetProjectDir?: string
+  targetProjectDir?: string,
+  placeId?: number,
+  sessionId?: string | null
 ): Promise<void> {
   if (!client.connectionState.connected) {
     vscode.window.showErrorMessage('Not connected. Is Studio running?');
@@ -25,39 +27,17 @@ export async function extractCommand(
     projectDir = workspaceFolders[0].uri.fsPath;
   }
 
-  // Quick service picker
-  const services = [
-    { label: 'All Services', picked: true },
-    { label: 'Workspace' },
-    { label: 'ServerScriptService' },
-    { label: 'ReplicatedStorage' },
-    { label: 'StarterGui' },
-    { label: 'StarterPlayer' },
-    { label: 'ServerStorage' }
-  ];
-
-  const selected = await vscode.window.showQuickPick(services, {
-    canPickMany: true,
-    placeHolder: 'Services to extract'
-  });
-
-  if (!selected) return;
-
-  const serviceList = selected.some(s => s.label === 'All Services')
-    ? undefined
-    : selected.map(s => s.label);
-
-  // Run extraction
+  // Run extraction (extract all services)
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Extracting...', cancellable: true },
     async (progress, token) => {
-      const startResult = await client.startExtraction(projectDir, serviceList);
+      const startResult = await client.startExtraction(projectDir);
       if (!startResult) {
-        sidebarView.logError('Extraction failed to start');
+        sidebarView.logError('Extraction failed to start', placeId, sessionId);
         return;
       }
 
-      const sessionId = startResult.session_id;
+      const extractSessionId = startResult.session_id;
       let complete = false;
 
       while (!complete && !token.isCancellationRequested) {
@@ -65,31 +45,34 @@ export async function extractCommand(
         const status = await client.getExtractionStatus();
         if (!status) continue;
 
-        if (status.status === 'extracting') {
-          progress.report({ message: `${status.instances_extracted} instances` });
-        } else if (status.status === 'complete') {
-          complete = true;
-        } else if (status.status === 'error') {
-          sidebarView.logError(status.error || 'Extraction failed');
+        if (status.error) {
+          sidebarView.logError(status.error || 'Extraction failed', placeId, sessionId);
           return;
+        }
+
+        if (status.complete) {
+          complete = true;
+        } else {
+          progress.report({ message: `${status.chunksReceived}/${status.totalChunks} chunks` });
         }
       }
 
       if (token.isCancellationRequested) return;
 
       progress.report({ message: 'Writing files...' });
-      const result = await client.finalizeExtraction(sessionId, projectDir);
+      const result = await client.finalizeExtraction(extractSessionId, projectDir);
 
       if (!result?.success) {
-        sidebarView.logError('Failed to write files');
+        sidebarView.logError('Failed to write files', placeId, sessionId);
         return;
       }
 
-      sidebarView.logExtract(result.files_written || 0);
+      const totalFiles = (result.filesWritten || 0) + (result.scriptsWritten || 0);
+      sidebarView.logExtract(totalFiles, placeId, sessionId);
 
       const config = vscode.workspace.getConfiguration('rbxsync');
       if (config.get('showNotifications')) {
-        vscode.window.showInformationMessage(`Extracted ${result.files_written} files`);
+        vscode.window.showInformationMessage(`Extracted ${totalFiles} files (${result.scriptsWritten || 0} scripts)`);
       }
     }
   );

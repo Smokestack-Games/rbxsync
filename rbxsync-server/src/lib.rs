@@ -168,6 +168,9 @@ pub struct AppState {
     /// Active extraction session
     pub extraction_session: RwLock<Option<ExtractionSession>>,
 
+    /// Flag to pause live sync during extraction (avoids syncing files that were just extracted)
+    pub live_sync_paused: std::sync::atomic::AtomicBool,
+
     /// File watcher state for live sync
     pub file_watcher_state: Arc<RwLock<file_watcher::FileWatcherState>>,
 
@@ -185,6 +188,9 @@ pub struct AppState {
 
     /// Broadcast channel for real-time console streaming
     pub console_tx: broadcast::Sender<ConsoleMessage>,
+
+    /// Sync state per project (project_dir -> last_sync_time)
+    pub sync_state: RwLock<HashMap<String, std::time::SystemTime>>,
 }
 
 impl AppState {
@@ -202,12 +208,14 @@ impl AppState {
             trigger,
             trigger_rx,
             extraction_session: RwLock::new(None),
+            live_sync_paused: std::sync::atomic::AtomicBool::new(false),
             file_watcher_state: Arc::new(RwLock::new(file_watcher::FileWatcherState::new(file_change_tx))),
             file_change_rx: Mutex::new(file_change_rx),
             logged_vscode_workspaces: RwLock::new(HashSet::new()),
             logged_studio_places: RwLock::new(HashSet::new()),
             console_buffer: RwLock::new(VecDeque::with_capacity(CONSOLE_BUFFER_SIZE)),
             console_tx,
+            sync_state: RwLock::new(HashMap::new()),
         })
     }
 }
@@ -246,6 +254,8 @@ pub struct PlaceInfo {
     pub place_id: u64,
     pub place_name: String,
     pub project_dir: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub session_id: Option<String>,  // Unique session ID for this Studio instance
     #[serde(skip)]
     pub last_heartbeat: Option<Instant>,
 }
@@ -257,8 +267,11 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/rbxsync/request", get(handle_request_poll))
         .route("/rbxsync/response", post(handle_response))
         .route("/rbxsync/register", post(handle_register))
+        .route("/rbxsync/unregister", post(handle_unregister))
         .route("/rbxsync/register-vscode", post(handle_register_vscode))
         .route("/rbxsync/update-project-path", post(handle_update_project_path))
+        .route("/rbxsync/link-studio", post(handle_link_studio))
+        .route("/rbxsync/unlink-studio", post(handle_unlink_studio))
         .route("/rbxsync/places", get(handle_list_places))
         .route("/rbxsync/workspaces", get(handle_list_workspaces))
         .route("/rbxsync/server-info", get(handle_server_info))
@@ -276,6 +289,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/sync/read-terrain", post(handle_sync_read_terrain))
         .route("/sync/from-studio", post(handle_sync_from_studio))
         .route("/sync/pending-changes", post(handle_sync_pending_changes))
+        .route("/sync/incremental", post(handle_sync_incremental))
         // Diff endpoints
         .route("/studio/paths", post(handle_studio_paths))
         .route("/diff", post(handle_diff))
@@ -330,6 +344,8 @@ pub struct RegisterRequest {
     pub place_id: u64,
     pub place_name: String,
     pub project_dir: String,
+    #[serde(default)]
+    pub session_id: Option<String>,  // Unique session ID for this Studio instance
 }
 
 /// Handle Studio plugin registration
@@ -339,14 +355,16 @@ async fn handle_register(
 ) -> impl IntoResponse {
     let mut registry = state.place_registry.write().await;
 
-    // Use project_dir + place_name as key to avoid duplicates from same Studio
-    let key = format!("{}:{}", req.project_dir, req.place_name);
+    // Use session_id as unique key if provided (handles multiple unpublished places with PlaceId=0)
+    // Fall back to place_id for backwards compatibility with older plugins
+    let key = req.session_id.clone().unwrap_or_else(|| req.place_id.to_string());
 
-    // Register/update this place
+    // Register/update this place (replaces any existing entry for this session)
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
         place_name: req.place_name.clone(),
         project_dir: req.project_dir.clone(),
+        session_id: req.session_id.clone(),
         last_heartbeat: Some(Instant::now()),
     });
     drop(registry); // Release lock before acquiring another
@@ -403,6 +421,33 @@ async fn handle_register(
     Json(serde_json::json!({
         "success": true,
         "message": "Registered successfully"
+    }))
+}
+
+/// Unregister a Studio place (called when Studio closes)
+async fn handle_unregister(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<RegisterRequest>,
+) -> impl IntoResponse {
+    // Use session_id as unique key if provided (matches register)
+    let key = req.session_id.clone().unwrap_or_else(|| req.place_id.to_string());
+
+    let mut registry = state.place_registry.write().await;
+    let removed = registry.remove(&key).is_some();
+
+    if removed {
+        tracing::info!(
+            "Studio unregistered: {} (ID: {}, Session: {:?}) at {}",
+            req.place_name,
+            req.place_id,
+            req.session_id,
+            req.project_dir
+        );
+    }
+
+    Json(serde_json::json!({
+        "success": true,
+        "removed": removed
     }))
 }
 
@@ -608,6 +653,122 @@ async fn handle_update_project_path(
     }))
 }
 
+/// Request to link a specific Studio to a workspace
+#[derive(Debug, Deserialize)]
+pub struct LinkStudioRequest {
+    pub place_id: i64,
+    pub new_project_dir: String,
+}
+
+/// Handle request to link a specific Studio to a workspace
+/// This updates the project_dir for a single place
+async fn handle_link_studio(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<LinkStudioRequest>,
+) -> impl IntoResponse {
+    let mut registry = state.place_registry.write().await;
+
+    // Find the entry with matching place_id (key is now session_id, not place_id)
+    let target_key = registry.iter()
+        .find(|(_, place)| place.place_id as i64 == req.place_id)
+        .map(|(key, _)| key.clone());
+
+    if let Some(key) = target_key {
+        // Auto-unlink any other studios linked to the same workspace
+        // This ensures only one studio is linked to each workspace at a time
+        let mut unlinked_studios: Vec<String> = Vec::new();
+        for (other_key, other_place) in registry.iter_mut() {
+            if other_place.project_dir == req.new_project_dir && other_key != &key {
+                let old_name = other_place.place_name.clone();
+                other_place.project_dir = String::new();
+                unlinked_studios.push(old_name);
+                tracing::info!(
+                    "Auto-unlinked '{}' from {} (new studio linking)",
+                    other_place.place_name,
+                    req.new_project_dir
+                );
+            }
+        }
+
+        if let Some(place_info) = registry.get_mut(&key) {
+            let old_path = place_info.project_dir.clone();
+            place_info.project_dir = req.new_project_dir.clone();
+            place_info.last_heartbeat = Some(std::time::Instant::now());
+
+            let place_name = place_info.place_name.clone();
+
+            tracing::info!(
+                "Linked Studio {} '{}' to workspace: '{}' (was: '{}')",
+                req.place_id,
+                place_name,
+                req.new_project_dir,
+                old_path
+            );
+
+            return Json(serde_json::json!({
+                "success": true,
+                "message": format!("Linked {} to {}", place_name, req.new_project_dir),
+                "place_name": place_name,
+                "auto_unlinked": unlinked_studios
+            }));
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": false,
+        "error": format!("No Studio found with place_id {}", req.place_id)
+    }))
+}
+
+/// Request to unlink a Studio from a workspace
+#[derive(Debug, Deserialize)]
+pub struct UnlinkStudioRequest {
+    pub place_id: u64,
+}
+
+/// Handle request to unlink a Studio from a workspace
+/// This clears the project_dir for a place, effectively unlinking it
+async fn handle_unlink_studio(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<UnlinkStudioRequest>,
+) -> impl IntoResponse {
+    let mut registry = state.place_registry.write().await;
+
+    // Find the entry with matching place_id (key is now session_id, not place_id)
+    let target_key = registry.iter()
+        .find(|(_, place)| place.place_id == req.place_id)
+        .map(|(key, _)| key.clone());
+
+    if let Some(key) = target_key {
+        if let Some(place_info) = registry.get_mut(&key) {
+            let old_path = place_info.project_dir.clone();
+            let place_name = place_info.place_name.clone();
+
+            // Clear the project_dir to unlink
+            place_info.project_dir = String::new();
+            place_info.last_heartbeat = Some(std::time::Instant::now());
+
+            tracing::info!(
+                "Unlinked Studio {} '{}' from workspace: '{}'",
+                req.place_id,
+                place_name,
+                old_path
+            );
+
+            return Json(serde_json::json!({
+                "success": true,
+                "message": format!("Unlinked {} from workspace", place_name),
+                "place_name": place_name
+            }));
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": false,
+        "error": format!("No Studio found with place_id {}", req.place_id)
+    }))
+}
+
 /// Clean up stale VS Code workspace registrations (no heartbeat in 30 seconds)
 async fn cleanup_stale_vscode_workspaces(state: &Arc<AppState>) {
     let mut workspaces = state.vscode_workspaces.write().await;
@@ -785,6 +946,10 @@ async fn handle_extract_start(
             data: Vec::new(),
         });
     }
+
+    // Pause live sync during extraction to avoid syncing back files we just extracted
+    state.live_sync_paused.store(true, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!("Live sync paused for extraction");
 
     // Queue request to plugin
     let plugin_request = PluginRequest {
@@ -1006,6 +1171,23 @@ async fn handle_extract_finalize(
     let tree_mapping = get_tree_mapping(&config);
     tracing::info!("Tree mapping loaded: {:?}", tree_mapping);
 
+    // Clear existing src directory before extraction to remove stale files
+    if src_dir.exists() {
+        tracing::info!("Clearing existing src directory for fresh extraction: {}", src_dir.display());
+        for entry in std::fs::read_dir(&src_dir).unwrap_or_else(|_| std::fs::read_dir(".").unwrap()) {
+            if let Ok(entry) = entry {
+                let path = entry.path();
+                if path.is_dir() {
+                    if let Err(e) = std::fs::remove_dir_all(&path) {
+                        tracing::warn!("Failed to remove directory {:?}: {}", path, e);
+                    }
+                } else if let Err(e) = std::fs::remove_file(&path) {
+                    tracing::warn!("Failed to remove file {:?}: {}", path, e);
+                }
+            }
+        }
+    }
+
     // Flatten all chunks into a single array of instances
     let mut all_instances: Vec<serde_json::Value> = Vec::new();
     for chunk in &session.data {
@@ -1203,6 +1385,10 @@ async fn handle_extract_finalize(
     }
 
     tracing::info!("Finalize complete: {} .rbxjson files, {} .luau scripts, {} services", files_written, scripts_written, service_folders.len());
+
+    // Resume live sync after extraction is complete (with a small delay to let file system settle)
+    state.live_sync_paused.store(false, std::sync::atomic::Ordering::Relaxed);
+    tracing::info!("Live sync resumed after extraction");
 
     (
         StatusCode::OK,
@@ -1823,6 +2009,213 @@ async fn handle_sync_pending_changes(
         Json(serde_json::json!({
             "success": true,
             "count": count
+        })),
+    )
+}
+
+/// Request for incremental sync - returns only files changed since last sync
+#[derive(Debug, Deserialize)]
+pub struct IncrementalSyncRequest {
+    pub project_dir: String,
+    /// If true, mark current time as last sync (call after successful sync)
+    #[serde(default)]
+    pub mark_synced: bool,
+}
+
+/// Handle incremental sync - returns only files modified since last sync
+async fn handle_sync_incremental(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<IncrementalSyncRequest>,
+) -> impl IntoResponse {
+    let src_dir = PathBuf::from(&req.project_dir).join("src");
+
+    if !src_dir.exists() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Source directory does not exist"
+            })),
+        );
+    }
+
+    // Get last sync time for this project
+    let last_sync = {
+        let sync_state = state.sync_state.read().await;
+        sync_state.get(&req.project_dir).copied()
+    };
+
+    // If marking as synced, update the sync time and return empty
+    if req.mark_synced {
+        let mut sync_state = state.sync_state.write().await;
+        sync_state.insert(req.project_dir.clone(), std::time::SystemTime::now());
+        return (
+            StatusCode::OK,
+            Json(serde_json::json!({
+                "success": true,
+                "instances": [],
+                "count": 0,
+                "full_sync": false,
+                "marked_synced": true
+            })),
+        );
+    }
+
+    // Recursively read files, filtering by modification time
+    let mut instances: Vec<serde_json::Value> = Vec::new();
+    let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    let mut files_checked = 0usize;
+    let mut files_modified = 0usize;
+
+    fn walk_dir_incremental(
+        dir: &std::path::Path,
+        base: &std::path::Path,
+        instances: &mut Vec<serde_json::Value>,
+        scripts: &mut std::collections::HashMap<String, String>,
+        last_sync: Option<std::time::SystemTime>,
+        files_checked: &mut usize,
+        files_modified: &mut usize,
+    ) {
+        if let Ok(entries) = std::fs::read_dir(dir) {
+            for entry in entries.flatten() {
+                let path = entry.path();
+                if path.is_dir() {
+                    walk_dir_incremental(&path, base, instances, scripts, last_sync, files_checked, files_modified);
+                } else if let Some(ext) = path.extension() {
+                    *files_checked += 1;
+
+                    // Check if file was modified since last sync
+                    let is_modified = if let Some(last_sync_time) = last_sync {
+                        if let Ok(metadata) = std::fs::metadata(&path) {
+                            if let Ok(modified) = metadata.modified() {
+                                modified > last_sync_time
+                            } else {
+                                true // Can't get modification time, include it
+                            }
+                        } else {
+                            true // Can't get metadata, include it
+                        }
+                    } else {
+                        true // No last sync, include all files
+                    };
+
+                    if !is_modified {
+                        continue;
+                    }
+
+                    *files_modified += 1;
+
+                    if ext == "rbxjson" {
+                        let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
+                        if filename == "terrain.rbxjson" {
+                            continue;
+                        }
+
+                        if let Ok(content) = std::fs::read_to_string(&path) {
+                            if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
+                                let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                                let path_str = rel_path.to_string_lossy().to_string();
+                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
+                                let inst_path = if is_meta {
+                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
+                                } else {
+                                    path_str.replace(".rbxjson", "")
+                                };
+
+                                if let Some(obj) = inst.as_object_mut() {
+                                    obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
+                                    if !obj.contains_key("name") {
+                                        if let Some(name) = inst_path.rsplit('/').next() {
+                                            obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                                        }
+                                    }
+                                }
+                                instances.push(inst);
+                            }
+                        }
+                    } else if ext == "luau" {
+                        let rel_path = path.strip_prefix(base).unwrap_or(&path);
+                        let path_str = rel_path.to_string_lossy().to_string();
+                        let inst_path = path_str
+                            .trim_end_matches(".server.luau")
+                            .trim_end_matches(".client.luau")
+                            .trim_end_matches(".luau")
+                            .to_string();
+                        if let Ok(source) = std::fs::read_to_string(&path) {
+                            scripts.insert(inst_path, source);
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    walk_dir_incremental(&src_dir, &src_dir, &mut instances, &mut scripts, last_sync, &mut files_checked, &mut files_modified);
+
+    // Merge script sources into their instance data
+    for inst in &mut instances {
+        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
+            if let Some(source) = scripts.get(path) {
+                if let Some(props) = inst.get_mut("properties") {
+                    if let Some(obj) = props.as_object_mut() {
+                        obj.insert("Source".to_string(), serde_json::json!({
+                            "type": "string",
+                            "value": source
+                        }));
+                    }
+                }
+            }
+        }
+    }
+
+    // Handle scripts that don't have an .rbxjson (standalone scripts)
+    let instance_paths: std::collections::HashSet<String> = instances.iter()
+        .filter_map(|inst| inst.get("path").and_then(|v| v.as_str()).map(String::from))
+        .collect();
+
+    for (script_path, source) in &scripts {
+        if !instance_paths.contains(script_path) {
+            // Determine script type from path
+            let class_name = if script_path.ends_with(".server") || script_path.contains(".server/") {
+                "Script"
+            } else if script_path.ends_with(".client") || script_path.contains(".client/") {
+                "LocalScript"
+            } else {
+                "ModuleScript"
+            };
+
+            let instance_name = script_path.rsplit('/').next().unwrap_or(script_path);
+
+            instances.push(serde_json::json!({
+                "className": class_name,
+                "name": instance_name,
+                "path": script_path,
+                "properties": {
+                    "Source": {
+                        "type": "string",
+                        "value": source
+                    }
+                }
+            }));
+        }
+    }
+
+    let full_sync = last_sync.is_none();
+
+    tracing::info!(
+        "Incremental sync: checked {} files, {} modified (full_sync: {})",
+        files_checked, files_modified, full_sync
+    );
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "instances": instances,
+            "count": instances.len(),
+            "full_sync": full_sync,
+            "files_checked": files_checked,
+            "files_modified": files_modified
         })),
     )
 }
@@ -2626,8 +3019,14 @@ async fn process_file_changes(state: Arc<AppState>) {
             }
         });
 
-        // Send ready changes to plugin
+        // Send ready changes to plugin (skip if live sync is paused during extraction)
         if !ready_changes.is_empty() {
+            // Check if live sync is paused (during extraction)
+            if state.live_sync_paused.load(std::sync::atomic::Ordering::Relaxed) {
+                tracing::debug!("Live sync paused, skipping {} file changes", ready_changes.len());
+                continue;
+            }
+
             let mut operations = Vec::new();
 
             for change in &ready_changes {

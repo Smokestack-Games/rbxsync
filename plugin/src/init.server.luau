@@ -64,6 +64,9 @@ local hasLoggedLink: boolean = false  -- Prevent spam logging of "Linked to" mes
 local hasShownPathMismatch: boolean = false  -- Prevent showing path mismatch dialog multiple times per session
 local lastKnownVscodePath: string? = nil  -- Track VS Code workspace to detect when it connects
 
+-- Unique session ID for this Studio instance (handles multiple unpublished places with PlaceId=0)
+local SESSION_ID = HttpService:GenerateGUID(false)
+
 -- Console capture state (for E2E testing mode)
 local consoleCapture = {
     enabled = false,
@@ -78,6 +81,17 @@ local consoleCapture = {
 local syncSettings = {
     studioToFiles = false,  -- Auto-extract Studio changes to files
     filesToStudio = true,   -- Sync file changes to Studio (enabled for MCP workflow)
+}
+
+-- Operation timing state (for live timer display)
+local operationState = {
+    extractStartTime = nil :: number?,
+    syncStartTime = nil :: number?,
+    lastExtractDuration = nil :: number?,
+    lastSyncDuration = nil :: number?,
+    lastExtractCount = nil :: number?,
+    lastSyncCount = nil :: number?,
+    timerThread = nil :: thread?,
 }
 
 -- Update checker state
@@ -537,13 +551,24 @@ local function extractGame(config: {any})
     end
 
     isExtracting = true
-    setStatus("Extracting...", Color3.fromRGB(100, 180, 255), 0)  -- 0 = don't auto-clear
     local startTime = os.clock()
+    operationState.extractStartTime = startTime
+
+    -- Start live timer update in status
+    local timerThread = task.spawn(function()
+        while operationState.extractStartTime do
+            local elapsed = os.clock() - startTime
+            setStatus(string.format("Extracting... %.1fs", elapsed), Color3.fromRGB(100, 180, 255), 0)
+            task.wait(0.1)
+        end
+    end)
 
     -- Initialize reflection engine with API dump
     local apiDump = Reflection.loadAPIDump()
     if not apiDump then
+        operationState.extractStartTime = nil
         warn("Can't load API. Try reopening Studio.")
+        setStatus("Failed to load API", Color3.fromRGB(255, 100, 100), 5)
         isExtracting = false
         return
     end
@@ -800,7 +825,9 @@ local function extractGame(config: {any})
     end
 
     if failedChunk then
+        operationState.extractStartTime = nil
         warn("Extraction failed. Try again.")
+        setStatus("Extraction failed", Color3.fromRGB(255, 100, 100), 5)
         isExtracting = false
         return
     end
@@ -810,12 +837,17 @@ local function extractGame(config: {any})
         project_dir = projectDir,
     })
 
+    -- Stop timer
+    operationState.extractStartTime = nil
     local elapsed = os.clock() - startTime
+
     if finalizeSuccess and finalizeResult.success then
-        -- Save timing for future estimates
+        -- Save timing for future estimates and UI display
         lastExtractTime = elapsed
         lastInstanceCount = #allInstances
-        local msg = string.format("Extracted %d instances (%.1fs)", #allInstances, elapsed)
+        operationState.lastExtractDuration = elapsed
+        operationState.lastExtractCount = #allInstances
+        local msg = string.format("✓ Extracted %d instances (%.1fs)", #allInstances, elapsed)
         print(msg)
         setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
     else
@@ -1680,11 +1712,34 @@ local function registerWithServer()
         place_id = game.PlaceId,
         place_name = placeName,
         project_dir = projectDir,
+        session_id = SESSION_ID,  -- Unique ID for this Studio instance
     })
 
     if success and not hasLoggedLink then
         hasLoggedLink = true
         print(string.format("Linked to %s (%s)", projectDir, placeName))
+    end
+
+    return success
+end
+
+-- Unregister from server (called when Studio closes)
+local function unregisterWithServer()
+    local projectDir = Config.getProjectDir()
+    if projectDir == "" then
+        return false
+    end
+
+    local placeName = getPlaceName()
+    local success, _ = httpPost("/rbxsync/unregister", {
+        place_id = game.PlaceId,
+        place_name = placeName,
+        project_dir = projectDir,
+        session_id = SESSION_ID,  -- Unique ID for this Studio instance
+    })
+
+    if success then
+        print("[RbxSync] Unregistered from server")
     end
 
     return success
@@ -2302,35 +2357,43 @@ updateSyncButtonState = function(state: string)
     syncButton.BackgroundTransparency = 0
 
     if state == SyncButtonState.IDLE then
+        -- Stop timer if running
+        operationState.syncStartTime = nil
         -- Ready state: subtle secondary style
         syncButton.BackgroundColor3 = Colors.surface
         syncButton.TextColor3 = Colors.textPrimary
-        syncButton.Text = "⬇  Sync"
+        -- Show last sync time if available
+        if operationState.lastSyncDuration and operationState.lastSyncCount then
+            syncButton.Text = string.format("⬇  Sync (%.1fs)", operationState.lastSyncDuration)
+        else
+            syncButton.Text = "⬇  Sync"
+        end
         syncStroke.Color = Colors.textMuted
         syncStroke.Transparency = 0.8
 
     elseif state == SyncButtonState.SYNCING then
-        -- Active syncing: accent color with pulse
+        -- Active syncing: accent color with timer
         syncButton.BackgroundColor3 = Colors.accent
         syncButton.TextColor3 = Colors.background
-        syncButton.Text = "⬇  Syncing..."
         syncStroke.Color = Colors.accent
         syncStroke.Transparency = 0
 
-        -- Subtle pulse animation
-        local pulseUp = true
-        syncPulseConnection = game:GetService("RunService").Heartbeat:Connect(function()
-            local current = syncButton.BackgroundTransparency
-            if pulseUp then
-                syncButton.BackgroundTransparency = math.min(current + 0.02, 0.3)
-                if current >= 0.28 then pulseUp = false end
-            else
-                syncButton.BackgroundTransparency = math.max(current - 0.02, 0)
-                if current <= 0.02 then pulseUp = true end
+        -- Start timer update
+        operationState.syncStartTime = os.clock()
+        if operationState.timerThread then
+            task.cancel(operationState.timerThread)
+        end
+        operationState.timerThread = task.spawn(function()
+            while operationState.syncStartTime do
+                local elapsed = os.clock() - operationState.syncStartTime
+                syncButton.Text = string.format("⬇  %.1fs", elapsed)
+                task.wait(0.1)
             end
         end)
 
     elseif state == SyncButtonState.DISCONNECTED then
+        -- Stop timer if running
+        operationState.syncStartTime = nil
         -- Disabled/disconnected: muted appearance
         syncButton.BackgroundColor3 = Colors.surface
         syncButton.TextColor3 = Colors.textMuted
@@ -2340,15 +2403,24 @@ updateSyncButtonState = function(state: string)
         syncButton.BackgroundTransparency = 0.5
 
     elseif state == SyncButtonState.SUCCESS then
-        -- Brief success flash
+        -- Save duration before stopping timer
+        if operationState.syncStartTime then
+            operationState.lastSyncDuration = os.clock() - operationState.syncStartTime
+        end
+        operationState.syncStartTime = nil
+        -- Brief success flash with final time
         syncButton.BackgroundColor3 = Colors.success
         syncButton.TextColor3 = Colors.background
-        syncButton.Text = "✓  Done"
+        if operationState.lastSyncDuration then
+            syncButton.Text = string.format("✓  %.1fs", operationState.lastSyncDuration)
+        else
+            syncButton.Text = "✓  Done"
+        end
         syncStroke.Color = Colors.success
         syncStroke.Transparency = 0
 
-        -- Return to idle after 1.5s
-        task.delay(1.5, function()
+        -- Return to idle after 2s
+        task.delay(2, function()
             if currentSyncState == SyncButtonState.SUCCESS then
                 updateSyncButtonState(SyncButtonState.IDLE)
             end
@@ -3465,3 +3537,10 @@ end)
 
 -- Check for updates on startup
 task.spawn(checkForUpdates)
+
+-- Cleanup when Studio closes - unregister from server
+game:BindToClose(function()
+    if isConnected then
+        unregisterWithServer()
+    end
+end)

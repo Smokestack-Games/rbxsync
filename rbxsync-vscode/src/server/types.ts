@@ -17,11 +17,10 @@ export interface ExtractStartResponse {
 }
 
 export interface ExtractStatusResponse {
-  status: 'pending' | 'extracting' | 'complete' | 'error';
-  current_service?: string;
-  instances_extracted: number;
-  total_services: number;
-  services_complete: number;
+  sessionId: string;
+  chunksReceived: number;
+  totalChunks: number;
+  complete: boolean;
   error?: string;
 }
 
@@ -32,8 +31,9 @@ export interface ExtractFinalizeRequest {
 
 export interface ExtractFinalizeResponse {
   success: boolean;
-  files_written: number;
-  message: string;
+  filesWritten: number;
+  scriptsWritten: number;
+  totalInstances: number;
 }
 
 export interface SyncReadTreeRequest {
@@ -124,6 +124,7 @@ export interface PlaceInfo {
   place_id: number;
   place_name: string;
   project_dir: string;
+  session_id?: string;  // Unique session ID for this Studio instance
 }
 
 export interface PlacesResponse {
@@ -163,4 +164,18 @@ export interface CommandResponse<T> {
   success: boolean;
   data: T;
   error?: string;
+}
+
+// Path mismatch info returned when VS Code workspace doesn't match Studio project
+export interface PathMismatch {
+  vscode_path: string;
+  studio_paths: string[];
+  warning: string;
+}
+
+// Registration response that may include path mismatch
+export interface RegisterWorkspaceResponse {
+  success: boolean;
+  message: string;
+  path_mismatch?: PathMismatch;
 }

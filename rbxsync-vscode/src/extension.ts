@@ -9,6 +9,7 @@ import { extractCommand } from './commands/extract';
 import { syncCommand } from './commands/sync';
 import { runPlayTest, disposeTestChannel } from './commands/test';
 import { openConsole, closeConsole, toggleE2EMode, initE2EMode, disposeConsole, isE2EMode } from './commands/console';
+import { initTrashSystem, recoverDeletedFolder } from './commands/trash';
 import {
   LanguageClient,
   LanguageClientOptions,
@@ -64,6 +65,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }
   });
 
+  // Listen for places changes from polling and update sidebar
+  statusBar.onPlacesChange((places, projectDir) => {
+    sidebarView.updatePlaces(places, projectDir);
+  });
+
   // Register commands
   const commands = [
     vscode.commands.registerCommand('rbxsync.connect', async () => {
@@ -77,51 +83,135 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     vscode.commands.registerCommand('rbxsync.extract', async () => {
       statusBar.setBusy('Extracting');
-      sidebarView.setCurrentOperation('Extracting');
-      await extractCommand(client, statusBar, sidebarView);
-      sidebarView.setCurrentOperation(null);
-      statusBar.clearBusy();
+      // Get placeId and sessionId from connected place if available
+      const place = client.connectionState.place;
+      const placeId = place?.place_id;
+      const sessionId = place?.session_id;
+      if (placeId !== undefined) {
+        sidebarView.startStudioOperation(placeId, 'extract', sessionId);
+      }
+      try {
+        await extractCommand(client, statusBar, sidebarView, undefined, placeId, sessionId);
+      } finally {
+        statusBar.clearBusy();
+      }
     }),
 
     vscode.commands.registerCommand('rbxsync.sync', async () => {
       statusBar.setBusy('Syncing');
-      sidebarView.setCurrentOperation('Syncing');
-      await syncCommand(client, statusBar);
-      sidebarView.setCurrentOperation(null);
-      statusBar.clearBusy();
+      // Get placeId and sessionId from connected place if available
+      const place = client.connectionState.place;
+      const placeId = place?.place_id;
+      const sessionId = place?.session_id;
+      if (placeId !== undefined) {
+        sidebarView.startStudioOperation(placeId, 'sync', sessionId);
+      }
+      try {
+        await syncCommand(client, statusBar);
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, true, 'Sync complete', sessionId);
+        }
+      } catch (e) {
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, false, 'Sync failed', sessionId);
+        }
+      } finally {
+        statusBar.clearBusy();
+      }
     }),
 
     vscode.commands.registerCommand('rbxsync.runTest', async () => {
       statusBar.setBusy('Testing');
-      sidebarView.setCurrentOperation('Testing');
-      await runPlayTest(client);
-      sidebarView.setCurrentOperation(null);
-      statusBar.clearBusy();
+      // Get placeId and sessionId from connected place if available
+      const place = client.connectionState.place;
+      const placeId = place?.place_id;
+      const sessionId = place?.session_id;
+      if (placeId !== undefined) {
+        sidebarView.startStudioOperation(placeId, 'test', sessionId);
+      }
+      try {
+        await runPlayTest(client);
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, true, 'Test complete', sessionId);
+        }
+      } catch (e) {
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, false, 'Test failed', sessionId);
+        }
+      } finally {
+        statusBar.clearBusy();
+      }
     }),
 
-    // Per-studio commands (take projectDir as argument)
-    vscode.commands.registerCommand('rbxsync.syncTo', async (projectDir: string) => {
+    // Per-studio commands (take projectDir, placeId, and sessionId as arguments)
+    vscode.commands.registerCommand('rbxsync.syncTo', async (projectDir: string, placeId?: number, sessionId?: string | null) => {
       statusBar.setBusy('Syncing');
-      sidebarView.setCurrentOperation(`Syncing to ${projectDir}`);
-      await syncCommand(client, statusBar, projectDir);
-      sidebarView.setCurrentOperation(null);
+      if (placeId !== undefined) {
+        sidebarView.startStudioOperation(placeId, 'sync', sessionId);
+      }
+      try {
+        await syncCommand(client, statusBar, projectDir);
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, true, 'Sync complete', sessionId);
+        }
+      } catch (e) {
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, false, 'Sync failed', sessionId);
+        }
+      }
       statusBar.clearBusy();
     }),
 
-    vscode.commands.registerCommand('rbxsync.extractFrom', async (projectDir: string) => {
+    vscode.commands.registerCommand('rbxsync.extractFrom', async (projectDir: string, placeId?: number, sessionId?: string | null) => {
       statusBar.setBusy('Extracting');
-      sidebarView.setCurrentOperation(`Extracting from ${projectDir}`);
-      await extractCommand(client, statusBar, sidebarView, projectDir);
-      sidebarView.setCurrentOperation(null);
+      if (placeId !== undefined) {
+        sidebarView.startStudioOperation(placeId, 'extract', sessionId);
+      }
+      try {
+        await extractCommand(client, statusBar, sidebarView, projectDir, placeId, sessionId);
+        // extractCommand will call logExtract which completes the operation
+      } catch (e) {
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, false, 'Extract failed', sessionId);
+        }
+      }
       statusBar.clearBusy();
     }),
 
-    vscode.commands.registerCommand('rbxsync.runTestOn', async (projectDir: string) => {
+    vscode.commands.registerCommand('rbxsync.runTestOn', async (projectDir: string, placeId?: number, sessionId?: string | null) => {
       statusBar.setBusy('Testing');
-      sidebarView.setCurrentOperation(`Testing ${projectDir}`);
-      await runPlayTest(client, projectDir);
-      sidebarView.setCurrentOperation(null);
+      if (placeId !== undefined) {
+        sidebarView.startStudioOperation(placeId, 'test', sessionId);
+      }
+      try {
+        await runPlayTest(client, projectDir);
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, true, 'Test complete', sessionId);
+        }
+      } catch (e) {
+        if (placeId !== undefined) {
+          sidebarView.completeStudioOperation(placeId, false, 'Test failed', sessionId);
+        }
+      }
       statusBar.clearBusy();
+    }),
+
+    vscode.commands.registerCommand('rbxsync.linkStudio', async (placeId: number) => {
+      const success = await client.linkStudio(placeId);
+      if (success) {
+        // Refresh the sidebar to show updated link status
+        const places = await client.getConnectedPlaces();
+        sidebarView.updatePlaces(places, client.projectDir);
+      }
+    }),
+
+    vscode.commands.registerCommand('rbxsync.unlinkStudio', async (placeId: number) => {
+      const success = await client.unlinkStudio(placeId);
+      if (success) {
+        // Refresh the sidebar to show updated link status
+        const places = await client.getConnectedPlaces();
+        sidebarView.updatePlaces(places, client.projectDir);
+      }
     }),
 
     vscode.commands.registerCommand('rbxsync.refresh', () => {
@@ -175,8 +265,16 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     vscode.commands.registerCommand('rbxsync.toggleE2EMode', () => {
       const enabled = toggleE2EMode(context);
       sidebarView.setE2EMode(enabled);
+    }),
+
+    // Trash recovery command
+    vscode.commands.registerCommand('rbxsync.recoverDeleted', async () => {
+      await recoverDeletedFolder();
     })
   ];
+
+  // Initialize trash system for folder recovery
+  initTrashSystem(context);
 
   // Add to subscriptions
   context.subscriptions.push(
