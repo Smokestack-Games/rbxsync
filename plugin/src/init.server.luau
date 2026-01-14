@@ -141,6 +141,7 @@ end
 
 -- Forward declaration for UI update function (defined later)
 local updateConnectionUI: () -> ()
+local updateFolderNameDisplay: (path: string?) -> ()
 
 -- Get actual place name from MarketplaceService (or fallback)
 local function getPlaceName(): string
@@ -546,7 +547,7 @@ local function extractGame(config: {any})
     local timerThread = task.spawn(function()
         while operationState.extractStartTime do
             local elapsed = os.clock() - startTime
-            setStatus(string.format("Extracting... %.1fs", elapsed), Color3.fromRGB(100, 180, 255), 0)
+            setStatus(string.format("Extracting... %.1fs", elapsed), Colors.info, 0)
             task.wait(0.1)
         end
     end)
@@ -556,7 +557,7 @@ local function extractGame(config: {any})
     if not apiDump then
         operationState.extractStartTime = nil
         warn("Can't load API. Try reopening Studio.")
-        setStatus("Failed to load API", Color3.fromRGB(255, 100, 100), 5)
+        setStatus("Failed to load API", Colors.error, 5)
         isExtracting = false
         return
     end
@@ -815,7 +816,7 @@ local function extractGame(config: {any})
     if failedChunk then
         operationState.extractStartTime = nil
         warn("Extraction failed. Try again.")
-        setStatus("Extraction failed", Color3.fromRGB(255, 100, 100), 5)
+        setStatus("Extraction failed", Colors.error, 5)
         isExtracting = false
         return
     end
@@ -837,11 +838,11 @@ local function extractGame(config: {any})
         operationState.lastExtractCount = #allInstances
         local msg = string.format("✓ Extracted %d instances (%.1fs)", #allInstances, elapsed)
         print(msg)
-        setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
+        setStatus(msg, Colors.success, 10)
     else
         local errMsg = "Extraction failed"
         warn(errMsg .. ". " .. (finalizeResult and finalizeResult.error or "Try again."))
-        setStatus(errMsg, Color3.fromRGB(255, 100, 100), 10)
+        setStatus(errMsg, Colors.error, 10)
     end
 
     isExtracting = false
@@ -1204,7 +1205,7 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     Sync.clearPendingReferences()
 
     isSyncing = true
-    setStatus("Checking " .. #operations .. " instances...", Color3.fromRGB(100, 180, 255), 0)
+    setStatus("Checking " .. #operations .. " instances...", Colors.info, 0)
     local results = {}
     local appliedCount = 0  -- Actually modified
     local skippedCount = 0  -- No changes needed
@@ -1280,7 +1281,7 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     -- If sync errored out, report it
     if not syncOk then
         warn("[RbxSync] Sync error: " .. tostring(syncErr))
-        setStatus("Sync error occurred", Color3.fromRGB(255, 100, 100), 10)
+        setStatus("Sync error occurred", Colors.error, 10)
         return { success = false, results = results, applied = appliedCount, skipped = skippedCount }
     end
 
@@ -1300,18 +1301,18 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     if failCount > 0 then
         local msg = string.format("Applied %d, skipped %d unchanged, %d failed", appliedCount, skippedCount, failCount)
         print(msg .. " (see warnings above)")
-        setStatus(msg, Color3.fromRGB(255, 200, 100), 10)
+        setStatus(msg, Colors.warning, 10)
     elseif appliedCount == 0 then
         local msg = "Already in sync"
         print(msg .. " (" .. skippedCount .. " instances checked)")
-        setStatus(msg, Color3.fromRGB(100, 200, 100), 5)
+        setStatus(msg, Colors.success, 5)
     else
         local msg = string.format("Applied %d changes", appliedCount)
         if skippedCount > 0 then
             msg = msg .. string.format(" (%d unchanged)", skippedCount)
         end
         print(msg)
-        setStatus(msg, Color3.fromRGB(100, 200, 100), 10)
+        setStatus(msg, Colors.success, 10)
     end
 
     -- Set waypoint AFTER changes for undo support
@@ -1700,7 +1701,7 @@ local toolbar = plugin:CreateToolbar("RbxSync")
 local panelButton = toolbar:CreateButton(
     "RbxSync",
     "Open RbxSync panel",
-    "rbxassetid://6031071053"
+    "rbxassetid://134458909684902"
 )
 
 -- Create dock widget
@@ -1722,20 +1723,30 @@ widget.Title = "RbxSync"
 -- ============================================================================
 
 local Colors = {
-    -- Matches Roblox Studio's dark theme
-    background = Color3.fromRGB(46, 46, 46),
-    surface = Color3.fromRGB(53, 53, 53),
-    surfaceHover = Color3.fromRGB(66, 66, 66),
-    border = Color3.fromRGB(34, 34, 34),
-    -- Roblox blue accent
-    accent = Color3.fromRGB(0, 162, 255),
-    accentHover = Color3.fromRGB(50, 181, 255),
-    success = Color3.fromRGB(2, 183, 87),
-    warning = Color3.fromRGB(245, 166, 35),
-    error = Color3.fromRGB(255, 68, 68),
-    textPrimary = Color3.fromRGB(204, 204, 204),
-    textSecondary = Color3.fromRGB(153, 153, 153),
-    textMuted = Color3.fromRGB(102, 102, 102),
+    -- Deep, rich dark theme inspired by VS Code
+    background = Color3.fromRGB(24, 24, 27),      -- Near black, rich depth
+    surface = Color3.fromRGB(32, 32, 36),         -- Cards/panels - subtle lift
+    surfaceHover = Color3.fromRGB(45, 45, 50),    -- Hover state
+    surfaceActive = Color3.fromRGB(55, 55, 62),   -- Active/pressed state
+    border = Color3.fromRGB(45, 45, 50),          -- Subtle borders
+    borderLight = Color3.fromRGB(60, 60, 68),     -- More visible borders
+
+    -- Vibrant green accent (matches VS Code extension)
+    accent = Color3.fromRGB(74, 222, 128),        -- Bright mint green
+    accentHover = Color3.fromRGB(94, 234, 148),   -- Lighter on hover
+    accentMuted = Color3.fromRGB(34, 84, 54),     -- Muted green for backgrounds
+
+    -- Status colors
+    success = Color3.fromRGB(74, 222, 128),       -- Same as accent - green
+    warning = Color3.fromRGB(250, 204, 21),       -- Warm yellow
+    error = Color3.fromRGB(248, 113, 113),        -- Soft red
+    info = Color3.fromRGB(96, 165, 250),          -- Soft blue for info/progress
+
+    -- Text hierarchy with better contrast
+    textPrimary = Color3.fromRGB(244, 244, 245),  -- Almost white
+    textSecondary = Color3.fromRGB(161, 161, 170), -- Muted but readable
+    textMuted = Color3.fromRGB(113, 113, 122),    -- Subtle labels
+    textAccent = Color3.fromRGB(74, 222, 128),    -- Green text
 }
 
 -- Change tracking for button badges
@@ -1787,37 +1798,49 @@ layout.Parent = mainFrame
 
 local headerFrame = Instance.new("Frame")
 headerFrame.Name = "Header"
-headerFrame.Size = UDim2.new(1, 0, 0, 52)
-headerFrame.BackgroundColor3 = Colors.surface
+headerFrame.Size = UDim2.new(1, 0, 0, 48)
+headerFrame.BackgroundColor3 = Colors.background  -- Blend with background
 headerFrame.BorderSizePixel = 0
 headerFrame.LayoutOrder = 0
 headerFrame.Parent = mainFrame
 
-local accentLine = Instance.new("Frame")
-accentLine.Size = UDim2.new(1, 0, 0, 2)
-accentLine.BackgroundColor3 = Colors.accent
-accentLine.BorderSizePixel = 0
-accentLine.Parent = headerFrame
+-- Bottom border for separation
+local headerBorder = Instance.new("Frame")
+headerBorder.Size = UDim2.new(1, 0, 0, 1)
+headerBorder.Position = UDim2.new(0, 0, 1, -1)
+headerBorder.BackgroundColor3 = Colors.border
+headerBorder.BorderSizePixel = 0
+headerBorder.Parent = headerFrame
 
 local headerPadding = Instance.new("UIPadding")
-headerPadding.PaddingTop = UDim.new(0, 14)
-headerPadding.PaddingLeft = UDim.new(0, 16)
+headerPadding.PaddingTop = UDim.new(0, 10)
+headerPadding.PaddingLeft = UDim.new(0, 12)
+headerPadding.PaddingRight = UDim.new(0, 12)
 headerPadding.Parent = headerFrame
 
+-- Logo image
+local logoImage = Instance.new("ImageLabel")
+logoImage.Size = UDim2.new(0, 24, 0, 24)
+logoImage.Position = UDim2.new(0, 0, 0, 2)
+logoImage.BackgroundTransparency = 1
+logoImage.Image = "rbxassetid://134458909684902"
+logoImage.ScaleType = Enum.ScaleType.Fit
+logoImage.Parent = headerFrame
+
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, 0, 0, 18)
-titleLabel.Position = UDim2.new(0, 0, 0, 2)
+titleLabel.Size = UDim2.new(1, -32, 0, 16)
+titleLabel.Position = UDim2.new(0, 32, 0, 0)
 titleLabel.BackgroundTransparency = 1
-titleLabel.Text = "RBXSYNC"
+titleLabel.Text = "RbxSync"
 titleLabel.TextColor3 = Colors.textPrimary
-titleLabel.TextSize = 15
+titleLabel.TextSize = 14
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = headerFrame
 
 local subtitleLabel = Instance.new("TextLabel")
-subtitleLabel.Size = UDim2.new(1, 0, 0, 14)
-subtitleLabel.Position = UDim2.new(0, 0, 0, 22)
+subtitleLabel.Size = UDim2.new(1, -32, 0, 12)
+subtitleLabel.Position = UDim2.new(0, 32, 0, 16)
 subtitleLabel.BackgroundTransparency = 1
 subtitleLabel.Text = "Studio ↔ VS Code"
 subtitleLabel.TextColor3 = Colors.textMuted
@@ -1853,9 +1876,9 @@ connectionCorner.CornerRadius = UDim.new(0, 6)
 connectionCorner.Parent = connectionFrame
 
 local connectionStroke = Instance.new("UIStroke")
-connectionStroke.Color = Colors.textMuted
+connectionStroke.Color = Colors.border
 connectionStroke.Thickness = 1
-connectionStroke.Transparency = 0.8
+connectionStroke.Transparency = 0
 connectionStroke.Parent = connectionFrame
 
 local connectionDot = Instance.new("Frame")
@@ -2015,7 +2038,7 @@ end)
 -- ============================================================================
 
 local projectSection = Instance.new("Frame")
-projectSection.Size = UDim2.new(1, 0, 0, 72)
+projectSection.Size = UDim2.new(1, 0, 0, 100)  -- Taller to fit folder name
 projectSection.BackgroundTransparency = 1
 projectSection.LayoutOrder = 2
 projectSection.Parent = mainFrame
@@ -2029,16 +2052,30 @@ projectPadding.Parent = projectSection
 local projectLabel = Instance.new("TextLabel")
 projectLabel.Size = UDim2.new(1, 0, 0, 16)
 projectLabel.BackgroundTransparency = 1
-projectLabel.Text = "PROJECT"
+projectLabel.Text = "SYNCING TO"
 projectLabel.TextColor3 = Colors.textMuted
 projectLabel.TextSize = 10
 projectLabel.Font = Enum.Font.GothamBold
 projectLabel.TextXAlignment = Enum.TextXAlignment.Left
 projectLabel.Parent = projectSection
 
+-- Prominent folder name display
+local folderNameLabel = Instance.new("TextLabel")
+folderNameLabel.Name = "FolderNameLabel"
+folderNameLabel.Size = UDim2.new(1, 0, 0, 24)
+folderNameLabel.Position = UDim2.new(0, 0, 0, 16)
+folderNameLabel.BackgroundTransparency = 1
+folderNameLabel.Text = "(no project)"
+folderNameLabel.TextColor3 = Colors.accent
+folderNameLabel.TextSize = 16
+folderNameLabel.Font = Enum.Font.GothamBold
+folderNameLabel.TextXAlignment = Enum.TextXAlignment.Left
+folderNameLabel.TextTruncate = Enum.TextTruncate.AtEnd
+folderNameLabel.Parent = projectSection
+
 local projectPathFrame = Instance.new("Frame")
 projectPathFrame.Size = UDim2.new(1, 0, 0, 36)
-projectPathFrame.Position = UDim2.new(0, 0, 0, 20)
+projectPathFrame.Position = UDim2.new(0, 0, 0, 44)
 projectPathFrame.BackgroundColor3 = Colors.surface
 projectPathFrame.BorderSizePixel = 0
 projectPathFrame.Parent = projectSection
@@ -2170,6 +2207,7 @@ local function updateRecentProjectsDropdown()
         option.MouseButton1Click:Connect(function()
             Config.setProjectDir(projectPath)
             projectDirInput.Text = projectPath
+            updateFolderNameDisplay(projectPath)
             dropdownFrame.Visible = false
             dropdownButton.Text = "▾"
             -- Re-register with server after path change
@@ -2194,9 +2232,27 @@ dropdownButton.MouseButton1Click:Connect(function()
     end
 end)
 
+-- Helper to update folder name display
+updateFolderNameDisplay = function(path: string?)
+    local displayPath = path or projectDirInput.Text or ""
+    if displayPath == "" then
+        folderNameLabel.Text = "(no project)"
+        folderNameLabel.TextColor3 = Colors.textMuted
+    else
+        -- Extract folder name from path
+        local folderName = displayPath:match("([^/\\]+)$") or displayPath
+        folderNameLabel.Text = folderName
+        folderNameLabel.TextColor3 = Colors.accent
+    end
+end
+
+-- Initialize folder name display
+updateFolderNameDisplay(Config.getProjectDir())
+
 projectDirInput.FocusLost:Connect(function()
     if projectDirInput.Text ~= "" then
         Config.setProjectDir(projectDirInput.Text)
+        updateFolderNameDisplay(projectDirInput.Text)
         -- Re-register with server after path change
         if isConnected then
             registerWithServer()
@@ -2311,9 +2367,9 @@ syncCorner.CornerRadius = UDim.new(0, 6)
 syncCorner.Parent = syncButton
 
 local syncStroke = Instance.new("UIStroke")
-syncStroke.Color = Colors.textMuted
+syncStroke.Color = Colors.borderLight
 syncStroke.Thickness = 1
-syncStroke.Transparency = 0.8
+syncStroke.Transparency = 0
 syncStroke.Parent = syncButton
 
 -- Define button state update functions
@@ -2847,7 +2903,7 @@ showPathMismatchDialog = function(vscodePath: string, onContinue: () -> (), onFi
     dialogCorner.Parent = dialog
 
     local dialogStroke = Instance.new("UIStroke")
-    dialogStroke.Color = Color3.fromRGB(255, 180, 0)  -- Warning color
+    dialogStroke.Color = Colors.warning
     dialogStroke.Thickness = 2
     dialogStroke.Parent = dialog
 
@@ -2857,7 +2913,7 @@ showPathMismatchDialog = function(vscodePath: string, onContinue: () -> (), onFi
     titleLabel.Position = UDim2.new(0, 8, 0, 8)
     titleLabel.BackgroundTransparency = 1
     titleLabel.Text = "⚠️ Path Mismatch"
-    titleLabel.TextColor3 = Color3.fromRGB(255, 180, 0)
+    titleLabel.TextColor3 = Colors.warning
     titleLabel.TextSize = 14
     titleLabel.Font = Enum.Font.GothamBold
     titleLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -3578,11 +3634,21 @@ task.spawn(function()
                     if infoSuccess and infoData and infoData.vscode_workspaces and #infoData.vscode_workspaces > 0 then
                         local vscodePath = infoData.vscode_workspaces[1]
 
+                        -- Warn if multiple VS Code workspaces are connected
+                        if #infoData.vscode_workspaces > 1 then
+                            warn("[RbxSync] Warning: " .. #infoData.vscode_workspaces .. " VS Code workspaces detected! Make sure you're syncing to the right one:")
+                            for i, ws in ipairs(infoData.vscode_workspaces) do
+                                warn("  " .. i .. ". " .. ws)
+                            end
+                            warn("  Current: " .. (currentPath ~= "" and currentPath or vscodePath))
+                        end
+
                         if currentPath == "" then
                             -- No path set - auto-populate from VS Code
                             Config.setProjectDir(vscodePath)
                             if projectDirInput then
                                 projectDirInput.Text = vscodePath
+                                updateFolderNameDisplay(vscodePath)
                             end
                             print("[RbxSync] Using VS Code workspace: " .. vscodePath)
                         elseif currentPath ~= vscodePath then
@@ -3603,6 +3669,7 @@ task.spawn(function()
                                             Config.setProjectDir(vscodePath)
                                             if projectDirInput then
                                                 projectDirInput.Text = vscodePath
+                                                updateFolderNameDisplay(vscodePath)
                                             end
                                             registerWithServer()
                                             print("[RbxSync] Switched to VS Code workspace: " .. vscodePath)
@@ -3620,6 +3687,7 @@ task.spawn(function()
                         Config.setProjectDir(infoData.cwd)
                         if projectDirInput then
                             projectDirInput.Text = infoData.cwd
+                            updateFolderNameDisplay(infoData.cwd)
                         end
                         print("[RbxSync] Using server directory: " .. infoData.cwd)
                     end
@@ -3716,6 +3784,7 @@ task.spawn(function()
                                                 Config.setProjectDir(vscodePath)
                                                 if projectDirInput then
                                                     projectDirInput.Text = vscodePath
+                                                    updateFolderNameDisplay(vscodePath)
                                                 end
                                                 registerWithServer()
                                                 print("[RbxSync] Switched to VS Code workspace: " .. vscodePath)
