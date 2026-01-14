@@ -19,4 +19,7 @@ pub use rojo::{
 pub use types::{
     AttributeValue, CFrame, Color3, EnumValue, Instance, InstanceMeta, ProjectConfig,
     PropertyValue, Vector2, Vector3,
+    // Wally package support
+    PackageConfig, PackageDirectories, WallyError, WallyLock, WallyLockedPackage,
+    WallyManifest, WallyPackageInfo, find_wally_manifest, find_wally_lock, is_package_path,
 };

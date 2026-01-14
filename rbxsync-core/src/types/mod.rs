@@ -6,7 +6,9 @@
 mod properties;
 mod instance;
 mod project;
+mod wally;
 
 pub use properties::*;
 pub use instance::*;
 pub use project::*;
+pub use wally::*;

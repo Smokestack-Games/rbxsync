@@ -1,6 +1,7 @@
 //! File watcher module for live sync
 //!
 //! Watches project directories for file changes and pushes updates to Studio.
+//! Supports Wally package exclusion to prevent package files from being synced.
 
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
@@ -10,6 +11,8 @@ use std::time::{Duration, Instant};
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
 use notify::event::{ModifyKind, DataChange};
 use tokio::sync::{mpsc, RwLock};
+
+use rbxsync_core::is_package_path;
 
 /// File change event
 #[derive(Debug, Clone)]
@@ -190,6 +193,12 @@ pub async fn start_file_watcher(
                                         }
                                     }
                                 }
+                                continue;
+                            }
+
+                            // Skip package paths (Wally packages should not be synced from filesystem)
+                            if is_package_path(&path) {
+                                tracing::trace!("Skipping package path: {:?}", path);
                                 continue;
                             }
 

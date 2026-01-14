@@ -37,6 +37,10 @@ pub struct ProjectConfig {
     /// License information (for commercial features)
     #[serde(skip_serializing_if = "Option::is_none")]
     pub license: Option<LicenseConfig>,
+
+    /// Wally package configuration
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub packages: Option<PackageConfig>,
 }
 
 fn default_tree_path() -> PathBuf {
@@ -57,6 +61,7 @@ impl Default for ProjectConfig {
             sync: SyncConfig::default(),
             tree_mapping: HashMap::new(),
             license: None,
+            packages: None,
         }
     }
 }
@@ -251,6 +256,65 @@ pub struct LicenseConfig {
 
     /// Associated email
     pub email: String,
+}
+
+/// Wally package configuration
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct PackageConfig {
+    /// Enable Wally package support
+    #[serde(default = "default_true")]
+    pub enabled: bool,
+
+    /// Path to shared packages (relative to tree, default: "ReplicatedStorage/Packages")
+    #[serde(default = "default_shared_packages_path")]
+    pub shared_packages_path: String,
+
+    /// Path to server packages (relative to tree, default: "ServerScriptService/Packages")
+    #[serde(default = "default_server_packages_path")]
+    pub server_packages_path: String,
+
+    /// Exclude packages from file watcher (don't sync changes FROM packages)
+    #[serde(default = "default_true")]
+    pub exclude_from_watch: bool,
+
+    /// Preserve packages during extraction (don't overwrite local package files)
+    #[serde(default = "default_true")]
+    pub preserve_on_extract: bool,
+
+    /// Path to wally.toml (relative to project root, auto-detected if not specified)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub wally_toml_path: Option<PathBuf>,
+
+    /// Path to Packages folder on filesystem (default: "Packages")
+    #[serde(default = "default_packages_folder")]
+    pub packages_folder: PathBuf,
+}
+
+fn default_shared_packages_path() -> String {
+    "ReplicatedStorage/Packages".to_string()
+}
+
+fn default_server_packages_path() -> String {
+    "ServerScriptService/Packages".to_string()
+}
+
+fn default_packages_folder() -> PathBuf {
+    PathBuf::from("Packages")
+}
+
+impl Default for PackageConfig {
+    fn default() -> Self {
+        Self {
+            enabled: true,
+            shared_packages_path: default_shared_packages_path(),
+            server_packages_path: default_server_packages_path(),
+            exclude_from_watch: true,
+            preserve_on_extract: true,
+            wally_toml_path: None,
+            packages_folder: default_packages_folder(),
+        }
+    }
 }
 
 #[cfg(test)]

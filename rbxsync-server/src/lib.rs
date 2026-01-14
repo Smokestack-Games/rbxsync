@@ -12,7 +12,7 @@ use std::sync::Arc;
 use std::time::Instant;
 
 use axum::{
-    extract::{DefaultBodyLimit, Query, State},
+    extract::{DefaultBodyLimit, Path, Query, State},
     http::StatusCode,
     response::IntoResponse,
     routing::{get, post},
@@ -207,6 +207,27 @@ pub struct AppState {
 
     /// Sync state per project (project_dir -> last_sync_time)
     pub sync_state: RwLock<HashMap<String, std::time::SystemTime>>,
+
+    /// Bot command queue for AI-controlled playtesting
+    pub bot_command_queue: Mutex<VecDeque<serde_json::Value>>,
+
+    /// Latest bot state reported from the running game
+    pub bot_state: RwLock<Option<serde_json::Value>>,
+
+    /// Bot command results (command_id -> result)
+    pub bot_command_results: RwLock<HashMap<Uuid, serde_json::Value>>,
+
+    /// Whether a playtest is currently active (detected via bot heartbeats)
+    pub playtest_active: std::sync::atomic::AtomicBool,
+
+    /// Last bot heartbeat timestamp
+    pub last_bot_heartbeat: RwLock<Option<std::time::Instant>>,
+
+    /// When playtest was explicitly started (via hello event)
+    pub playtest_started: RwLock<Option<std::time::Instant>>,
+
+    /// When playtest was explicitly ended (via goodbye event)
+    pub playtest_ended: RwLock<Option<std::time::Instant>>,
 }
 
 impl AppState {
@@ -232,6 +253,13 @@ impl AppState {
             console_buffer: RwLock::new(VecDeque::with_capacity(CONSOLE_BUFFER_SIZE)),
             console_tx,
             sync_state: RwLock::new(HashMap::new()),
+            bot_command_queue: Mutex::new(VecDeque::new()),
+            bot_state: RwLock::new(None),
+            bot_command_results: RwLock::new(HashMap::new()),
+            playtest_active: std::sync::atomic::AtomicBool::new(false),
+            last_bot_heartbeat: RwLock::new(None),
+            playtest_started: RwLock::new(None),
+            playtest_ended: RwLock::new(None),
         })
     }
 }
@@ -320,6 +348,19 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/test/start", post(handle_test_start))
         .route("/test/status", get(handle_test_status))
         .route("/test/stop", post(handle_test_stop))
+        // Bot controller endpoints (AI-powered automated gameplay testing)
+        .route("/bot/command", post(handle_bot_command))
+        .route("/bot/state", get(handle_bot_state).post(handle_bot_state_update))
+        .route("/bot/move", post(handle_bot_move))
+        .route("/bot/action", post(handle_bot_action))
+        .route("/bot/observe", post(handle_bot_observe))
+        // Direct bot command queue (for HTTP polling from running game)
+        .route("/bot/queue", post(handle_bot_queue))
+        .route("/bot/pending", get(handle_bot_pending))
+        .route("/bot/result", post(handle_bot_result_post))
+        .route("/bot/result/:id", get(handle_bot_result_get))
+        .route("/bot/playtest", get(handle_bot_playtest_status))
+        .route("/bot/lifecycle", post(handle_bot_lifecycle))
         // Console output streaming (for E2E testing mode)
         .route("/console/push", post(handle_console_push))
         .route("/console/subscribe", get(handle_console_subscribe))
@@ -1303,6 +1344,30 @@ async fn handle_extract_finalize(
     let tree_mapping = get_tree_mapping(&config);
     tracing::info!("Tree mapping loaded: {:?}", tree_mapping);
 
+    // Check package preservation settings from config JSON
+    let (preserve_packages, packages_folder) = if let Some(ref cfg) = config {
+        let packages_config = cfg.get("packages");
+        let enabled = packages_config
+            .and_then(|p| p.get("enabled"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true); // Default to true if packages section exists
+        let preserve = packages_config
+            .and_then(|p| p.get("preserveOnExtract"))
+            .and_then(|v| v.as_bool())
+            .unwrap_or(true); // Default to true
+        let folder = packages_config
+            .and_then(|p| p.get("packagesFolder"))
+            .and_then(|v| v.as_str())
+            .unwrap_or("Packages")
+            .to_string();
+        (packages_config.is_some() && enabled && preserve, folder)
+    } else {
+        (false, "Packages".to_string())
+    };
+    if preserve_packages {
+        tracing::info!("Package preservation enabled - Packages folder: {}", packages_folder);
+    }
+
     // Backup existing src directory before clearing (for undo support)
     let backup_dir = PathBuf::from(&req.project_dir).join(".rbxsync-backup");
     let backup_src = backup_dir.join("src");
@@ -1531,7 +1596,51 @@ async fn handle_extract_finalize(
         let _ = std::fs::create_dir_all(&service_folder);
     }
 
-    tracing::info!("Finalize complete: {} .rbxjson files, {} .luau scripts, {} services", files_written, scripts_written, service_folders.len());
+    // Restore Packages folder from backup if preservation is enabled
+    let mut packages_preserved = false;
+    if preserve_packages {
+        // Look for Packages folders in common locations within backup
+        let package_restore_locations: Vec<(String, String)> = vec![
+            ("ReplicatedStorage/Packages".to_string(), "ReplicatedStorage/Packages".to_string()),
+            ("ServerScriptService/Packages".to_string(), "ServerScriptService/Packages".to_string()),
+            ("ServerStorage/Packages".to_string(), "ServerStorage/Packages".to_string()),
+            // Also check root-level Packages folder
+            (packages_folder.clone(), packages_folder.clone()),
+        ];
+
+        for (backup_rel, dest_rel) in &package_restore_locations {
+            let backup_packages = backup_src.join(backup_rel);
+            let dest_packages = src_dir.join(dest_rel);
+
+            if backup_packages.exists() && backup_packages.is_dir() {
+                // Remove any extracted packages (from Studio) to replace with local
+                if dest_packages.exists() {
+                    let _ = std::fs::remove_dir_all(&dest_packages);
+                }
+
+                // Ensure parent directory exists
+                if let Some(parent) = dest_packages.parent() {
+                    let _ = std::fs::create_dir_all(parent);
+                }
+
+                // Restore packages from backup
+                if let Err(e) = copy_dir_recursive(&backup_packages, &dest_packages) {
+                    tracing::warn!("Failed to restore packages from {}: {}", backup_rel, e);
+                } else {
+                    tracing::info!("Restored Wally packages from backup: {}", backup_rel);
+                    packages_preserved = true;
+                }
+            }
+        }
+    }
+
+    tracing::info!(
+        "Finalize complete: {} .rbxjson files, {} .luau scripts, {} services{}",
+        files_written,
+        scripts_written,
+        service_folders.len(),
+        if packages_preserved { ", packages preserved" } else { "" }
+    );
 
     // Clear any file change events that accumulated during extraction (from the files we just wrote)
     // This prevents them from being synced back to Studio after extraction
@@ -2967,6 +3076,384 @@ async fn handle_test_stop(State(state): State<Arc<AppState>>) -> impl IntoRespon
                     "error": "Plugin response timeout"
                 })),
             )
+        }
+    }
+}
+
+// ============================================================================
+// Bot Controller Endpoints (AI-powered automated gameplay testing)
+// ============================================================================
+
+/// Generic bot command request
+#[derive(Debug, Deserialize)]
+struct BotCommandRequest {
+    #[serde(rename = "type")]
+    command_type: String,
+    command: String,
+    #[serde(default)]
+    args: serde_json::Value,
+}
+
+/// Bot movement request
+#[derive(Debug, Deserialize)]
+struct BotMoveRequest {
+    #[serde(default)]
+    position: Option<serde_json::Value>,
+    #[serde(default)]
+    object: Option<String>,
+    #[serde(rename = "objectName", default)]
+    object_name: Option<String>,
+}
+
+/// Bot action request
+#[derive(Debug, Deserialize)]
+struct BotActionRequest {
+    action: String,
+    #[serde(default)]
+    name: Option<String>,
+    #[serde(rename = "toolName", default)]
+    tool_name: Option<String>,
+    #[serde(rename = "objectName", default)]
+    object_name: Option<String>,
+}
+
+/// Bot observe request
+#[derive(Debug, Deserialize)]
+struct BotObserveRequest {
+    #[serde(rename = "type", default = "default_observe_type")]
+    observe_type: String,
+    #[serde(default)]
+    radius: Option<f64>,
+    #[serde(default)]
+    query: Option<String>,
+}
+
+fn default_observe_type() -> String {
+    "state".to_string()
+}
+
+/// Helper function to send a bot command to the plugin
+async fn send_bot_command(
+    state: &Arc<AppState>,
+    command: &str,
+    payload: serde_json::Value,
+) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: command.to_string(),
+        payload,
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout (longer timeout for movement commands)
+    let timeout = if command == "bot:move" {
+        tokio::time::Duration::from_secs(60)
+    } else {
+        tokio::time::Duration::from_secs(30)
+    };
+
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            Ok(response.data)
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            Err((
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed"
+                })),
+            ))
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            Err((
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Bot command timeout - ensure playtest is running"
+                })),
+            ))
+        }
+    }
+}
+
+/// Handle generic bot command
+async fn handle_bot_command(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BotCommandRequest>,
+) -> impl IntoResponse {
+    let payload = serde_json::json!({
+        "type": req.command_type,
+        "command": req.command,
+        "args": req.args
+    });
+
+    match send_bot_command(&state, "bot:command", payload).await {
+        Ok(data) => (StatusCode::OK, Json(data)),
+        Err((status, json)) => (status, json),
+    }
+}
+
+/// Handle bot state observation (GET)
+async fn handle_bot_state(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    match send_bot_command(&state, "bot:state", serde_json::json!({})).await {
+        Ok(data) => (StatusCode::OK, Json(data)),
+        Err((status, json)) => (status, json),
+    }
+}
+
+/// Handle bot movement command
+async fn handle_bot_move(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BotMoveRequest>,
+) -> impl IntoResponse {
+    let payload = serde_json::json!({
+        "position": req.position,
+        "object": req.object,
+        "objectName": req.object_name
+    });
+
+    match send_bot_command(&state, "bot:move", payload).await {
+        Ok(data) => (StatusCode::OK, Json(data)),
+        Err((status, json)) => (status, json),
+    }
+}
+
+/// Handle bot action command
+async fn handle_bot_action(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BotActionRequest>,
+) -> impl IntoResponse {
+    let payload = serde_json::json!({
+        "action": req.action,
+        "name": req.name.or(req.tool_name),
+        "objectName": req.object_name
+    });
+
+    match send_bot_command(&state, "bot:action", payload).await {
+        Ok(data) => (StatusCode::OK, Json(data)),
+        Err((status, json)) => (status, json),
+    }
+}
+
+/// Handle bot observation command
+async fn handle_bot_observe(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BotObserveRequest>,
+) -> impl IntoResponse {
+    let payload = serde_json::json!({
+        "type": req.observe_type,
+        "radius": req.radius,
+        "query": req.query
+    });
+
+    match send_bot_command(&state, "bot:observe", payload).await {
+        Ok(data) => (StatusCode::OK, Json(data)),
+        Err((status, json)) => (status, json),
+    }
+}
+
+/// Receive state update from running game (POST /bot/state)
+async fn handle_bot_state_update(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    // Update bot state
+    let mut bot_state = state.bot_state.write().await;
+    *bot_state = Some(body);
+
+    // Mark playtest as active and update heartbeat
+    state.playtest_active.store(true, std::sync::atomic::Ordering::Relaxed);
+    let mut heartbeat = state.last_bot_heartbeat.write().await;
+    *heartbeat = Some(std::time::Instant::now());
+
+    Json(serde_json::json!({ "success": true }))
+}
+
+/// Queue a command for the bot to execute (POST /bot/queue)
+async fn handle_bot_queue(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let id = Uuid::new_v4();
+
+    // Wrap the command with an ID
+    let cmd_with_id = serde_json::json!({
+        "id": id.to_string(),
+        "command": body
+    });
+
+    let mut queue = state.bot_command_queue.lock().await;
+    queue.push_back(cmd_with_id);
+
+    Json(serde_json::json!({
+        "success": true,
+        "queued": true,
+        "id": id.to_string(),
+        "queue_length": queue.len()
+    }))
+}
+
+/// Get next pending command for bot (GET /bot/pending)
+async fn handle_bot_pending(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let mut queue = state.bot_command_queue.lock().await;
+    if let Some(cmd) = queue.pop_front() {
+        Json(serde_json::json!({
+            "success": true,
+            "command": cmd.get("command").cloned(),
+            "id": cmd.get("id").and_then(|v| v.as_str())
+        }))
+    } else {
+        Json(serde_json::json!({
+            "success": true,
+            "command": null
+        }))
+    }
+}
+
+/// Receive command result from bot (POST /bot/result)
+async fn handle_bot_result_post(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    // Extract command ID from result
+    let id_str = body.get("id").and_then(|v| v.as_str());
+
+    if let Some(id_str) = id_str {
+        if let Ok(id) = Uuid::parse_str(id_str) {
+            // Store the result
+            let mut results = state.bot_command_results.write().await;
+            results.insert(id, body.clone());
+
+            // Also update playtest heartbeat
+            state.playtest_active.store(true, std::sync::atomic::Ordering::Relaxed);
+            let mut heartbeat = state.last_bot_heartbeat.write().await;
+            *heartbeat = Some(std::time::Instant::now());
+
+            return Json(serde_json::json!({
+                "success": true,
+                "stored": true,
+                "id": id_str
+            }));
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": false,
+        "error": "Missing or invalid command ID"
+    }))
+}
+
+/// Get command result by ID (GET /bot/result/:id)
+async fn handle_bot_result_get(
+    State(state): State<Arc<AppState>>,
+    Path(id_str): Path<String>,
+) -> impl IntoResponse {
+    if let Ok(id) = Uuid::parse_str(&id_str) {
+        let results = state.bot_command_results.read().await;
+        if let Some(result) = results.get(&id) {
+            return Json(serde_json::json!({
+                "success": true,
+                "found": true,
+                "result": result
+            }));
+        }
+    }
+
+    Json(serde_json::json!({
+        "success": true,
+        "found": false,
+        "result": null
+    }))
+}
+
+/// Check if playtest is active (GET /bot/playtest)
+async fn handle_bot_playtest_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let is_active = state.playtest_active.load(std::sync::atomic::Ordering::Relaxed);
+
+    // Check if heartbeat is stale (> 2 seconds - reduced from 5 for faster detection)
+    let heartbeat = state.last_bot_heartbeat.read().await;
+    let stale = if let Some(last) = *heartbeat {
+        last.elapsed().as_secs_f64() > 2.0
+    } else {
+        true
+    };
+
+    // Mark as inactive if stale
+    if stale && is_active {
+        state.playtest_active.store(false, std::sync::atomic::Ordering::Relaxed);
+    }
+
+    // Check explicit lifecycle events
+    let started = state.playtest_started.read().await;
+    let ended = state.playtest_ended.read().await;
+    let explicitly_ended = ended.is_some();
+
+    let current_state = state.bot_state.read().await;
+
+    Json(serde_json::json!({
+        "success": true,
+        "active": is_active && !stale,
+        "stale": stale,
+        "explicitly_ended": explicitly_ended,
+        "last_heartbeat_ago": heartbeat.map(|h| h.elapsed().as_secs_f64()),
+        "started_at": started.map(|s| s.elapsed().as_secs_f64()),
+        "ended_at": ended.map(|e| e.elapsed().as_secs_f64()),
+        "last_state": *current_state
+    }))
+}
+
+/// Handle bot lifecycle events (hello/goodbye) (POST /bot/lifecycle)
+async fn handle_bot_lifecycle(
+    State(state): State<Arc<AppState>>,
+    Json(body): Json<serde_json::Value>,
+) -> impl IntoResponse {
+    let event = body.get("event").and_then(|v| v.as_str()).unwrap_or("");
+    let reason = body.get("reason").and_then(|v| v.as_str());
+
+    match event {
+        "hello" => {
+            // Bot connected - playtest started
+            state.playtest_active.store(true, std::sync::atomic::Ordering::Relaxed);
+            *state.playtest_started.write().await = Some(std::time::Instant::now());
+            *state.playtest_ended.write().await = None;
+            *state.last_bot_heartbeat.write().await = Some(std::time::Instant::now());
+            tracing::info!("Playtest started - bot connected");
+
+            Json(serde_json::json!({
+                "success": true,
+                "event": "hello",
+                "message": "Bot registered"
+            }))
+        }
+        "goodbye" => {
+            // Bot disconnected - playtest ended
+            state.playtest_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            *state.playtest_ended.write().await = Some(std::time::Instant::now());
+            tracing::info!("Playtest ended - bot disconnected (reason: {:?})", reason);
+
+            Json(serde_json::json!({
+                "success": true,
+                "event": "goodbye",
+                "message": "Bot unregistered"
+            }))
+        }
+        _ => {
+            Json(serde_json::json!({
+                "success": false,
+                "error": format!("Unknown lifecycle event: {}", event)
+            }))
         }
     }
 }

@@ -93,6 +93,52 @@ Control how games are extracted:
 | `autoSync` | `false` | Auto-sync on file changes |
 | `watchPaths` | `["./src"]` | Paths to watch for changes |
 
+## Wally Package Support
+
+RbxSync supports [Wally](https://wally.run/) packages. When enabled, packages are preserved during extraction and excluded from file watching to prevent accidental overwrites.
+
+```json
+{
+  "packages": {
+    "enabled": true,
+    "sharedPackagesPath": "ReplicatedStorage/Packages",
+    "serverPackagesPath": "ServerScriptService/Packages",
+    "excludeFromWatch": true,
+    "preserveOnExtract": true,
+    "packagesFolder": "Packages"
+  }
+}
+```
+
+| Field | Default | Description |
+|-------|---------|-------------|
+| `enabled` | `true` | Enable Wally package support |
+| `sharedPackagesPath` | `ReplicatedStorage/Packages` | DataModel path for shared packages |
+| `serverPackagesPath` | `ServerScriptService/Packages` | DataModel path for server packages |
+| `excludeFromWatch` | `true` | Don't sync package file changes to Studio |
+| `preserveOnExtract` | `true` | Keep local packages instead of overwriting from Studio |
+| `packagesFolder` | `Packages` | Filesystem folder name for packages |
+
+### How It Works
+
+1. **File Watching**: Files in `Packages/` directories are ignored during live sync. This prevents your Wally packages from being accidentally synced back to Studio.
+
+2. **Extraction**: When you extract a game, local Packages folders are preserved from your backup instead of being overwritten by Studio's version. This ensures your `wally.toml` dependencies stay intact.
+
+3. **Wally Workflow**: Use Wally as normal to install packages:
+   ```bash
+   wally install
+   ```
+   Then sync your game code separately with RbxSync.
+
+### Using with Rojo
+
+You can use RbxSync alongside Rojo for Wally packages:
+- Use Rojo to sync your `Packages/` folder
+- Use RbxSync for everything else
+
+Or use RbxSync exclusively by installing packages with Wally and enabling the `packages` config.
+
 ## Migrating from Rojo
 
 If you have an existing Rojo project, migrate automatically:
@@ -152,6 +198,10 @@ Your Rojo files are preserved—you can use both tools side-by-side during migra
   "sync": {
     "mode": "bidirectional",
     "autoSync": false
+  },
+  "packages": {
+    "enabled": true,
+    "preserveOnExtract": true
   }
 }
 ```
