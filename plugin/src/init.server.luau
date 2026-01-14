@@ -23,20 +23,15 @@ local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
 local PLUGIN_VERSION = "1.1.0" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
--- Dynamic function access (avoids static analysis for legitimate plugin features)
--- These are used for MCP/AI integration to execute code and insert models
-local _G_ref = _G
-local _dynExec = _G_ref["lo" .. "adstr" .. "ing"] or loadstring
-local _dynGetEnv = _G_ref["ge" .. "tfe" .. "nv"] or getfenv
-local _dynSetEnv = _G_ref["se" .. "tfe" .. "nv"] or setfenv
-local _dynInsert = "Lo" .. "adAs" .. "set"
+-- Plugin script execution for MCP/AI code runner integration
+-- These functions are standard Roblox plugin APIs used by developer tools
+local executeCode = loadstring
+local getEnvironment = getfenv
+local setEnvironment = setfenv
 
--- Check if loadstring is available (required for run:code)
--- In modern Roblox, loadstring should be available to plugins with PluginSecurity
-if not _dynExec then
-    warn("[RbxSync] loadstring not available - run:code feature will be disabled.")
-else
-    print("[RbxSync] loadstring available - run:code enabled")
+-- Check if code execution is available (standard plugin capability)
+if not executeCode then
+    warn("[RbxSync] Code execution not available - run:code feature disabled")
 end
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
@@ -1441,19 +1436,18 @@ local function handleCommand(command: string, payload: any)
             table.insert(output, table.concat(strs, "\t"))
             oldPrint(...)
         end
-        -- Execute code dynamically
-        -- Re-check loadstring availability (might have been enabled after plugin load)
-        local execFn = _dynExec or _G["lo" .. "adstr" .. "ing"] or loadstring
+        -- Execute code dynamically using standard plugin APIs
+        local execFn = executeCode or loadstring
         if not execFn then
-            return { success = false, error = "loadstring not available. Enable ServerScriptService.LoadStringEnabled in Studio and reload.", output = "" }
+            return { success = false, error = "Code execution not available. Enable LoadStringEnabled in Studio settings.", output = "" }
         end
         local fn, loadErr = execFn(code)
         if not fn then
             return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
         end
-        -- Replace print temporarily using getfenv/setfenv if available
-        local getFn = _dynGetEnv or _G["ge" .. "tfe" .. "nv"] or getfenv
-        local setFn = _dynSetEnv or _G["se" .. "tfe" .. "nv"] or setfenv
+        -- Set up environment for print capture
+        local getFn = getEnvironment or getfenv
+        local setFn = setEnvironment or setfenv
         if getFn and setFn then
             local env = setmetatable({ print = capturePrint }, { __index = getFn() })
             setFn(fn, env)
@@ -1492,9 +1486,9 @@ local function handleCommand(command: string, payload: any)
         local assetId = firstResult.AssetId
         local assetName = firstResult.Name or "Unknown"
 
-        -- Load and insert the model
+        -- Load and insert the model using standard InsertService API
         local loadSuccess, model = pcall(function()
-            return InsertService[_dynInsert](InsertService, assetId)
+            return InsertService:LoadAsset(assetId)
         end)
 
         if not loadSuccess then
