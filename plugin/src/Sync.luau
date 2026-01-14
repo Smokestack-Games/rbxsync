@@ -317,10 +317,33 @@ local function findChildByName(parent: Instance, pathSegment: string): Instance?
     local searchName = unescapePathSegment(baseName)
 
     -- If it's a disambiguated name (has ~N~ suffix), find the Nth instance with that name
+    -- BUT we must match by _rbxsync_source first to avoid counting wrong instances
     if duplicateIndex then
+        -- First try to find by exact source match
+        for _, child in parent:GetChildren() do
+            local sourceAttr = child:GetAttribute(SOURCE_ATTR)
+            if sourceAttr then
+                local sourceLastSegment = string.match(sourceAttr, "[^/]+$")
+                if sourceLastSegment == pathSegment then
+                    return child
+                end
+            end
+        end
+
+        -- If no source match, count by name (for fresh syncs)
+        -- But be careful not to count instances that already have a different source
         local count = 0
         for _, child in parent:GetChildren() do
             if child.Name == searchName then
+                local sourceAttr = child:GetAttribute(SOURCE_ATTR)
+                -- Skip if this child already has a source that doesn't match our path
+                if sourceAttr then
+                    local sourceLastSegment = string.match(sourceAttr, "[^/]+$")
+                    if sourceLastSegment and sourceLastSegment ~= pathSegment then
+                        -- This belongs to a different path, don't count it
+                        continue
+                    end
+                end
                 count = count + 1
                 if count == duplicateIndex then
                     return child
@@ -331,21 +354,33 @@ local function findChildByName(parent: Instance, pathSegment: string): Instance?
         -- This allows syncCreate to make a new instance
         return nil
     else
-        -- No disambiguation - try exact match first (with unescaping)
-        local child = parent:FindFirstChild(searchName)
-        if child then
-            return child
-        end
-
-        -- Try finding by source attribute (match the last segment of the source path)
+        -- No disambiguation - MUST match by _rbxsync_source attribute first
+        -- to avoid accidentally matching a Part that was created for a different path
+        -- (e.g., Part~10~ being matched when looking for Part)
         for _, candidate in parent:GetChildren() do
             local sourceAttr = candidate:GetAttribute(SOURCE_ATTR)
             if sourceAttr then
-                -- Extract the last segment of the source path and compare
                 local sourceLastSegment = string.match(sourceAttr, "[^/]+$")
                 if sourceLastSegment == pathSegment or sourceLastSegment == searchName then
                     return candidate
                 end
+            end
+        end
+
+        -- Only if no source match, try exact name match
+        local child = parent:FindFirstChild(searchName)
+        if child then
+            -- But verify it doesn't have a different source path!
+            local existingSource = child:GetAttribute(SOURCE_ATTR)
+            if existingSource then
+                local existingLastSegment = string.match(existingSource, "[^/]+$")
+                -- If this instance was already assigned a different source path, don't match it
+                if existingLastSegment and existingLastSegment ~= pathSegment and existingLastSegment ~= searchName then
+                    child = nil
+                end
+            end
+            if child then
+                return child
             end
         end
     end
@@ -915,8 +950,22 @@ function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?
     end
 
     -- Update properties
+    -- For CSG unions with separable data, skip CFrame to preserve geometry position
     if data.properties then
-        Sync.applyProperties(instance, data.properties)
+        local isCSGUnion = (data.className == "UnionOperation" or data.className == "IntersectOperation")
+            and data.csg and data.csg.separable
+        if isCSGUnion then
+            -- Filter out CFrame for CSG unions
+            local propsWithoutCFrame = {}
+            for propName, propValue in data.properties do
+                if propName ~= "CFrame" then
+                    propsWithoutCFrame[propName] = propValue
+                end
+            end
+            Sync.applyProperties(instance, propsWithoutCFrame)
+        else
+            Sync.applyProperties(instance, data.properties)
+        end
     end
 
     -- Update script source
@@ -1055,6 +1104,11 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, {str
     local reasons: {string} = {}
     local DEBUG = false -- Enable verbose debugging
 
+    -- Check if this is a CSG union with separable data
+    -- For these, we skip CFrame comparison because the geometry defines position
+    local isCSGUnion = (data.className == "UnionOperation" or data.className == "IntersectOperation")
+        and data.csg and data.csg.separable
+
     -- Check script source (most common change)
     if instance:IsA("LuaSourceContainer") then
         local currentSource = ""
@@ -1128,6 +1182,11 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, {str
     if data.properties then
         for propName, propData in data.properties do
             if skipProps[propName] then
+                continue
+            end
+
+            -- Skip CFrame for CSG unions - geometry defines position
+            if isCSGUnion and propName == "CFrame" then
                 continue
             end
 
