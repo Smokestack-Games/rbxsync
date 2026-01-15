@@ -2052,7 +2052,11 @@
             scrollbar-width: none;
             border-radius: 14px;
             background: var(--bg-secondary);
-            border: 1px solid rgba(255, 255, 255, 0.06);
+            border: 1px solid rgba(255, 255, 255, 0.12);
+        }
+
+        [data-theme="light"] .comparison-table-wrapper {
+            border-color: rgba(0, 0, 0, 0.1);
         }
 
         .comparison-table-wrapper::-webkit-scrollbar {
@@ -2303,48 +2307,22 @@
         .feature-tag {
             display: inline-flex;
             align-items: center;
-            padding: 3px 8px;
-            font-size: 0.5rem;
-            font-weight: 600;
+            padding: 0.15rem 0.5rem;
+            font-size: 0.625rem;
+            font-weight: 700;
             letter-spacing: 0.08em;
             text-transform: uppercase;
             border-radius: 4px;
             line-height: 1;
-            position: relative;
-            color: #2dd4bf;
-            background: rgba(45, 212, 191, 0.08);
-            border: 1px solid rgba(45, 212, 191, 0.25);
-            box-shadow:
-                0 0 8px rgba(45, 212, 191, 0.15),
-                inset 0 1px 0 rgba(255, 255, 255, 0.05);
-            transition: all 0.3s ease;
-        }
-
-        .feature-tag:hover {
-            background: rgba(45, 212, 191, 0.12);
-            border-color: rgba(45, 212, 191, 0.4);
-            box-shadow:
-                0 0 16px rgba(45, 212, 191, 0.25),
-                0 0 4px rgba(45, 212, 191, 0.4),
-                inset 0 1px 0 rgba(255, 255, 255, 0.08);
-            color: #5eead4;
+            color: var(--gold-light);
+            background: rgba(212, 164, 56, 0.12);
+            border: 1px solid rgba(212, 164, 56, 0.25);
         }
 
         [data-theme="light"] .feature-tag {
-            color: #0d9488;
-            background: rgba(13, 148, 136, 0.08);
-            border-color: rgba(13, 148, 136, 0.3);
-            box-shadow:
-                0 0 8px rgba(13, 148, 136, 0.1),
-                inset 0 1px 0 rgba(255, 255, 255, 0.5);
-        }
-
-        [data-theme="light"] .feature-tag:hover {
-            background: rgba(13, 148, 136, 0.12);
-            border-color: rgba(13, 148, 136, 0.5);
-            box-shadow:
-                0 0 12px rgba(13, 148, 136, 0.2),
-                inset 0 1px 0 rgba(255, 255, 255, 0.6);
+            color: var(--gold-dark);
+            background: rgba(184, 146, 46, 0.12);
+            border-color: rgba(184, 146, 46, 0.25);
         }
 
         /* Status icons - SVG based */
