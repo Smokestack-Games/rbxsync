@@ -2677,17 +2677,19 @@
             display: none;
         }
 
-        /* Battle container with aurora effect */
-        .comparison-compact .comparison-battle {
-            display: block;
+        /* Battle aurora wrapper - same as comparison-aurora-wrapper */
+        .battle-aurora-wrapper {
+            display: none;
             position: relative;
-            background: rgba(12, 12, 14, 0.95);
             border-radius: 16px;
-            overflow: hidden;
             isolation: isolate;
         }
 
-        .comparison-compact .comparison-battle::before {
+        .comparison-compact .battle-aurora-wrapper {
+            display: block;
+        }
+
+        .battle-aurora-wrapper::before {
             content: '';
             position: absolute;
             inset: -10px;
@@ -2707,12 +2709,34 @@
             filter: blur(25px);
             opacity: calc(0.25 + var(--aurora-brightness, 0) * 0.4);
             z-index: -1;
-            animation: aurora-spin 20s linear infinite;
         }
 
-        @keyframes aurora-spin {
-            from { --aurora-rotate: 0deg; }
-            to { --aurora-rotate: 360deg; }
+        .battle-aurora-wrapper::after {
+            content: '';
+            position: absolute;
+            inset: -14px;
+            border-radius: 28px;
+            background: conic-gradient(
+                from var(--aurora-rotate-2, 180deg),
+                transparent 0deg,
+                transparent 30deg,
+                rgba(45, 212, 191, 0.3) 60deg,
+                transparent 120deg,
+                transparent 200deg,
+                rgba(99, 102, 241, 0.4) 240deg,
+                transparent 300deg,
+                transparent 360deg
+            );
+            filter: blur(35px);
+            opacity: calc(0.15 + var(--aurora-brightness, 0) * 0.3);
+            z-index: -2;
+        }
+
+        .comparison-compact .comparison-battle {
+            display: block;
+            background: rgba(12, 12, 14, 0.95);
+            border-radius: 16px;
+            overflow: hidden;
         }
 
         .battle-header {
@@ -6380,6 +6404,7 @@
             </div>
 
             <!-- Battle Mode - Mobile Comparison -->
+            <div class="battle-aurora-wrapper">
             <div class="comparison-battle" id="comparison-battle">
                 <div class="battle-header">
                     <div class="battle-tool rbxsync">
@@ -6419,6 +6444,7 @@
                         <span>N/A</span>
                     </div>
                 </div>
+            </div>
             </div>
         </div>
     </section>
@@ -6984,6 +7010,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
 
                     if (winner === 'rbxsync') rbxsyncScore++;
                     else if (winner === 'competitor') competitorScore++;
+                    else if (winner === 'tie') { rbxsyncScore++; competitorScore++; }
 
                     rowsHtml += `
                         <div class="battle-row">
@@ -7894,7 +7921,8 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
             const auroraElements = [
                 document.querySelector('.class-search-input-wrapper'),
                 document.querySelector('.btn-secondary-wrapper'),
-                document.querySelector('.comparison-aurora-wrapper')
+                document.querySelector('.comparison-aurora-wrapper'),
+                document.querySelector('.battle-aurora-wrapper')
             ].filter(Boolean);
 
             if (auroraElements.length === 0) {
@@ -7954,6 +7982,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
 
             addHoverBoost(document.querySelector('.btn-secondary-wrapper'));
             addHoverBoost(document.querySelector('.comparison-aurora-wrapper'));
+            addHoverBoost(document.querySelector('.battle-aurora-wrapper'));
 
             // Proximity-based brightness for all aurora elements
             const proximityRadius = 100; // pixels
