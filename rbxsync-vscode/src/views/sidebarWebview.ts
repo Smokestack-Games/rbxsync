@@ -768,6 +768,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       align-items: flex-start;
       gap: 12px;
       padding: 12px;
+      height: 72px;
       cursor: pointer;
       user-select: none;
       position: fixed;
@@ -800,6 +801,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       0%, 100% { opacity: 1; }
       50% { opacity: 0.7; }
     }
+    .zen-cat-wrapper {
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      flex-shrink: 0;
+      width: 52px;
+    }
     .zen-cat {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 9px;
@@ -808,12 +816,29 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       flex-shrink: 0;
       transition: color 0.3s ease, transform 0.15s ease;
     }
+    .zen-cat-status {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 8px;
+      color: inherit;
+      margin-top: 2px;
+      opacity: 0.6;
+      transition: color 0.3s ease, opacity 0.3s ease;
+      white-space: nowrap;
+      text-align: center;
+    }
     .sink-name {
       color: inherit;
       font-weight: 600;
     }
+    /* Cat mood colors - applied to wrapper so status inherits */
+    .zen-cat-wrapper { color: #a78bfa; }
+    .zen-cat.idle ~ .zen-cat-status { color: #a78bfa; }
+    .zen-cat.syncing { animation: cat-bounce 0.5s ease infinite; }
+    .zen-cat.syncing ~ .zen-cat-status { color: #60a5fa; }
+    .zen-cat.success ~ .zen-cat-status { color: #4ade80; }
+    .zen-cat.error ~ .zen-cat-status { color: #f87171; }
     .zen-cat.idle { color: #a78bfa; }
-    .zen-cat.syncing { color: #60a5fa; animation: cat-bounce 0.5s ease infinite; }
+    .zen-cat.syncing { color: #60a5fa; }
     .zen-cat.success { color: #4ade80; }
     .zen-cat.error { color: #f87171; }
     @keyframes cat-bounce {
@@ -829,6 +854,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     .zen-quote {
       --bubble-bg: var(--bg-surface);
+      --bubble-border: var(--border);
       display: block;
       width: fit-content;
       max-width: 100%;
@@ -836,7 +862,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       color: var(--text-secondary);
       font-style: italic;
       background: var(--bubble-bg);
-      border: 1px solid var(--border);
+      border: 1px solid var(--bubble-border);
       border-radius: 10px;
       padding: 6px 10px;
       position: relative;
@@ -847,28 +873,70 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .zen-quote::after {
       content: '';
       position: absolute;
-      left: -10px;
       border-radius: 50%;
       background: var(--bubble-bg);
-      border: 1px solid var(--border);
+      border: 1px solid var(--bubble-border);
       transition: background 0.3s ease, border-color 0.3s ease;
     }
     .zen-quote::before {
       width: 7px;
       height: 7px;
-      top: 50%;
+      left: -13px;
+      top: 35%;
       transform: translateY(-50%);
+      opacity: 1;
     }
     .zen-quote::after {
       width: 5px;
       height: 5px;
-      left: -18px;
+      left: -23px;
       top: 50%;
       transform: translateY(-50%);
+      opacity: 1;
+    }
+
+    /* Typing animation - crisp, terminal-style appearance */
+    /* Matches the static ASCII cat aesthetic */
+
+    .zen-quote.typing::after {
+      animation: dot-appear 0.15s steps(2, end) forwards;
+    }
+    .zen-quote.typing::before {
+      animation: dot-appear 0.15s steps(2, end) 0.1s forwards;
+    }
+    .zen-quote.typing {
+      animation: bubble-appear 0.2s steps(3, end) 0.18s both;
+    }
+
+    /* Dots snap into existence - no smooth scaling */
+    @keyframes dot-appear {
+      0% {
+        transform: translateY(-50%) scale(0);
+        opacity: 0;
+      }
+      100% {
+        transform: translateY(-50%) scale(1);
+        opacity: 1;
+      }
+    }
+
+    /* Container fades in with slight step effect */
+    @keyframes bubble-appear {
+      0% {
+        opacity: 0;
+      }
+      33% {
+        opacity: 0.4;
+      }
+      66% {
+        opacity: 0.8;
+      }
+      100% {
+        opacity: 1;
+      }
     }
     .zen-cat-container:hover .zen-quote {
       border-color: var(--border-light);
-      color: var(--text-primary);
     }
     /* Typewriter cursor - inline span */
     .typing-cursor {
@@ -1055,7 +1123,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
   <!-- Zen Cat Mascot (Footer) -->
   <div class="zen-cat-container" id="zenCat">
-    <div class="zen-cat idle" id="zenCatArt"></div>
+    <div class="zen-cat-wrapper">
+      <div class="zen-cat idle" id="zenCatArt"></div>
+      <div class="zen-cat-status" id="zenCatStatus">~ Napping...</div>
+    </div>
     <div class="zen-quote-feed">
       <div class="zen-quote" id="zenQuote"></div>
     </div>
@@ -1084,6 +1155,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
  />!<\\\\
   ?!?\`
     };
+
+    // Status indicator text for different moods
+    const CAT_STATUS = {
+      idle: ['~ Napping...', '◦ Dreaming...', '✧ Resting...', '~ Dozing...'],
+      syncing: ['✻ Working...', '◈ Syncing...', '⟳ Pushing...', '✦ Busy...'],
+      success: ['♡ Happy!', '✿ Purrfect!', '★ Done!', '❋ Yay!'],
+      error: ['⚠ Oh no...', '✕ Uh oh...', '◇ Oops...'],
+      thinking: ['✻ Thinking...', '◦ Pondering...', '✧ Hmm...'],
+      connecting: ['◈ Waking...', '✦ Starting...', '⟳ Connecting...'],
+    };
+
+    function updateCatStatus(mood) {
+      const statusEl = document.getElementById('zenCatStatus');
+      if (!statusEl) return;
+      const statuses = CAT_STATUS[mood] || CAT_STATUS.idle;
+      statusEl.textContent = statuses[Math.floor(Math.random() * statuses.length)];
+    }
 
     // Talking cat faces for animation while typing
     const CAT_TALK = [
@@ -1233,36 +1321,25 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       '#2dd4bf', // teal
     ];
 
-    // Zen wisdom quotes
+    // Zen wisdom quotes (short - max 2 lines)
     const ZEN_QUOTES = [
-      "Just breathe",
+      "Just breathe.",
       "Be here now.",
-      "Be right here, right now.",
       "There is only Now.",
       "Breathe and let be.",
       "Pay attention.",
-      "Your body is present; is your mind?",
-      "Be a witness, not a judge.",
       "Attention!",
       "What am I?",
       "Om mani padme hum",
       "When hungry, eat.",
       "When tired, sleep.",
-      "Only go straight — don't know.",
-      "You must become completely crazy.",
-      "Zen mind is before thinking.",
-      "Always keep \\"Don't know\\" mind.",
-      "When you are not thinking, all things are the same.",
       "You are the sky.",
       "YOLO",
-      "Where is my mind right now?",
       "Who is breathing?",
       "Focus on your breath.",
-      "Feelings come and go like clouds.",
       "Let go of thinking.",
       "Just be in this moment.",
       "Do one thing at a time.",
-      "Life is available only in the present moment.",
       "Do dishes, rake leaves.",
       "Chop wood, carry water.",
       "What you think, you become.",
@@ -1274,110 +1351,61 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       "Drink your tea slowly.",
       "Attend the moment.",
       "We have only now.",
-      "Do not be concerned with the fruits of your action.",
       "Do not dwell in the past.",
       "Do not dream of the future.",
-      "Wear gratitude like a cloak.",
-      "Let the beauty of what you love be what you do.",
       "My religion is love.",
       "Listen to your heart.",
-      "The quieter you become, the more you hear.",
-      "You are not a drop in the ocean.",
-      "Love is the bridge between you and everything.",
-      "When you know how to listen, everybody is the guru.",
-      "We're all just walking each other home.",
-      "Every person you look at is a soul.",
-      "When you are fully in the moment, this moment is all there is.",
-      "All problems are illusions of the mind.",
       "If not now, when?",
-      "You cannot be both unhappy and fully present.",
       "Get the inside right.",
-      "Find the life underneath your life situation.",
       "Give your fullest attention.",
       "Gate, gate, paragate...",
-      "Zen is keeping the mind before thinking.",
-      "Who is the master of this body?",
-      "You are already that which you seek.",
       "Let come what comes.",
       "Let go what goes.",
       "See what remains.",
-      "When there is no \\"I\\" there is no karma.",
-      "No one succeeds without effort.",
-      "In the beginning, meditation is within your day.",
       "Each time for the first time.",
       "You need nothing more.",
       "I am detached.",
       "There is only light.",
       "Your thoughts come and go.",
-      "Live in the moment, live in the breath.",
-      "The words you speak become the house you live in.",
-      "Nothing can bring you peace but yourself.",
-      "Be the change you want to see in the world.",
-      "You can't stop the waves, but you can learn to surf.",
-      "Have you eaten your porridge?",
-      "Yes, I have.",
-      "Then you better wash your bowl.",
       "Express yourself as you are.",
-      "When you sit, everything sits with you.",
-      "What we call \\"I\\" is just a swinging door.",
-      "Do not serve your thoughts tea.",
-      "Whatever the moment contains, accept it.",
-      "Establish yourself in the present moment.",
       "Breathe in deeply.",
       "Breathe out slowly.",
       "Feel what you feel now.",
-      "Go through your day as if undercover.",
       "Put it all down.",
       "Let it all go.",
-      "Pay attention to the present moment, on purpose.",
       "We're present now.",
       "Be kind whenever possible.",
       "Nothing else matters now.",
       "Become still and alert."
     ];
 
-    // Sink's personal thoughts and musings
+    // Sink's personal thoughts (short - max 2 lines)
     const SINK_QUOTES = [
-      "Sink wonders what's for dinner...",
-      "Sink thinks you're doing great!",
+      "Sink is hungry...",
       "Sink believes in you~",
-      "Sink had a nice nap earlier.",
-      "Sink is proud of your code.",
-      "Sink enjoys watching you work.",
-      "Sink's favorite time is now.",
-      "Sink thinks bugs are just features in disguise.",
+      "Sink had a nice nap.",
+      "Sink is proud of you!",
       "Sink loves a good sync.",
-      "Sink finds comfort in routine.",
-      "Sink hopes you're staying hydrated!",
-      "Sink appreciates the little things.",
-      "Sink is grateful to be here.",
-      "Sink thinks you need a break soon.",
-      "Sink wonders about the meaning of meow.",
       "Sink feels cozy today.",
-      "Sink is contemplating the void...",
-      "Sink thinks this code is beautiful.",
-      "Sink sends good vibes your way~",
-      "Sink is happy just being here.",
-      "Sink remembers to stretch sometimes.",
-      "Sink believes every bug can be fixed.",
-      "Sink thinks you're a good human.",
-      "Sink dreams of infinite treats.",
-      "Sink finds peace in the terminal.",
+      "Sink sends good vibes~",
+      "Sink is happy here.",
+      "Sink dreams of treats.",
       "Sink is cheering you on!",
-      "Sink thinks errors are just learning opportunities.",
-      "Sink's heart is full today.",
-      "Sink wonders if fish dream of cats...",
-      "Sink appreciates your patience.",
-      "Sink thinks debugging is an art form.",
-      "Sink feels lucky to help you.",
-      "Sink knows you've got this!",
-      "Sink is sending positive energy~",
-      "Sink thinks every save is progress.",
-      "Sink enjoys the sound of typing.",
-      "Sink believes in taking things slow.",
-      "Sink is here if you need a friend.",
-      "Sink thinks coffee breaks are important.",
-      "Sink wonders what you'll build next..."
+      "Sink's heart is full.",
+      "Sink feels lucky today.",
+      "Sink knows you got this!",
+      "Sink enjoys the typing.",
+      "Sink is here for you.",
+      "Sink thinks you're great!",
+      "Sink is contemplating...",
+      "Sink appreciates you.",
+      "Sink is grateful~",
+      "Sink wonders about meow.",
+      "Sink needs more naps.",
+      "Sink likes this code.",
+      "Sink is vibing~",
+      "Sink says keep going!",
+      "Sink found a sunbeam."
     ];
 
     // Combine all quotes
@@ -1453,7 +1481,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       currentTypewriterText = text;
       isTyping = true;
+      element.classList.add('typing');
       element.innerHTML = '<span class="typing-cursor">|</span>';
+      updateCatStatus('thinking');
 
       // Start cat talking animation
       const catEl = document.getElementById('zenCatArt');
@@ -1479,6 +1509,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           typewriterTimeout = setTimeout(typeChar, speed);
         } else {
           isTyping = false;
+          element.classList.remove('typing');
           // Remove cursor when done, show final text
           const catColor = getCatColor();
           element.innerHTML = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
@@ -1568,6 +1599,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       catEl.textContent = CAT_ART[mood] || CAT_ART.idle;
       catEl.className = 'zen-cat ' + mood;
+      updateCatStatus(mood);
     }
 
     // Cat click reaction
@@ -1597,6 +1629,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (quoteEl) {
         quoteEl.style.borderColor = randomColor;
         quoteEl.style.setProperty('--bubble-bg', randomColor + '40');
+        quoteEl.style.setProperty('--bubble-border', randomColor);
       }
 
       // Show cat message with priority
@@ -1614,6 +1647,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (quoteEl) {
           quoteEl.style.borderColor = '';
           quoteEl.style.setProperty('--bubble-bg', '');
+          quoteEl.style.setProperty('--bubble-border', '');
         }
         isClickAnimating = false;
         // Zen quote will naturally cycle after 45 seconds
@@ -1653,12 +1687,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   ~~~\`;
             catEl.style.color = '#facc15';
           }
+          updateCatStatus('connecting');
           if (container) {
             container.classList.add('pulse');
           }
           if (quoteEl) {
             quoteEl.style.borderColor = '#facc15';
             quoteEl.style.setProperty('--bubble-bg', '#facc1540');
+            quoteEl.style.setProperty('--bubble-border', '#facc15');
             const msg = getOperationMessage('serverStart');
             showPriorityMessage(msg, quoteEl, 5000);
           }
@@ -1671,6 +1707,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 *purr*\`;
             catEl.style.color = '#4ade80';
           }
+          updateCatStatus('success');
           if (container) {
             container.classList.remove('pulse');
             container.classList.add('wiggle');
@@ -1679,6 +1716,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           if (quoteEl) {
             quoteEl.style.borderColor = '#4ade80';
             quoteEl.style.setProperty('--bubble-bg', '#4ade8040');
+            quoteEl.style.setProperty('--bubble-border', '#4ade80');
             const msg = getOperationMessage('serverConnected');
             showPriorityMessage(msg, quoteEl, 5000);
           }
@@ -1688,6 +1726,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             if (quoteEl) {
               quoteEl.style.borderColor = '';
               quoteEl.style.setProperty('--bubble-bg', '');
+              quoteEl.style.setProperty('--bubble-border', '');
             }
             updateCatMood('idle');
           }, 3000);
@@ -1706,6 +1745,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           if (quoteEl) {
             quoteEl.style.borderColor = '#a78bfa';
             quoteEl.style.setProperty('--bubble-bg', '#a78bfa40');
+            quoteEl.style.setProperty('--bubble-border', '#a78bfa');
             const msg = getOperationMessage('serverStopped');
             showPriorityMessage(msg, quoteEl, 5000);
           }
@@ -1715,6 +1755,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             if (quoteEl) {
               quoteEl.style.borderColor = '';
               quoteEl.style.setProperty('--bubble-bg', '');
+              quoteEl.style.setProperty('--bubble-border', '');
             }
           }, 3000);
         }
@@ -1742,6 +1783,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           if (quoteEl) {
             quoteEl.style.borderColor = '#60a5fa';
             quoteEl.style.setProperty('--bubble-bg', '#60a5fa40');
+            quoteEl.style.setProperty('--bubble-border', '#60a5fa');
             showPriorityMessage(getOperationMessage('studioJoined'), quoteEl, 4000);
           }
           setTimeout(() => {
@@ -1749,6 +1791,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             if (quoteEl) {
               quoteEl.style.borderColor = '';
               quoteEl.style.setProperty('--bubble-bg', '');
+              quoteEl.style.setProperty('--bubble-border', '');
             }
             updateCatMood('idle');
           }, 3000);
@@ -1764,6 +1807,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           if (quoteEl) {
             quoteEl.style.borderColor = '#a78bfa';
             quoteEl.style.setProperty('--bubble-bg', '#a78bfa40');
+            quoteEl.style.setProperty('--bubble-border', '#a78bfa');
             showPriorityMessage(getOperationMessage('studioLeft'), quoteEl, 4000);
           }
           setTimeout(() => {
@@ -1771,6 +1815,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             if (quoteEl) {
               quoteEl.style.borderColor = '';
               quoteEl.style.setProperty('--bubble-bg', '');
+              quoteEl.style.setProperty('--bubble-border', '');
             }
             updateCatMood('idle');
           }, 3000);
@@ -1802,6 +1847,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           if (quoteEl) {
             quoteEl.style.borderColor = '#4ade80';
             quoteEl.style.setProperty('--bubble-bg', '#4ade8040');
+            quoteEl.style.setProperty('--bubble-border', '#4ade80');
             showPriorityMessage(getOperationMessage('studioLinked'), quoteEl, 4000);
           }
           setTimeout(() => {
@@ -1809,6 +1855,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             if (quoteEl) {
               quoteEl.style.borderColor = '';
               quoteEl.style.setProperty('--bubble-bg', '');
+              quoteEl.style.setProperty('--bubble-border', '');
             }
             updateCatMood('idle');
           }, 3000);
@@ -1828,6 +1875,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           if (quoteEl) {
             quoteEl.style.borderColor = '#facc15';
             quoteEl.style.setProperty('--bubble-bg', '#facc1540');
+            quoteEl.style.setProperty('--bubble-border', '#facc15');
             showPriorityMessage(getOperationMessage('studioUnlinked'), quoteEl, 4000);
           }
           setTimeout(() => {
@@ -1835,6 +1883,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             if (quoteEl) {
               quoteEl.style.borderColor = '';
               quoteEl.style.setProperty('--bubble-bg', '');
+              quoteEl.style.setProperty('--bubble-border', '');
             }
             updateCatMood('idle');
           }, 3000);
