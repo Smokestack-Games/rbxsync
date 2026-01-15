@@ -1934,10 +1934,10 @@ local connectionCorner = Instance.new("UICorner")
 connectionCorner.CornerRadius = UDim.new(0, 6)
 connectionCorner.Parent = connectionFrame
 
--- Border stroke (changes color based on connection status)
+-- Border stroke (subtle, changes color based on connection status)
 local connectionStroke = Instance.new("UIStroke")
 connectionStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-connectionStroke.Color = Colors.textMuted  -- Gray when disconnected
+connectionStroke.Color = Colors.border
 connectionStroke.Thickness = 1
 connectionStroke.Parent = connectionFrame
 
@@ -2031,7 +2031,7 @@ updateConnectionUI = function()
 
     if isConnected then
         connectionDot.BackgroundColor3 = Colors.success
-        connectionStroke.Color = Colors.accent  -- Green border when connected
+        connectionStroke.Color = Colors.accent  -- Bright green border when linked
         connectionFrame.BackgroundColor3 = Color3.fromRGB(28, 36, 30)  -- Slight green tint when connected
         dotGlow.Visible = true
         connectButton.Text = "Disconnect"
@@ -2060,7 +2060,7 @@ updateConnectionUI = function()
         connectionLabel.TextColor3 = Colors.textMuted
         connectionLabel.Position = UDim2.new(0, 28, 0, 0)
         connectionDot.BackgroundColor3 = Colors.textMuted
-        connectionStroke.Color = Colors.textMuted  -- Gray border when disconnected
+        connectionStroke.Color = Colors.border  -- Subtle border when disconnected
         connectionFrame.BackgroundColor3 = Colors.surface  -- Reset to normal when disconnected
         dotGlow.Visible = false
         linkedBadge.Visible = false
@@ -2081,6 +2081,7 @@ connectButton.MouseButton1Click:Connect(function()
         isConnected = false
         userDisconnected = true  -- Prevent auto-reconnect
         hasLoggedLink = false  -- Reset so we log again on reconnect
+        hasShownPathMismatch = false  -- Reset so we check path again on reconnect
         ChangeTracker.setConnected(false)  -- Mark as disconnected
         ChangeTracker.stop()  -- Stop change tracking when disconnected
         stopConsoleCapture()  -- Stop console capture when disconnected
@@ -2592,10 +2593,10 @@ local syncCorner = Instance.new("UICorner")
 syncCorner.CornerRadius = UDim.new(0, 6)
 syncCorner.Parent = syncButton
 
--- Border stroke for sync button (accent colored)
+-- Border stroke for sync button (subtle)
 local syncStroke = Instance.new("UIStroke")
 syncStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-syncStroke.Color = Colors.accent
+syncStroke.Color = Colors.border
 syncStroke.Thickness = 1
 syncStroke.Parent = syncButton
 
@@ -3206,10 +3207,10 @@ local settingsCardCorner = Instance.new("UICorner")
 settingsCardCorner.CornerRadius = UDim.new(0, 6)
 settingsCardCorner.Parent = settingsCard
 
--- Border stroke for settings card (matching other sections)
+-- Border stroke for settings card (subtle like info section)
 local settingsCardStroke = Instance.new("UIStroke")
 settingsCardStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-settingsCardStroke.Color = Colors.textMuted
+settingsCardStroke.Color = Colors.border
 settingsCardStroke.Thickness = 1
 settingsCardStroke.Parent = settingsCard
 
@@ -3861,12 +3862,12 @@ showPathMismatchDialog = function(vscodePath: string, onContinue: () -> (), onFi
     dismissCorner.CornerRadius = UDim.new(0, 6)
     dismissCorner.Parent = dismissBtn
 
-    -- Extract Anyway button (secondary)
+    -- Connect button (secondary) - keep Studio's current path
     local continueBtn = Instance.new("TextButton")
-    continueBtn.Size = UDim2.new(0, 105, 0, 32)
+    continueBtn.Size = UDim2.new(0, 80, 0, 32)
     continueBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 46)
     continueBtn.BorderSizePixel = 0
-    continueBtn.Text = "Extract Anyway"
+    continueBtn.Text = "Connect"
     continueBtn.TextColor3 = Colors.textSecondary
     continueBtn.TextSize = 11
     continueBtn.Font = Enum.Font.GothamMedium
@@ -4826,7 +4827,18 @@ task.spawn(function()
                                             registerWithServer()
                                             print("[RbxSync] Switched to VS Code workspace: " .. vscodePath)
                                         end,
-                                        function() end  -- onCancel: keep current path
+                                        function()  -- onCancel: disconnect
+                                            unlinkFromServer()
+                                            isConnected = false
+                                            userDisconnected = true
+                                            hasShownPathMismatch = false
+                                            lastKnownVscodePath = nil  -- Reset so we re-detect on reconnect
+                                            ChangeTracker.setConnected(false)
+                                            ChangeTracker.stop()
+                                            stopConsoleCapture()
+                                            print("Disconnected - path mismatch cancelled")
+                                            updateConnectionUI()
+                                        end
                                     )
                                 end)
                             end
@@ -4941,7 +4953,18 @@ task.spawn(function()
                                                 registerWithServer()
                                                 print("[RbxSync] Switched to VS Code workspace: " .. vscodePath)
                                             end,
-                                            function() end  -- onCancel: keep current path
+                                            function()  -- onCancel: disconnect
+                                                unlinkFromServer()
+                                                isConnected = false
+                                                userDisconnected = true
+                                                hasShownPathMismatch = false
+                                                lastKnownVscodePath = nil  -- Reset so we re-detect on reconnect
+                                                ChangeTracker.setConnected(false)
+                                                ChangeTracker.stop()
+                                                stopConsoleCapture()
+                                                print("Disconnected - path mismatch cancelled")
+                                                updateConnectionUI()
+                                            end
                                         )
                                     end)
                                 end
