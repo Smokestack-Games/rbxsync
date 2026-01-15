@@ -409,7 +409,8 @@
         [data-theme="light"] {
             --bg-primary: #ffffff;
             --bg-secondary: #f8f9fa;
-            --bg-tertiary: #e9ecef;
+            --bg-tertiary: #f0f1f3;
+            --bg-elevated: #e4e6e9;
             --text-primary: #1a1a2e;
             --text-secondary: #4a5568;
             --text-muted: #718096;
@@ -2071,22 +2072,17 @@
             font-size: 0.8125rem;
         }
 
+        /* ===== TABLE CELLS - Clean, minimal design ===== */
         .comparison-table th,
         .comparison-table td {
             padding: 0.875rem 1rem;
             text-align: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
             vertical-align: middle;
             box-sizing: border-box;
             width: 110px;
             min-width: 110px;
-        }
-
-        /* Remove border-right from last column */
-        .comparison-table th:last-child,
-        .comparison-table td:last-child {
-            border-right: none;
+            background: var(--bg-secondary);
         }
 
         /* Last row - no bottom border */
@@ -2094,26 +2090,21 @@
             border-bottom: none;
         }
 
-        /* First column (feature names) - sticky, opaque */
+        /* First column (feature names) - sticky */
         .comparison-table th:first-child,
         .comparison-table td:first-child {
             text-align: left;
             position: sticky;
             left: 0;
-            background: #0c0c0e;
             z-index: 4;
             width: 240px !important;
             min-width: 240px !important;
             max-width: 240px !important;
             padding-right: 1.5rem;
-            border-right: 1px solid rgba(255, 255, 255, 0.06);
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
         }
 
-        .comparison-table thead th:first-child {
-            background: #1e2124;
-        }
-
-        /* RbxSync column - opaque with subtle tint */
+        /* RbxSync column - sticky, same background */
         .comparison-table th:nth-child(2),
         .comparison-table td:nth-child(2) {
             position: sticky !important;
@@ -2122,117 +2113,57 @@
             width: 110px !important;
             min-width: 110px !important;
             max-width: 110px !important;
-            background: #1a2422;
+            border-right: 1px solid rgba(255, 255, 255, 0.08);
         }
-
-        /* RbxSync header - slightly more prominent */
-        .comparison-table thead th:nth-child(2) {
-            background: #1c2725;
-        }
-
-        [data-theme="light"] .comparison-table th:nth-child(2),
-        [data-theme="light"] .comparison-table td:nth-child(2) {
-            background: #e8f5f3;
-        }
-
-        [data-theme="light"] .comparison-table thead th:nth-child(2) {
-            background: #dff0ed;
-        }
-
 
         /* Header row styling */
         .comparison-table thead th {
-            background: rgba(30, 33, 36, 0.98);
+            background: var(--bg-tertiary);
             font-weight: 600;
             font-size: 0.75rem;
             text-transform: uppercase;
             letter-spacing: 0.05em;
             color: var(--text-muted);
             padding: 1.125rem 1rem;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.08);
+            border-bottom: 1px solid rgba(255, 255, 255, 0.1);
         }
 
-        [data-theme="light"] .comparison-table thead th {
-            background: rgba(240, 242, 245, 0.98);
-            border-bottom-color: rgba(0, 0, 0, 0.08);
-        }
-
-        [data-theme="light"] .comparison-table th:first-child,
-        [data-theme="light"] .comparison-table td:first-child {
-            background: #f8f9fa;
-            border-right-color: rgba(0, 0, 0, 0.08);
-        }
-
-        [data-theme="light"] .comparison-table thead th:first-child {
-            background: #f0f2f5;
-        }
-
+        /* Light theme adjustments */
         [data-theme="light"] .comparison-table th,
         [data-theme="light"] .comparison-table td {
             border-bottom-color: rgba(0, 0, 0, 0.06);
+        }
+
+        [data-theme="light"] .comparison-table th:first-child,
+        [data-theme="light"] .comparison-table td:first-child,
+        [data-theme="light"] .comparison-table th:nth-child(2),
+        [data-theme="light"] .comparison-table td:nth-child(2) {
             border-right-color: rgba(0, 0, 0, 0.08);
         }
 
-        /* Alternating rows for readability */
-        .comparison-table tbody tr:nth-child(odd) td {
-            background: rgba(255, 255, 255, 0.01);
+        [data-theme="light"] .comparison-table thead th {
+            border-bottom-color: rgba(0, 0, 0, 0.1);
         }
 
-        .comparison-table tbody tr:nth-child(odd) td:first-child {
-            background: #0e0e10;
-        }
-
-        .comparison-table tbody tr:nth-child(odd) td:nth-child(2) {
-            background: #1e2926;
-        }
-
-        [data-theme="light"] .comparison-table tbody tr:nth-child(odd) td {
-            background: rgba(0, 0, 0, 0.015);
-        }
-
-        [data-theme="light"] .comparison-table tbody tr:nth-child(odd) td:first-child {
-            background: #f5f6f8;
-        }
-
-        [data-theme="light"] .comparison-table tbody tr:nth-child(odd) td:nth-child(2) {
-            background: #dfeeed;
-        }
-
-        /* Row hover */
+        /* Row hover - subtle uniform highlight */
         .comparison-table tbody tr {
-            transition: all 0.15s ease;
+            transition: background 0.15s ease;
         }
 
         .comparison-table tbody tr:hover td {
-            background: rgba(255, 255, 255, 0.03);
-        }
-
-        .comparison-table tbody tr:hover td:first-child {
-            background: #121214;
-        }
-
-        .comparison-table tbody tr:hover td:nth-child(2) {
-            background: #212e2b;
+            background: var(--bg-tertiary);
         }
 
         [data-theme="light"] .comparison-table tbody tr:hover td {
-            background: rgba(0, 0, 0, 0.03);
-        }
-
-        [data-theme="light"] .comparison-table tbody tr:hover td:first-child {
-            background: #eef0f2;
-        }
-
-        [data-theme="light"] .comparison-table tbody tr:hover td:nth-child(2) {
-            background: #d5e9e7;
+            background: var(--bg-tertiary);
         }
 
         /* Tool header cells */
         .tool-header {
             position: relative;
-            padding: 0.875rem 0.75rem !important;
+            padding: 0.5rem 0.75rem !important;
             vertical-align: middle;
-            height: 90px;
+            height: 72px;
         }
 
         .tool-header-content {
@@ -2240,7 +2171,7 @@
             flex-direction: column;
             align-items: center;
             justify-content: center;
-            gap: 0.5rem;
+            gap: 0;
             height: 100%;
         }
 
@@ -2252,8 +2183,8 @@
         }
 
         .tool-header-logo {
-            width: 32px;
-            height: 32px;
+            width: 40px;
+            height: 40px;
             object-fit: contain;
         }
 
@@ -2264,13 +2195,12 @@
         /* Column highlight when selected via pills */
         .comparison-table th.column-highlight,
         .comparison-table td.column-highlight {
-            background: rgba(194, 60, 64, 0.08) !important;
-            box-shadow: inset 0 0 0 1px rgba(194, 60, 64, 0.2);
+            background: var(--bg-elevated) !important;
         }
 
         [data-theme="light"] .comparison-table th.column-highlight,
         [data-theme="light"] .comparison-table td.column-highlight {
-            background: rgba(194, 60, 64, 0.06) !important;
+            background: var(--bg-tertiary) !important;
         }
 
         /* RbxSync column class - inherits aurora from nth-child(2) */
@@ -2456,14 +2386,10 @@
 
         .competitor-pills {
             display: flex;
+            justify-content: center;
+            flex-wrap: wrap;
             gap: 0.5rem;
-            overflow-x: auto;
             padding: 0.25rem;
-            margin: -0.25rem;
-            scrollbar-width: none;
-            -webkit-overflow-scrolling: touch;
-            mask-image: linear-gradient(to right, transparent, black 0.5rem, black calc(100% - 0.5rem), transparent);
-            -webkit-mask-image: linear-gradient(to right, transparent, black 0.5rem, black calc(100% - 0.5rem), transparent);
         }
 
         /* Centered selector in compact mode */
@@ -2687,6 +2613,8 @@
 
         .comparison-compact .battle-aurora-wrapper {
             display: block;
+            width: calc(100% - 2rem);
+            max-width: 600px;
         }
 
         .battle-aurora-wrapper::before {
@@ -2751,7 +2679,7 @@
 
         .comparison-compact .comparison-battle {
             display: block;
-            background: rgba(12, 12, 14, 0.95);
+            background: #0c0c0e;
             border-radius: 16px;
             overflow: hidden;
         }
@@ -2774,8 +2702,8 @@
         }
 
         .battle-tool-logo {
-            width: 36px;
-            height: 36px;
+            width: 44px;
+            height: 44px;
             object-fit: contain;
             border-radius: 6px;
         }
@@ -2804,44 +2732,17 @@
             padding: 0;
         }
 
-        /* Score tally */
+        /* Hide score tally */
         .battle-score {
-            display: flex;
-            justify-content: center;
-            gap: 2rem;
-            padding: 0.625rem 1rem;
-            background: rgba(255, 255, 255, 0.02);
-            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
-        }
-
-        .battle-score-item {
-            display: flex;
-            align-items: center;
-            gap: 0.5rem;
-            font-size: 0.75rem;
-            font-weight: 600;
-        }
-
-        .battle-score-item.rbxsync {
-            color: var(--success);
-        }
-
-        .battle-score-item.competitor {
-            color: var(--text-muted);
-        }
-
-        .battle-score-value {
-            font-size: 1.125rem;
-            font-weight: 700;
+            display: none;
         }
 
         .battle-row {
             display: grid;
-            grid-template-columns: 1fr 60px 60px;
+            grid-template-columns: 1.2fr 1fr 1fr;
             align-items: center;
-            border-bottom: 1px solid rgba(255, 255, 255, 0.04);
-            padding: 0.5rem 0.75rem;
-            gap: 0.375rem;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+            padding: 0;
         }
 
         .battle-row:last-child {
@@ -2852,9 +2753,22 @@
             font-size: 0.8125rem;
             font-weight: 500;
             color: var(--text-secondary);
+            padding: 0.5rem 0.75rem;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
         }
 
         .battle-cell {
+            display: flex;
+            justify-content: center;
+            padding: 0.5rem 0;
+            border-right: 1px solid rgba(255, 255, 255, 0.06);
+        }
+
+        .battle-cell:last-child {
+            border-right: none;
+        }
+
+        .battle-cell-inner {
             display: flex;
             justify-content: center;
             align-items: center;
@@ -2871,9 +2785,10 @@
         }
 
         .battle-cell .exclusive-tag {
-            font-size: 0.5rem;
-            padding: 0.15rem 0.4rem;
-            padding-left: calc(0.4rem + 0.08em);
+            font-size: 0.5625rem;
+            padding: 0.2rem 0.4rem;
+            padding-left: calc(0.4rem + 0.05em);
+            letter-spacing: 0.06em;
         }
 
         /* Battle legend */
@@ -2939,6 +2854,14 @@
 
         [data-theme="light"] .battle-row {
             border-bottom-color: rgba(0, 0, 0, 0.04);
+        }
+
+        [data-theme="light"] .battle-feature-name {
+            border-right-color: rgba(0, 0, 0, 0.06);
+        }
+
+        [data-theme="light"] .battle-cell {
+            border-right-color: rgba(0, 0, 0, 0.06);
         }
 
         [data-theme="light"] .battle-cell.rbxsync {
@@ -6978,10 +6901,11 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
 
             const featureData = extractFeatureData();
 
-            // Generate status icon HTML
-            function getStatusIcon(status) {
+            // Generate status icon HTML (compact = true for battle mode)
+            function getStatusIcon(status, compact = false) {
                 if (status === 'exclusive') {
-                    return '<span class="exclusive-tag">Exclusive</span>';
+                    const text = compact ? 'Excl' : 'Exclusive';
+                    return `<span class="exclusive-tag">${text}</span>`;
                 } else if (status === 'yes') {
                     return '<span class="status-icon yes"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="3"><path d="M20 6L9 17l-5-5"/></svg></span>';
                 } else if (status === 'partial') {
@@ -7032,8 +6956,8 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                     rowsHtml += `
                         <div class="battle-row">
                             <div class="battle-feature-name">${feature.featureName}</div>
-                            <div class="battle-cell rbxsync${animate ? ' fade-in' : ''}">${getStatusIcon(feature.rbxsyncStatus)}</div>
-                            <div class="battle-cell competitor${animate ? ' fade-in' : ''}">${getStatusIcon(competitorStatus)}</div>
+                            <div class="battle-cell rbxsync${animate ? ' fade-in' : ''}">${getStatusIcon(feature.rbxsyncStatus, true)}</div>
+                            <div class="battle-cell competitor${animate ? ' fade-in' : ''}">${getStatusIcon(competitorStatus, true)}</div>
                         </div>
                     `;
                 });
