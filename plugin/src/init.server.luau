@@ -565,6 +565,9 @@ local ExtractButtonState = {
 }
 local updateExtractButtonState: (state: string) -> () = function() end
 
+-- Forward declaration for viewport notification (defined in UI section)
+local dismissViewportNotification: () -> () = function() end
+
 -- Extract full game
 local function extractGame(config: {any})
     if isExtracting then
@@ -1963,17 +1966,28 @@ local dotGlowCorner = Instance.new("UICorner")
 dotGlowCorner.CornerRadius = UDim.new(1, 0)
 dotGlowCorner.Parent = dotGlow
 
--- Link icon (shows when linked to a workspace) - chain link style
-local linkIcon = Instance.new("ImageLabel")
-linkIcon.Name = "LinkIcon"
-linkIcon.Size = UDim2.new(0, 14, 0, 14)
-linkIcon.Position = UDim2.new(0, 26, 0.5, -7)
-linkIcon.BackgroundTransparency = 1
-linkIcon.Image = "rbxassetid://99625725727957"
-linkIcon.ImageColor3 = Colors.accent
-linkIcon.ScaleType = Enum.ScaleType.Fit
-linkIcon.Visible = false  -- Hidden by default
-linkIcon.Parent = connectionFrame
+-- LINKED badge (filled pill style - shows when linked to a workspace)
+local linkedBadge = Instance.new("Frame")
+linkedBadge.Name = "LinkedBadge"
+linkedBadge.Size = UDim2.new(0, 46, 0, 18)
+linkedBadge.Position = UDim2.new(0, 26, 0.5, -9)
+linkedBadge.BackgroundColor3 = Colors.accent
+linkedBadge.BorderSizePixel = 0
+linkedBadge.Visible = false  -- Hidden by default
+linkedBadge.Parent = connectionFrame
+
+local linkedBadgeCorner = Instance.new("UICorner")
+linkedBadgeCorner.CornerRadius = UDim.new(0, 4)
+linkedBadgeCorner.Parent = linkedBadge
+
+local linkedBadgeLabel = Instance.new("TextLabel")
+linkedBadgeLabel.Size = UDim2.new(1, 0, 1, 0)
+linkedBadgeLabel.BackgroundTransparency = 1
+linkedBadgeLabel.Text = "LINKED"
+linkedBadgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+linkedBadgeLabel.TextSize = 9
+linkedBadgeLabel.Font = Enum.Font.GothamBold
+linkedBadgeLabel.Parent = linkedBadge
 
 local connectionLabel = Instance.new("TextLabel")
 connectionLabel.Size = UDim2.new(1, -100, 1, 0)
@@ -2024,23 +2038,23 @@ updateConnectionUI = function()
         connectButton.TextColor3 = Colors.textPrimary
         connectBtnStroke.Transparency = 0  -- Show outline for Disconnect button
 
-        -- Show link icon and adjust label if linked to workspace
+        -- Show LINKED badge if linked to workspace
         if isLinked then
-            linkIcon.Visible = true
-            connectionLabel.Position = UDim2.new(0, 44, 0, 0)  -- Shift right for link icon
-            connectionLabel.Text = "Linked"
-            connectionLabel.TextColor3 = Colors.accent  -- Use accent green for linked text
+            linkedBadge.Visible = true
+            connectionLabel.Visible = false  -- Hide label when badge is shown
         else
-            linkIcon.Visible = false
+            linkedBadge.Visible = false
+            connectionLabel.Visible = true
             connectionLabel.Position = UDim2.new(0, 28, 0, 0)
             connectionLabel.Text = "Connected"
-            connectionLabel.TextColor3 = Colors.textSecondary  -- Muted for just connected
+            connectionLabel.TextColor3 = Colors.textSecondary
         end
 
         -- Update button states
         updateSyncButtonState(SyncButtonState.IDLE)
         updateExtractButtonState(ExtractButtonState.IDLE)
     else
+        connectionLabel.Visible = true
         connectionLabel.Text = "Disconnected"
         connectionLabel.TextColor3 = Colors.textMuted
         connectionLabel.Position = UDim2.new(0, 28, 0, 0)
@@ -2048,7 +2062,7 @@ updateConnectionUI = function()
         connectionStroke.Color = Colors.textMuted  -- Gray border when disconnected
         connectionFrame.BackgroundColor3 = Colors.surface  -- Reset to normal when disconnected
         dotGlow.Visible = false
-        linkIcon.Visible = false
+        linkedBadge.Visible = false
         connectButton.Text = "Connect"
         connectButton.BackgroundColor3 = Colors.accent
         connectButton.TextColor3 = Colors.background
@@ -2077,6 +2091,7 @@ connectButton.MouseButton1Click:Connect(function()
         local success, _ = httpGet("/health")
         if success then
             isConnected = true
+            dismissViewportNotification()  -- Dismiss viewport notification if shown
             registerWithServer()
 
             -- Check for queued changes before fully connecting
@@ -2453,10 +2468,10 @@ actionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
 actionsLayout.Padding = UDim.new(0, 8)
 actionsLayout.Parent = actionsFrame
 
--- Extract Button (Primary style with accent background and depth)
+-- Extract Button (Secondary style - outlined)
 local extractButton = Instance.new("TextButton")
 extractButton.Size = UDim2.new(0.5, -4, 1, 0)
-extractButton.BackgroundColor3 = Colors.accentMuted
+extractButton.BackgroundColor3 = Colors.surface
 extractButton.BorderSizePixel = 0
 extractButton.Text = ""
 extractButton.LayoutOrder = 1
@@ -2471,18 +2486,18 @@ extractCorner.Parent = extractButton
 -- Border stroke for extract button
 local extractStroke = Instance.new("UIStroke")
 extractStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-extractStroke.Color = Colors.accent
+extractStroke.Color = Colors.border
 extractStroke.Thickness = 1
 extractStroke.Parent = extractButton
 
--- Extract button icon
+-- Extract button icon (larger for better visibility)
 local extractIcon = Instance.new("ImageLabel")
 extractIcon.Name = "Icon"
-extractIcon.Size = UDim2.new(0, 16, 0, 16)
-extractIcon.Position = UDim2.new(0, 12, 0.5, -8)
+extractIcon.Size = UDim2.new(0, 20, 0, 20)
+extractIcon.Position = UDim2.new(0, 10, 0.5, -10)
 extractIcon.BackgroundTransparency = 1
 extractIcon.Image = "rbxassetid://83856799245957"
-extractIcon.ImageColor3 = Colors.accent
+extractIcon.ImageColor3 = Colors.textSecondary
 extractIcon.ScaleType = Enum.ScaleType.Fit
 extractIcon.Parent = extractButton
 
@@ -2493,7 +2508,7 @@ extractLabel.Size = UDim2.new(1, -34, 1, 0)
 extractLabel.Position = UDim2.new(0, 32, 0, 0)
 extractLabel.BackgroundTransparency = 1
 extractLabel.Text = "Extract"
-extractLabel.TextColor3 = Colors.accent
+extractLabel.TextColor3 = Colors.textPrimary
 extractLabel.TextSize = 12
 extractLabel.Font = Enum.Font.GothamBold
 extractLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -2501,10 +2516,10 @@ extractLabel.Parent = extractButton
 
 -- Hover effect for Extract button
 extractButton.MouseEnter:Connect(function()
-    extractButton.BackgroundColor3 = Color3.fromRGB(44, 94, 64)
+    extractButton.BackgroundColor3 = Colors.surfaceHover
 end)
 extractButton.MouseLeave:Connect(function()
-    extractButton.BackgroundColor3 = Colors.accentMuted
+    extractButton.BackgroundColor3 = Colors.surface
 end)
 
 extractButton.MouseButton1Click:Connect(function()
@@ -2552,10 +2567,10 @@ extractButton.MouseButton1Click:Connect(function()
     updateButtonBadges()
 end)
 
--- Sync Button (Secondary - subtle surface with depth)
+-- Sync Button (Primary - solid green accent)
 local syncButton = Instance.new("TextButton")
 syncButton.Size = UDim2.new(0.5, -4, 1, 0)
-syncButton.BackgroundColor3 = Colors.surface
+syncButton.BackgroundColor3 = Colors.accent
 syncButton.BorderSizePixel = 0
 syncButton.Text = ""
 syncButton.LayoutOrder = 2
@@ -2567,21 +2582,21 @@ local syncCorner = Instance.new("UICorner")
 syncCorner.CornerRadius = UDim.new(0, 6)
 syncCorner.Parent = syncButton
 
--- Border stroke for sync button
+-- Border stroke for sync button (accent colored)
 local syncStroke = Instance.new("UIStroke")
 syncStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-syncStroke.Color = Colors.textMuted
+syncStroke.Color = Colors.accent
 syncStroke.Thickness = 1
 syncStroke.Parent = syncButton
 
--- Sync button icon
+-- Sync button icon (larger for better visibility)
 local syncIcon = Instance.new("ImageLabel")
 syncIcon.Name = "Icon"
-syncIcon.Size = UDim2.new(0, 16, 0, 16)
-syncIcon.Position = UDim2.new(0, 12, 0.5, -8)
+syncIcon.Size = UDim2.new(0, 20, 0, 20)
+syncIcon.Position = UDim2.new(0, 10, 0.5, -10)
 syncIcon.BackgroundTransparency = 1
 syncIcon.Image = "rbxassetid://85502241059648"
-syncIcon.ImageColor3 = Colors.textSecondary
+syncIcon.ImageColor3 = Colors.background
 syncIcon.ScaleType = Enum.ScaleType.Fit
 syncIcon.Parent = syncButton
 
@@ -2592,7 +2607,7 @@ syncLabel.Size = UDim2.new(1, -34, 1, 0)
 syncLabel.Position = UDim2.new(0, 32, 0, 0)
 syncLabel.BackgroundTransparency = 1
 syncLabel.Text = "Sync"
-syncLabel.TextColor3 = Colors.textPrimary
+syncLabel.TextColor3 = Colors.background
 syncLabel.TextSize = 12
 syncLabel.Font = Enum.Font.GothamBold
 syncLabel.TextXAlignment = Enum.TextXAlignment.Left
@@ -2600,10 +2615,10 @@ syncLabel.Parent = syncButton
 
 -- Hover effect for Sync button
 syncButton.MouseEnter:Connect(function()
-    syncButton.BackgroundColor3 = Colors.surfaceHover
+    syncButton.BackgroundColor3 = Colors.accentHover
 end)
 syncButton.MouseLeave:Connect(function()
-    syncButton.BackgroundColor3 = Colors.surface
+    syncButton.BackgroundColor3 = Colors.accent
 end)
 
 -- Define button state update functions
@@ -2622,11 +2637,10 @@ updateSyncButtonState = function(state: string)
     if state == SyncButtonState.IDLE then
         -- Stop timer if running
         operationState.syncStartTime = nil
-        -- Ready state: subtle secondary style
-        syncButton.BackgroundColor3 = Colors.surface
-        syncLabel.TextColor3 = Colors.textPrimary
-        syncIcon.ImageColor3 = Colors.textSecondary
-        syncStroke.Color = Colors.textMuted
+        -- Ready state: primary solid green style
+        syncButton.BackgroundColor3 = Colors.accent
+        syncLabel.TextColor3 = Colors.background
+        syncIcon.ImageColor3 = Colors.background
         -- Show last sync time if available
         if operationState.lastSyncDuration and operationState.lastSyncCount then
             syncLabel.Text = string.format("Sync (%.1fs)", operationState.lastSyncDuration)
@@ -2635,11 +2649,10 @@ updateSyncButtonState = function(state: string)
         end
 
     elseif state == SyncButtonState.SYNCING then
-        -- Active syncing: accent color with timer
-        syncButton.BackgroundColor3 = Colors.accent
+        -- Active syncing: slightly brighter accent with timer
+        syncButton.BackgroundColor3 = Colors.accentHover
         syncLabel.TextColor3 = Colors.background
         syncIcon.ImageColor3 = Colors.background
-        syncStroke.Color = Colors.accent
 
         -- Start timer update
         operationState.syncStartTime = os.clock()
@@ -2661,7 +2674,6 @@ updateSyncButtonState = function(state: string)
         syncButton.BackgroundColor3 = Colors.surface
         syncLabel.TextColor3 = Colors.textMuted
         syncIcon.ImageColor3 = Colors.textMuted
-        syncStroke.Color = Colors.textMuted
         syncLabel.Text = "Sync"
         syncButton.BackgroundTransparency = 0.5
 
@@ -2675,7 +2687,6 @@ updateSyncButtonState = function(state: string)
         syncButton.BackgroundColor3 = Colors.success
         syncLabel.TextColor3 = Colors.background
         syncIcon.ImageColor3 = Colors.background
-        syncStroke.Color = Colors.success
         if operationState.lastSyncDuration then
             syncLabel.Text = string.format("✓ %.1fs", operationState.lastSyncDuration)
         else
@@ -2706,11 +2717,11 @@ updateExtractButtonState = function(state: string)
     if state == ExtractButtonState.IDLE then
         -- Stop timer if running
         operationState.extractStartTime = nil
-        -- Ready state: accent-colored style
-        extractButton.BackgroundColor3 = Colors.accentMuted
-        extractLabel.TextColor3 = Colors.accent
-        extractIcon.ImageColor3 = Colors.accent
-        extractStroke.Color = Colors.accent
+        -- Ready state: secondary style with border
+        extractButton.BackgroundColor3 = Colors.surface
+        extractLabel.TextColor3 = Colors.textPrimary
+        extractIcon.ImageColor3 = Colors.textSecondary
+        extractStroke.Color = Colors.border
         -- Show last extract time if available
         if operationState.lastExtractDuration and operationState.lastExtractCount then
             extractLabel.Text = string.format("Extract (%.1fs)", operationState.lastExtractDuration)
@@ -3008,7 +3019,7 @@ infoSectionPadding.Parent = infoSection
 
 local infoFrame = Instance.new("Frame")
 infoFrame.Size = UDim2.new(1, 0, 1, 0)
-infoFrame.BackgroundColor3 = Color3.fromRGB(38, 38, 42)  -- Slightly lighter for read-only card
+infoFrame.BackgroundColor3 = Color3.fromRGB(26, 32, 28)  -- Subtle green tint for project info
 infoFrame.BorderSizePixel = 0
 infoFrame.ClipsDescendants = true  -- Clip accent bar to rounded corners
 infoFrame.Parent = infoSection
@@ -3017,12 +3028,24 @@ local infoFrameCorner = Instance.new("UICorner")
 infoFrameCorner.CornerRadius = UDim.new(0, 6)
 infoFrameCorner.Parent = infoFrame
 
--- Yellow border stroke for info section
+-- Green border stroke for info section (matches accent)
 local infoStroke = Instance.new("UIStroke")
 infoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-infoStroke.Color = Color3.fromRGB(120, 100, 40)  -- Muted yellow for read-only appearance
+infoStroke.Color = Colors.accentMuted
 infoStroke.Thickness = 1
 infoStroke.Parent = infoFrame
+
+-- Left accent bar for visual interest
+local infoAccentBar = Instance.new("Frame")
+infoAccentBar.Size = UDim2.new(0, 3, 1, -12)
+infoAccentBar.Position = UDim2.new(0, 6, 0, 6)
+infoAccentBar.BackgroundColor3 = Colors.accent
+infoAccentBar.BorderSizePixel = 0
+infoAccentBar.Parent = infoFrame
+
+local infoAccentCorner = Instance.new("UICorner")
+infoAccentCorner.CornerRadius = UDim.new(0, 2)
+infoAccentCorner.Parent = infoAccentBar
 
 -- Content frame for text (with layout and padding)
 local infoContent = Instance.new("Frame")
@@ -3032,36 +3055,36 @@ infoContent.Parent = infoFrame
 
 local infoLayout = Instance.new("UIListLayout")
 infoLayout.SortOrder = Enum.SortOrder.LayoutOrder
-infoLayout.Padding = UDim.new(0, 4)
+infoLayout.Padding = UDim.new(0, 3)
 infoLayout.Parent = infoContent
 
 local infoPadding = Instance.new("UIPadding")
-infoPadding.PaddingTop = UDim.new(0, 10)
-infoPadding.PaddingLeft = UDim.new(0, 8)
-infoPadding.PaddingRight = UDim.new(0, 12)
+infoPadding.PaddingTop = UDim.new(0, 8)
+infoPadding.PaddingLeft = UDim.new(0, 16)  -- More padding for accent bar
+infoPadding.PaddingRight = UDim.new(0, 10)
 infoPadding.Parent = infoContent
 
--- Place name line
+-- Place name line (larger and bolder)
 local placeNameLine = Instance.new("TextLabel")
-placeNameLine.Size = UDim2.new(1, 0, 0, 18)
+placeNameLine.Size = UDim2.new(1, 0, 0, 20)
 placeNameLine.BackgroundTransparency = 1
 placeNameLine.Text = "Loading..."
 placeNameLine.TextColor3 = Colors.textPrimary
-placeNameLine.TextSize = 13
-placeNameLine.Font = Enum.Font.GothamMedium
+placeNameLine.TextSize = 14
+placeNameLine.Font = Enum.Font.GothamBold
 placeNameLine.TextXAlignment = Enum.TextXAlignment.Left
 placeNameLine.TextTruncate = Enum.TextTruncate.AtEnd
 placeNameLine.LayoutOrder = 1
 placeNameLine.Parent = infoContent
 
--- Instance count line
+-- Instance count line (more visible)
 local instanceLine = Instance.new("TextLabel")
-instanceLine.Size = UDim2.new(1, 0, 0, 14)
+instanceLine.Size = UDim2.new(1, 0, 0, 16)
 instanceLine.BackgroundTransparency = 1
 instanceLine.Text = "..."
-instanceLine.TextColor3 = Colors.textSecondary
-instanceLine.TextSize = 11
-instanceLine.Font = Enum.Font.Gotham
+instanceLine.TextColor3 = Colors.accent  -- Green for key stats
+instanceLine.TextSize = 12
+instanceLine.Font = Enum.Font.GothamMedium
 instanceLine.TextXAlignment = Enum.TextXAlignment.Left
 instanceLine.LayoutOrder = 2
 instanceLine.Parent = infoContent
@@ -3072,7 +3095,7 @@ optimizationLine.Size = UDim2.new(1, 0, 0, 14)
 optimizationLine.BackgroundTransparency = 1
 optimizationLine.Text = ""
 optimizationLine.TextColor3 = Colors.textSecondary
-optimizationLine.TextSize = 10
+optimizationLine.TextSize = 11
 optimizationLine.Font = Enum.Font.Gotham
 optimizationLine.TextXAlignment = Enum.TextXAlignment.Left
 optimizationLine.LayoutOrder = 3
@@ -3901,7 +3924,7 @@ end
 local CoreGui = game:GetService("CoreGui")
 local viewportNotification: ScreenGui? = nil
 
-local function dismissViewportNotification()
+dismissViewportNotification = function()
     if viewportNotification then
         -- Animate out
         local frame = viewportNotification:FindFirstChild("NotificationFrame")
@@ -3949,149 +3972,144 @@ local function showViewportNotification(projectName: string?, host: string?, por
     end
     viewportNotification = screenGui
 
-    -- Main notification frame (bottom-right corner)
+    -- Main notification frame (bottom-right corner) - refined design
     local frame = Instance.new("Frame")
     frame.Name = "NotificationFrame"
-    frame.Size = UDim2.new(0, 320, 0, 100)
-    frame.Position = UDim2.new(1, 20, 1, -20)  -- Start off-screen for animation
+    frame.Size = UDim2.new(0, 380, 0, 155)
+    frame.Position = UDim2.new(1, 20, 1, -24)  -- Start off-screen for animation
     frame.AnchorPoint = Vector2.new(1, 1)
-    frame.BackgroundColor3 = Color3.fromRGB(30, 30, 34)
+    frame.BackgroundColor3 = Color3.fromRGB(28, 28, 32)
     frame.BorderSizePixel = 0
     frame.Parent = screenGui
 
     local frameCorner = Instance.new("UICorner")
-    frameCorner.CornerRadius = UDim.new(0, 8)
+    frameCorner.CornerRadius = UDim.new(0, 12)
     frameCorner.Parent = frame
 
     local frameStroke = Instance.new("UIStroke")
     frameStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    frameStroke.Color = Colors.accent
+    frameStroke.Color = Color3.fromRGB(60, 60, 70)
     frameStroke.Thickness = 1
     frameStroke.Parent = frame
 
     -- Drop shadow effect
     local shadow = Instance.new("ImageLabel")
     shadow.Name = "Shadow"
-    shadow.Size = UDim2.new(1, 20, 1, 20)
-    shadow.Position = UDim2.new(0.5, 0, 0.5, 4)
+    shadow.Size = UDim2.new(1, 40, 1, 40)
+    shadow.Position = UDim2.new(0.5, 0, 0.5, 8)
     shadow.AnchorPoint = Vector2.new(0.5, 0.5)
     shadow.BackgroundTransparency = 1
     shadow.Image = "rbxassetid://5554236805"
     shadow.ImageColor3 = Color3.fromRGB(0, 0, 0)
-    shadow.ImageTransparency = 0.6
+    shadow.ImageTransparency = 0.4
     shadow.ScaleType = Enum.ScaleType.Slice
     shadow.SliceCenter = Rect.new(23, 23, 277, 277)
     shadow.ZIndex = -1
     shadow.Parent = frame
 
-    -- RbxSync logo/icon area
-    local iconFrame = Instance.new("Frame")
-    iconFrame.Size = UDim2.new(0, 40, 0, 40)
-    iconFrame.Position = UDim2.new(0, 12, 0, 12)
-    iconFrame.BackgroundColor3 = Colors.accentMuted
-    iconFrame.BorderSizePixel = 0
-    iconFrame.Parent = frame
+    -- Accent bar on left edge
+    local accentBar = Instance.new("Frame")
+    accentBar.Size = UDim2.new(0, 4, 1, -24)
+    accentBar.Position = UDim2.new(0, 12, 0, 12)
+    accentBar.BackgroundColor3 = Colors.accent
+    accentBar.BorderSizePixel = 0
+    accentBar.Parent = frame
 
-    local iconCorner = Instance.new("UICorner")
-    iconCorner.CornerRadius = UDim.new(0, 6)
-    iconCorner.Parent = iconFrame
+    local accentCorner = Instance.new("UICorner")
+    accentCorner.CornerRadius = UDim.new(0, 2)
+    accentCorner.Parent = accentBar
 
-    local iconLabel = Instance.new("TextLabel")
-    iconLabel.Size = UDim2.new(1, 0, 1, 0)
-    iconLabel.BackgroundTransparency = 1
-    iconLabel.Text = "⟳"
-    iconLabel.TextColor3 = Colors.accent
-    iconLabel.TextSize = 24
-    iconLabel.Font = Enum.Font.GothamBold
-    iconLabel.Parent = iconFrame
+    -- RbxSync logo/icon
+    local iconImage = Instance.new("ImageLabel")
+    iconImage.Size = UDim2.new(0, 44, 0, 44)
+    iconImage.Position = UDim2.new(0, 28, 0, 18)
+    iconImage.BackgroundTransparency = 1
+    iconImage.Image = "rbxassetid://134458909684902"  -- RbxSync icon
+    iconImage.ScaleType = Enum.ScaleType.Fit
+    iconImage.Parent = frame
 
     -- Title
     local title = Instance.new("TextLabel")
-    title.Size = UDim2.new(1, -70, 0, 18)
-    title.Position = UDim2.new(0, 60, 0, 12)
+    title.Size = UDim2.new(1, -100, 0, 22)
+    title.Position = UDim2.new(0, 84, 0, 18)
     title.BackgroundTransparency = 1
     title.Text = "RbxSync Server Detected"
     title.TextColor3 = Colors.textPrimary
-    title.TextSize = 13
+    title.TextSize = 15
     title.Font = Enum.Font.GothamBold
     title.TextXAlignment = Enum.TextXAlignment.Left
     title.Parent = frame
 
-    -- Message
+    -- Message - wider area with proper text wrapping
     local displayName = projectName or "Project"
-    local displayHost = host or "localhost"
-    local displayPort = port or 44755
     local message = Instance.new("TextLabel")
-    message.Size = UDim2.new(1, -70, 0, 28)
-    message.Position = UDim2.new(0, 60, 0, 30)
+    message.Size = UDim2.new(1, -100, 0, 44)
+    message.Position = UDim2.new(0, 84, 0, 42)
     message.BackgroundTransparency = 1
-    message.Text = string.format("%s is ready at %s:%d", displayName, displayHost, displayPort)
+    message.Text = string.format("'%s' is ready to sync. Connect to sync files between Studio and your local filesystem.", displayName)
     message.TextColor3 = Colors.textSecondary
-    message.TextSize = 11
+    message.TextSize = 12
     message.Font = Enum.Font.Gotham
     message.TextXAlignment = Enum.TextXAlignment.Left
+    message.TextYAlignment = Enum.TextYAlignment.Top
     message.TextWrapped = true
+    message.LineHeight = 1.3
     message.Parent = frame
 
     -- Button container
     local buttonContainer = Instance.new("Frame")
-    buttonContainer.Size = UDim2.new(1, -24, 0, 28)
-    buttonContainer.Position = UDim2.new(0, 12, 1, -40)
+    buttonContainer.Size = UDim2.new(1, -28, 0, 34)
+    buttonContainer.Position = UDim2.new(0, 14, 1, -48)
     buttonContainer.BackgroundTransparency = 1
     buttonContainer.Parent = frame
 
     local buttonLayout = Instance.new("UIListLayout")
     buttonLayout.FillDirection = Enum.FillDirection.Horizontal
     buttonLayout.HorizontalAlignment = Enum.HorizontalAlignment.Right
-    buttonLayout.Padding = UDim.new(0, 8)
+    buttonLayout.VerticalAlignment = Enum.VerticalAlignment.Center
+    buttonLayout.Padding = UDim.new(0, 10)
     buttonLayout.Parent = buttonContainer
 
-    -- Dismiss button
+    -- Dismiss button - subtle ghost style
     local dismissBtn = Instance.new("TextButton")
-    dismissBtn.Size = UDim2.new(0, 70, 0, 28)
-    dismissBtn.BackgroundColor3 = Colors.surface
+    dismissBtn.Size = UDim2.new(0, 80, 0, 32)
+    dismissBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 46)
     dismissBtn.BorderSizePixel = 0
     dismissBtn.Text = "Dismiss"
-    dismissBtn.TextColor3 = Colors.textSecondary
-    dismissBtn.TextSize = 11
+    dismissBtn.TextColor3 = Colors.textMuted
+    dismissBtn.TextSize = 12
     dismissBtn.Font = Enum.Font.GothamMedium
     dismissBtn.AutoButtonColor = false
     dismissBtn.LayoutOrder = 1
     dismissBtn.Parent = buttonContainer
 
     local dismissCorner = Instance.new("UICorner")
-    dismissCorner.CornerRadius = UDim.new(0, 4)
+    dismissCorner.CornerRadius = UDim.new(0, 6)
     dismissCorner.Parent = dismissBtn
 
-    local dismissStroke = Instance.new("UIStroke")
-    dismissStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-    dismissStroke.Color = Colors.textMuted
-    dismissStroke.Thickness = 1
-    dismissStroke.Parent = dismissBtn
-
-    -- Connect button
+    -- Connect button - prominent accent
     local connectBtn = Instance.new("TextButton")
-    connectBtn.Size = UDim2.new(0, 80, 0, 28)
+    connectBtn.Size = UDim2.new(0, 90, 0, 32)
     connectBtn.BackgroundColor3 = Colors.accent
     connectBtn.BorderSizePixel = 0
     connectBtn.Text = "Connect"
-    connectBtn.TextColor3 = Colors.background
-    connectBtn.TextSize = 11
+    connectBtn.TextColor3 = Color3.fromRGB(255, 255, 255)
+    connectBtn.TextSize = 12
     connectBtn.Font = Enum.Font.GothamBold
     connectBtn.AutoButtonColor = false
     connectBtn.LayoutOrder = 2
     connectBtn.Parent = buttonContainer
 
     local connectCorner = Instance.new("UICorner")
-    connectCorner.CornerRadius = UDim.new(0, 4)
+    connectCorner.CornerRadius = UDim.new(0, 6)
     connectCorner.Parent = connectBtn
 
-    -- Hover effects
+    -- Hover effects with smooth transitions
     dismissBtn.MouseEnter:Connect(function()
-        dismissBtn.BackgroundColor3 = Colors.surfaceHover
+        dismissBtn.BackgroundColor3 = Color3.fromRGB(52, 52, 60)
     end)
     dismissBtn.MouseLeave:Connect(function()
-        dismissBtn.BackgroundColor3 = Colors.surface
+        dismissBtn.BackgroundColor3 = Color3.fromRGB(40, 40, 46)
     end)
     connectBtn.MouseEnter:Connect(function()
         connectBtn.BackgroundColor3 = Colors.accentHover
@@ -4128,8 +4146,8 @@ local function showViewportNotification(projectName: string?, host: string?, por
     task.defer(function()
         local tween = game:GetService("TweenService"):Create(
             frame,
-            TweenInfo.new(0.3, Enum.EasingStyle.Quad, Enum.EasingDirection.Out),
-            {Position = UDim2.new(1, -20, 1, -20)}
+            TweenInfo.new(0.35, Enum.EasingStyle.Back, Enum.EasingDirection.Out),
+            {Position = UDim2.new(1, -24, 1, -24)}
         )
         tween:Play()
     end)

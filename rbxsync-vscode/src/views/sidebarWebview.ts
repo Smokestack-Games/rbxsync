@@ -19,6 +19,13 @@ interface SidebarState {
   serverRunning: boolean;
   // Keyed by studioKey (place_id or fallback name-based key)
   studioOperations: { [studioKey: string]: StudioOperation };
+  // Enhanced settings
+  serverPort: number;
+  testDuration: number;
+  extractTerrain: boolean;
+  updateAvailable: string | null;
+  // Zen cat mascot state
+  catMood: 'idle' | 'syncing' | 'success' | 'error';
 }
 
 /**
@@ -44,6 +51,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
   private _view?: vscode.WebviewView;
   private _extensionUri: vscode.Uri;
+  private _version: string;
 
   private state: SidebarState = {
     connectionStatus: 'disconnected',
@@ -53,11 +61,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     lastResult: null,
     e2eModeEnabled: false,
     serverRunning: false,
-    studioOperations: {}
+    studioOperations: {},
+    serverPort: 44755,
+    testDuration: 5,
+    extractTerrain: true,
+    updateAvailable: null,
+    catMood: 'idle'
   };
 
-  constructor(extensionUri: vscode.Uri) {
+  constructor(extensionUri: vscode.Uri, version?: string) {
     this._extensionUri = extensionUri;
+    this._version = version || '1.1.0';
   }
 
   public resolveWebviewView(
@@ -114,6 +128,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         case 'ready':
           this._updateWebview();
           break;
+        case 'setTestDuration':
+          this.state.testDuration = message.value;
+          break;
+        case 'setExtractTerrain':
+          this.state.extractTerrain = message.value;
+          break;
+        case 'dismissUpdate':
+          this.state.updateAvailable = null;
+          this._updateWebview();
+          break;
       }
     });
   }
@@ -156,6 +180,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     this._updateWebview();
   }
 
+  public setUpdateAvailable(version: string | null): void {
+    this.state.updateAvailable = version;
+    this._updateWebview();
+  }
+
+  public setServerPort(port: number): void {
+    this.state.serverPort = port;
+    this._updateWebview();
+  }
+
+  // Update zen cat mood based on current operations
+  public setCatMood(mood: 'idle' | 'syncing' | 'success' | 'error'): void {
+    this.state.catMood = mood;
+    this._updateWebview();
+  }
+
   // Studio operation tracking - keyed by sessionId or placeId
   public startStudioOperation(placeId: number, type: 'sync' | 'extract' | 'test', sessionId?: string | null): void {
     const studioKey = getStudioKey({ place_id: placeId, session_id: sessionId || undefined });
@@ -165,6 +205,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       message: type === 'sync' ? 'Syncing...' : type === 'extract' ? 'Extracting...' : 'Testing...',
       startTime: Date.now()
     };
+    this.state.catMood = 'syncing';
     this._updateWebview();
   }
 
@@ -175,12 +216,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       op.status = success ? 'success' : 'error';
       op.message = message;
       op.endTime = Date.now();
+      this.state.catMood = success ? 'success' : 'error';
       this._updateWebview();
 
-      // Clear after 30 seconds
+      // Reset cat mood and clear operation after delay
       setTimeout(() => {
         if (this.state.studioOperations[studioKey] === op) {
           delete this.state.studioOperations[studioKey];
+          this.state.catMood = 'idle';
           this._updateWebview();
         }
       }, 30000);
@@ -253,33 +296,43 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   <meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src ${webview.cspSource} 'unsafe-inline'; script-src 'nonce-${nonce}'; img-src ${webview.cspSource} data:;">
   <style>
     :root {
-      --accent: #e2231a;
-      --accent-soft: rgba(226, 35, 26, 0.15);
-      --success: #10b981;
-      --success-soft: rgba(16, 185, 129, 0.15);
-      --warning: #f59e0b;
-      --warning-soft: rgba(245, 158, 11, 0.15);
-      --error: #ef4444;
-      --error-soft: rgba(239, 68, 68, 0.15);
-      --blue: #3b82f6;
-      --blue-soft: rgba(59, 130, 246, 0.15);
+      /* Unified RbxSync Design System */
+      --accent: #4ADE80;
+      --accent-hover: #5EEA94;
+      --accent-muted: #22543A;
+      --accent-soft: rgba(74, 222, 128, 0.15);
+
+      --success: #4ADE80;
+      --success-soft: rgba(74, 222, 128, 0.15);
+      --warning: #FACC15;
+      --warning-soft: rgba(250, 204, 21, 0.15);
+      --error: #F87171;
+      --error-soft: rgba(248, 113, 113, 0.15);
+      --blue: #60A5FA;
+      --blue-soft: rgba(96, 165, 250, 0.15);
       --purple: #8b5cf6;
       --purple-soft: rgba(139, 92, 246, 0.15);
 
-      --bg-base: var(--vscode-sideBar-background, #1e1e1e);
-      --bg-surface: var(--vscode-input-background, #252526);
-      --bg-elevated: var(--vscode-dropdown-background, #2d2d30);
-      --bg-hover: var(--vscode-list-hoverBackground, #2a2d2e);
+      /* Core backgrounds - unified with Studio plugin */
+      --bg-base: #18181B;
+      --bg-surface: #202024;
+      --bg-elevated: #2D2D32;
+      --bg-hover: #2D2D32;
+      --bg-active: #373740;
 
-      --text-primary: var(--vscode-foreground, #cccccc);
-      --text-secondary: var(--vscode-descriptionForeground, #8b8b8b);
-      --text-muted: var(--vscode-disabledForeground, #5a5a5a);
+      /* Text hierarchy - unified */
+      --text-primary: #F4F4F5;
+      --text-secondary: #A1A1AA;
+      --text-muted: #71717A;
 
-      --border: rgba(255, 255, 255, 0.08);
-      --border-focus: rgba(255, 255, 255, 0.15);
+      /* Borders - unified */
+      --border: #2D2D32;
+      --border-light: #3C3C44;
+      --border-focus: #3C3C44;
 
       --radius: 8px;
       --radius-sm: 6px;
+      --radius-xs: 4px;
     }
 
     * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -291,6 +344,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       background: var(--bg-base);
       padding: 12px;
       line-height: 1.5;
+      /* Override VS Code theme for consistent look */
+      --vscode-sideBar-background: var(--bg-base);
     }
 
     /* Result Toast */
@@ -433,7 +488,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       justify-content: center;
       gap: 4px;
       padding: 6px 8px;
-      background: var(--bg-elevated);
+      background: var(--bg-surface);
       border: 1px solid var(--border);
       border-radius: var(--radius-sm);
       color: var(--text-primary);
@@ -443,11 +498,27 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       cursor: pointer;
       transition: all 0.15s;
     }
-    .studio-btn:hover { background: var(--bg-hover); border-color: var(--border-focus); }
+    .studio-btn:hover { background: var(--bg-hover); border-color: var(--border-light); }
     .studio-btn .icon { width: 12px; height: 12px; }
-    .studio-btn.sync:hover { border-color: var(--blue); color: var(--blue); }
-    .studio-btn.extract:hover { border-color: var(--purple); color: var(--purple); }
-    .studio-btn.test:hover { border-color: var(--success); color: var(--success); }
+
+    /* Sync = Primary button (solid green) */
+    .studio-btn.sync {
+      background: var(--accent);
+      border-color: var(--accent);
+      color: var(--bg-base);
+    }
+    .studio-btn.sync:hover {
+      background: var(--accent-hover);
+      border-color: var(--accent-hover);
+      color: var(--bg-base);
+    }
+    .studio-btn.sync .icon { opacity: 1; }
+
+    /* Extract, Test = Secondary buttons (outlined) */
+    .studio-btn.extract:hover { border-color: var(--border-light); color: var(--text-primary); }
+    .studio-btn.test:hover { border-color: var(--border-light); color: var(--text-primary); }
+
+    /* Link/Unlink buttons */
     .studio-btn.link { background: var(--success-soft); border-color: var(--success); color: var(--success); }
     .studio-btn.link:hover { background: var(--success); color: #fff; }
     .studio-btn.unlink { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
@@ -618,9 +689,198 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
 
     .hidden { display: none !important; }
+
+    /* Zen Cat Mascot */
+    .zen-cat-container {
+      background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(139, 92, 246, 0.08) 100%);
+      border: 1px solid var(--border);
+      border-radius: var(--radius);
+      padding: 12px;
+      margin-bottom: 12px;
+      text-align: center;
+      position: relative;
+      overflow: hidden;
+    }
+    .zen-cat-container::before {
+      content: '';
+      position: absolute;
+      top: 0;
+      left: 0;
+      right: 0;
+      height: 2px;
+      background: linear-gradient(90deg, #f472b6, #a78bfa, #60a5fa, #4ade80, #facc15, #f472b6);
+      background-size: 200% 100%;
+      animation: rainbow-slide 3s linear infinite;
+    }
+    @keyframes rainbow-slide {
+      0% { background-position: 0% 0%; }
+      100% { background-position: 200% 0%; }
+    }
+    .zen-cat {
+      font-family: var(--vscode-editor-font-family, monospace);
+      font-size: 11px;
+      line-height: 1.3;
+      white-space: pre;
+      color: var(--text-primary);
+      margin-bottom: 8px;
+      transition: all 0.3s ease;
+    }
+    .zen-cat.idle { color: #a78bfa; }
+    .zen-cat.syncing { color: #60a5fa; animation: cat-bounce 0.5s ease infinite; }
+    .zen-cat.success { color: #4ade80; }
+    .zen-cat.error { color: #f87171; }
+    @keyframes cat-bounce {
+      0%, 100% { transform: translateY(0); }
+      50% { transform: translateY(-2px); }
+    }
+    .zen-quote-feed {
+      height: 48px;
+      overflow: hidden;
+      position: relative;
+      margin-top: 4px;
+    }
+    .zen-quote-track {
+      animation: quote-scroll 60s linear infinite;
+    }
+    @keyframes quote-scroll {
+      0% { transform: translateY(0); }
+      100% { transform: translateY(-50%); }
+    }
+    .zen-quote {
+      font-size: 10px;
+      color: var(--text-secondary);
+      padding: 4px 8px;
+      font-style: italic;
+      opacity: 0.9;
+      transition: opacity 0.3s;
+    }
+    .zen-quote:hover {
+      opacity: 1;
+      color: var(--text-primary);
+    }
+    .zen-cat-container:hover .zen-quote-track {
+      animation-play-state: paused;
+    }
+
+    /* Collapsible Section */
+    .collapsible-header {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      padding: 8px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      cursor: pointer;
+      transition: all 0.15s;
+      margin-bottom: 6px;
+    }
+    .collapsible-header:hover { background: var(--bg-hover); border-color: var(--border-focus); }
+    .collapsible-header .icon { width: 12px; height: 12px; opacity: 0.7; flex-shrink: 0; }
+    .collapsible-header .label { flex: 1; font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.5px; color: var(--text-secondary); }
+    .collapsible-header .chevron { width: 12px; height: 12px; opacity: 0.5; transition: transform 0.2s; }
+    .collapsible-header.expanded .chevron { transform: rotate(90deg); }
+    .collapsible-content { padding: 0 0 8px 0; display: none; }
+    .collapsible-content.visible { display: block; }
+
+    /* Settings Row */
+    .setting-row {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 10px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      margin-bottom: 4px;
+    }
+    .setting-row .setting-label { flex: 1; font-size: 11px; color: var(--text-primary); }
+    .setting-row .setting-value { font-size: 11px; color: var(--text-secondary); font-family: var(--vscode-editor-font-family, monospace); }
+
+    /* Range Slider */
+    .range-container { display: flex; align-items: center; gap: 8px; }
+    .range-container input[type="range"] {
+      -webkit-appearance: none;
+      width: 80px;
+      height: 4px;
+      background: var(--bg-elevated);
+      border-radius: 2px;
+      outline: none;
+    }
+    .range-container input[type="range"]::-webkit-slider-thumb {
+      -webkit-appearance: none;
+      width: 12px;
+      height: 12px;
+      background: var(--accent);
+      border-radius: 50%;
+      cursor: pointer;
+    }
+    .range-value { font-size: 10px; color: var(--text-secondary); min-width: 20px; text-align: right; }
+
+    /* Update Banner */
+    .update-banner {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 10px 12px;
+      background: linear-gradient(135deg, var(--blue-soft) 0%, var(--purple-soft) 100%);
+      border: 1px solid var(--blue);
+      border-radius: var(--radius);
+      margin-bottom: 12px;
+      animation: slideIn 0.3s ease;
+    }
+    .update-banner .icon { width: 16px; height: 16px; color: var(--blue); flex-shrink: 0; }
+    .update-banner .text { flex: 1; font-size: 11px; color: var(--text-primary); }
+    .update-banner .text strong { color: var(--blue); }
+    .update-banner .dismiss {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 2px;
+      font-size: 14px;
+      line-height: 1;
+    }
+    .update-banner .dismiss:hover { color: var(--text-primary); }
+
+    /* Server Stats */
+    .server-stats {
+      display: flex;
+      gap: 12px;
+      padding: 8px 0;
+      font-size: 10px;
+      color: var(--text-muted);
+    }
+    .server-stat { display: flex; align-items: center; gap: 4px; }
+    .server-stat .icon { width: 10px; height: 10px; opacity: 0.7; }
+
+    /* Version Footer */
+    .version-footer {
+      text-align: center;
+      font-size: 10px;
+      color: var(--text-muted);
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border);
+    }
   </style>
 </head>
 <body>
+  <!-- Update Banner -->
+  <div class="update-banner hidden" id="updateBanner">
+    <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/><polyline points="7 10 12 15 17 10"/><line x1="12" y1="15" x2="12" y2="3"/></svg>
+    <span class="text"><strong>v<span id="updateVersion"></span></strong> available</span>
+    <button class="dismiss" id="dismissUpdate">×</button>
+  </div>
+
+  <!-- Zen Cat Mascot -->
+  <div class="zen-cat-container" id="zenCat">
+    <div class="zen-cat idle" id="zenCatArt"></div>
+    <div class="zen-quote-feed">
+      <div class="zen-quote-track" id="zenQuoteTrack"></div>
+    </div>
+  </div>
+
   <!-- Toast -->
   <div class="toast hidden" id="toast">
     <svg class="icon success-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><path d="M20 6L9 17l-5-5"/></svg>
@@ -689,9 +949,164 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     <span><kbd class="kbd">⌘⌥T</kbd> Test</span>
   </div>
 
+  <!-- Version -->
+  <div class="version-footer">
+    RbxSync v${this._version}
+  </div>
+
   <script nonce="${nonce}">
     const vscode = acquireVsCodeApi();
     let state = null;
+
+    // Zen Cat ASCII Art for different moods
+    const CAT_ART = {
+      idle: \`  /\\\\_/\\\\
+ ( -.- )
+  > ^ <
+ ~zzz~\`,
+      syncing: \`  /\\\\_/\\\\
+ ( o.o )
+  > ~ <
+ ~~~>>\`,
+      success: \`  /\\\\_/\\\\
+ ( ^.^ )
+  > v <
+ *purr*\`,
+      error: \`  /\\\\_/\\\\
+ ( >.< )
+  > ! <
+  ?!?\`
+    };
+
+    // Zen wisdom quotes
+    const ZEN_QUOTES = [
+      "Just breathe",
+      "Be here now.",
+      "Be right here, right now.",
+      "There is only Now.",
+      "Breathe and let be.",
+      "Pay attention.",
+      "Your body is present; is your mind?",
+      "Be a witness, not a judge.",
+      "Attention!",
+      "What am I?",
+      "Om mani padme hum",
+      "When hungry, eat.",
+      "When tired, sleep.",
+      "Only go straight — don't know.",
+      "You must become completely crazy.",
+      "Zen mind is before thinking.",
+      "Always keep \\"Don't know\\" mind.",
+      "When you are not thinking, all things are the same.",
+      "You are the sky.",
+      "YOLO",
+      "Where is my mind right now?",
+      "Who is breathing?",
+      "Focus on your breath.",
+      "Feelings come and go like clouds.",
+      "Let go of thinking.",
+      "Just be in this moment.",
+      "Do one thing at a time.",
+      "Life is available only in the present moment.",
+      "Do dishes, rake leaves.",
+      "Chop wood, carry water.",
+      "What you think, you become.",
+      "Nothing is permanent.",
+      "Seek the mind.",
+      "You are awareness.",
+      "There is only the Present.",
+      "Clean the floor with love.",
+      "Drink your tea slowly.",
+      "Attend the moment.",
+      "We have only now.",
+      "Do not be concerned with the fruits of your action.",
+      "Do not dwell in the past.",
+      "Do not dream of the future.",
+      "Wear gratitude like a cloak.",
+      "Let the beauty of what you love be what you do.",
+      "My religion is love.",
+      "Listen to your heart.",
+      "The quieter you become, the more you hear.",
+      "You are not a drop in the ocean.",
+      "Love is the bridge between you and everything.",
+      "When you know how to listen, everybody is the guru.",
+      "We're all just walking each other home.",
+      "Every person you look at is a soul.",
+      "When you are fully in the moment, this moment is all there is.",
+      "All problems are illusions of the mind.",
+      "If not now, when?",
+      "You cannot be both unhappy and fully present.",
+      "Get the inside right.",
+      "Find the life underneath your life situation.",
+      "Give your fullest attention.",
+      "Gate, gate, paragate...",
+      "Zen is keeping the mind before thinking.",
+      "Who is the master of this body?",
+      "You are already that which you seek.",
+      "Let come what comes.",
+      "Let go what goes.",
+      "See what remains.",
+      "When there is no \\"I\\" there is no karma.",
+      "No one succeeds without effort.",
+      "In the beginning, meditation is within your day.",
+      "Each time for the first time.",
+      "You need nothing more.",
+      "I am detached.",
+      "There is only light.",
+      "Your thoughts come and go.",
+      "Live in the moment, live in the breath.",
+      "The words you speak become the house you live in.",
+      "Nothing can bring you peace but yourself.",
+      "Be the change you want to see in the world.",
+      "You can't stop the waves, but you can learn to surf.",
+      "Have you eaten your porridge?",
+      "Yes, I have.",
+      "Then you better wash your bowl.",
+      "Express yourself as you are.",
+      "When you sit, everything sits with you.",
+      "What we call \\"I\\" is just a swinging door.",
+      "Do not serve your thoughts tea.",
+      "Whatever the moment contains, accept it.",
+      "Establish yourself in the present moment.",
+      "Breathe in deeply.",
+      "Breathe out slowly.",
+      "Feel what you feel now.",
+      "Go through your day as if undercover.",
+      "Put it all down.",
+      "Let it all go.",
+      "Pay attention to the present moment, on purpose.",
+      "We're present now.",
+      "Be kind whenever possible.",
+      "Nothing else matters now.",
+      "Become still and alert."
+    ];
+
+    // Initialize zen cat quote feed
+    function initZenCat() {
+      const track = document.getElementById('zenQuoteTrack');
+      if (!track) return;
+
+      // Shuffle quotes for variety
+      const shuffled = [...ZEN_QUOTES].sort(() => Math.random() - 0.5);
+
+      // Create quote elements (duplicate for seamless loop)
+      const quotesHtml = shuffled.map(q => \`<div class="zen-quote">\${q}</div>\`).join('');
+      track.innerHTML = quotesHtml + quotesHtml;
+
+      // Update cat art
+      updateCatMood('idle');
+    }
+
+    function updateCatMood(mood) {
+      const catEl = document.getElementById('zenCatArt');
+      if (!catEl) return;
+
+      catEl.textContent = CAT_ART[mood] || CAT_ART.idle;
+      catEl.className = 'zen-cat ' + mood;
+    }
+
+    // Initialize on load
+    initZenCat();
 
     window.addEventListener('message', e => {
       if (e.data.type === 'stateUpdate') {
@@ -701,6 +1116,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     function render(s) {
+      // Update zen cat mood
+      updateCatMood(s.catMood || 'idle');
+
       // Toast
       const toast = document.getElementById('toast');
       if (s.lastResult) {
