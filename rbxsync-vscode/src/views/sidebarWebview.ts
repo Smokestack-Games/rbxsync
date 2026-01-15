@@ -400,6 +400,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       transform: translateY(20px);
       animation: pill-in 0.3s ease forwards;
       pointer-events: auto;
+      box-shadow: 0 4px 12px rgba(0, 0, 0, 0.4);
     }
     .notification-pill.removing {
       animation: pill-out 0.3s ease forwards;
@@ -1009,12 +1010,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
   <!-- Tools Section -->
   <div class="section">
-    <div class="section-header" data-section="tools">
+    <div class="section-header collapsed" data-section="tools">
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14.7 6.3a1 1 0 000 1.4l1.6 1.6a1 1 0 001.4 0l3.77-3.77a6 6 0 01-7.94 7.94l-6.91 6.91a2.12 2.12 0 01-3-3l6.91-6.91a6 6 0 017.94-7.94l-3.76 3.76z"/></svg>
       <span class="section-label">Tools</span>
       <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
     </div>
-    <div class="section-content visible" id="toolsContent">
+    <div class="section-content" id="toolsContent">
       <div class="quick-row" id="consoleBtn">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="4 17 10 11 4 5"/><line x1="12" y1="19" x2="20" y2="19"/></svg>
         <span class="label">Console</span>
@@ -1989,10 +1990,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       // Rbxjson toggle (on = visible, off = hidden)
       document.getElementById('rbxjsonToggle').classList.toggle('on', !s.rbxjsonHidden);
 
-      // Cat visibility
-      document.getElementById('zenCat').classList.toggle('hidden', !s.catVisible);
-      document.getElementById('catSpacer').classList.toggle('hidden', !s.catVisible);
-      document.body.classList.toggle('cat-hidden', !s.catVisible);
+      // Cat visibility (default to visible if not set)
+      const catVisible = s.catVisible !== false;
+      document.getElementById('zenCat').classList.toggle('hidden', !catVisible);
+      document.getElementById('catSpacer').classList.toggle('hidden', !catVisible);
+      document.body.classList.toggle('cat-hidden', !catVisible);
     }
 
     function shortenPath(p) {

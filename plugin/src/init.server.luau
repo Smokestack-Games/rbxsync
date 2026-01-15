@@ -550,8 +550,11 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
     return false
 end
 
--- Forward declaration for setStatus (defined in UI section)
+-- Forward declaration for setStatus (no-op, info section removed)
 local setStatus: (text: string, color: Color3?, duration: number?) -> () = function() end
+
+-- Forward declaration for updateInfoDisplay (assigned in UI section)
+local updateInfoDisplay: () -> () = function() end
 
 -- Forward declarations for path mismatch functions (defined in UI section)
 local checkPathMismatch: () -> (boolean, string?)
@@ -1776,12 +1779,12 @@ local changeTracking = {
     localChanges = 0,   -- Files changed locally (needs sync)
 }
 
--- Forward declarations for functions defined in scoped blocks
-local updateButtonBadges: () -> ()
-local fetchLocalChanges: () -> ()
+-- Forward declarations for functions defined in scoped blocks (no-op since buttons removed)
+local updateButtonBadges: () -> () = function() end
+local fetchLocalChanges: () -> () = function() end
 
 -- ============================================================================
--- BUTTON STATE MANAGEMENT
+-- BUTTON STATE MANAGEMENT (buttons removed, but states kept for compatibility)
 -- ============================================================================
 
 -- Sync button state enum
@@ -1796,12 +1799,9 @@ local SyncButtonState = {
 
 local currentSyncState = SyncButtonState.DISCONNECTED
 local currentExtractState = ExtractButtonState.DISCONNECTED
-local syncPulseConnection: RBXScriptConnection? = nil
-local extractPulseConnection: RBXScriptConnection? = nil
 
--- Forward declarations for button state functions (defined after buttons exist)
--- updateExtractButtonState already declared in forward declarations section
-local updateSyncButtonState: (state: string) -> ()
+-- No-op state update functions (buttons removed from UI)
+local updateSyncButtonState: (state: string) -> () = function() end
 local showConfirmation: (title: string, message: string, onConfirm: () -> (), onCancel: () -> (), confirmText: string?, cancelText: string?) -> ()
 
 -- ============================================================================
@@ -1843,7 +1843,7 @@ do -- Scoped block for header
 
 local headerFrame = Instance.new("Frame")
 headerFrame.Name = "Header"
-headerFrame.Size = UDim2.new(1, 0, 0, 48)
+headerFrame.Size = UDim2.new(1, 0, 0, 32)  -- Compact header
 headerFrame.BackgroundColor3 = Colors.background
 headerFrame.BorderSizePixel = 0
 headerFrame.LayoutOrder = 0
@@ -1858,46 +1858,35 @@ headerBorder.BorderSizePixel = 0
 headerBorder.Parent = headerFrame
 
 local headerPadding = Instance.new("UIPadding")
-headerPadding.PaddingTop = UDim.new(0, 10)
+headerPadding.PaddingTop = UDim.new(0, 6)
 headerPadding.PaddingLeft = UDim.new(0, 12)
 headerPadding.PaddingRight = UDim.new(0, 12)
 headerPadding.Parent = headerFrame
 
 -- Logo image
 local logoImage = Instance.new("ImageLabel")
-logoImage.Size = UDim2.new(0, 24, 0, 24)
-logoImage.Position = UDim2.new(0, 0, 0, 2)
+logoImage.Size = UDim2.new(0, 18, 0, 18)
+logoImage.Position = UDim2.new(0, 0, 0, 1)
 logoImage.BackgroundTransparency = 1
 logoImage.Image = "rbxassetid://134458909684902"
 logoImage.ScaleType = Enum.ScaleType.Fit
 logoImage.Parent = headerFrame
 
 local titleLabel = Instance.new("TextLabel")
-titleLabel.Size = UDim2.new(1, -32, 0, 16)
-titleLabel.Position = UDim2.new(0, 32, 0, 0)
+titleLabel.Size = UDim2.new(1, -60, 0, 18)
+titleLabel.Position = UDim2.new(0, 24, 0, 0)
 titleLabel.BackgroundTransparency = 1
 titleLabel.Text = "RbxSync"
 titleLabel.TextColor3 = Colors.textPrimary
-titleLabel.TextSize = 14
+titleLabel.TextSize = 13
 titleLabel.Font = Enum.Font.GothamBold
 titleLabel.TextXAlignment = Enum.TextXAlignment.Left
 titleLabel.Parent = headerFrame
 
-local subtitleLabel = Instance.new("TextLabel")
-subtitleLabel.Size = UDim2.new(1, -32, 0, 12)
-subtitleLabel.Position = UDim2.new(0, 32, 0, 16)
-subtitleLabel.BackgroundTransparency = 1
-subtitleLabel.Text = "Studio ↔ VS Code"
-subtitleLabel.TextColor3 = Colors.textMuted
-subtitleLabel.TextSize = 10
-subtitleLabel.Font = Enum.Font.Gotham
-subtitleLabel.TextXAlignment = Enum.TextXAlignment.Left
-subtitleLabel.Parent = headerFrame
-
--- Version label (subtle, right-aligned with title)
+-- Version label (subtle, right-aligned)
 local versionLabel = Instance.new("TextLabel")
-versionLabel.Size = UDim2.new(0, 40, 0, 14)
-versionLabel.Position = UDim2.new(1, -40, 0, 7)
+versionLabel.Size = UDim2.new(0, 36, 0, 18)
+versionLabel.Position = UDim2.new(1, -36, 0, 0)
 versionLabel.BackgroundTransparency = 1
 versionLabel.Text = "v" .. PLUGIN_VERSION
 versionLabel.TextColor3 = Colors.textMuted
@@ -1913,7 +1902,7 @@ end -- End header scoped block
 -- ============================================================================
 
 local connectionSection = Instance.new("Frame")
-connectionSection.Size = UDim2.new(1, 0, 0, 56)
+connectionSection.Size = UDim2.new(1, 0, 0, 70)  -- Room for info line
 connectionSection.BackgroundTransparency = 1
 connectionSection.LayoutOrder = 1
 connectionSection.Parent = mainFrame
@@ -2024,6 +2013,29 @@ connectBtnStroke.Color = Colors.textMuted
 connectBtnStroke.Thickness = 1
 connectBtnStroke.Transparency = 1  -- Hidden by default (Connect state)
 connectBtnStroke.Parent = connectButton
+
+-- Compact info line below connection frame
+local infoLabel = Instance.new("TextLabel")
+infoLabel.Size = UDim2.new(1, 0, 0, 14)
+infoLabel.Position = UDim2.new(0, 0, 0, 42)
+infoLabel.BackgroundTransparency = 1
+infoLabel.Text = ""  -- Updated by updateInfoDisplay
+infoLabel.TextColor3 = Colors.textMuted
+infoLabel.TextSize = 10
+infoLabel.Font = Enum.Font.Gotham
+infoLabel.TextXAlignment = Enum.TextXAlignment.Left
+infoLabel.Parent = connectionSection
+
+-- Update info display with instance counts
+updateInfoDisplay = function()
+    local breakdown = getInstanceBreakdown()
+    local parts = {}
+    if breakdown.scripts > 0 then
+        table.insert(parts, formatNumber(breakdown.scripts) .. " scripts")
+    end
+    table.insert(parts, formatNumber(breakdown.total) .. " instances")
+    infoLabel.Text = table.concat(parts, " · ")
+end
 
 updateConnectionUI = function()
     local projectDir = Config.getProjectDir()
@@ -2279,6 +2291,9 @@ dropdownListPadding.PaddingLeft = UDim.new(0, 4)
 dropdownListPadding.PaddingRight = UDim.new(0, 4)
 dropdownListPadding.Parent = dropdownFrame
 
+-- Constants for section sizing
+local PROJECT_SECTION_COLLAPSED = 100
+
 -- Function to update dropdown with recent projects
 local function updateRecentProjectsDropdown()
     -- Clear existing items
@@ -2391,7 +2406,8 @@ local function updateRecentProjectsDropdown()
             projectDirInput.Text = projectPath
             updateFolderNameDisplay(projectPath)
             dropdownFrame.Visible = false
-            dropdownButton.Text = "▾"
+            dropdownArrow.Text = "▼"
+            projectSection.Size = UDim2.new(1, 0, 0, PROJECT_SECTION_COLLAPSED)
             -- Re-register with server after path change
             if isConnected then
                 registerWithServer()
@@ -2411,6 +2427,12 @@ dropdownButton.MouseButton1Click:Connect(function()
     dropdownArrow.Text = dropdownFrame.Visible and "▲" or "▼"
     if dropdownFrame.Visible then
         updateRecentProjectsDropdown()
+        -- Expand section to fit dropdown (base 100 + dropdown height + gap)
+        local dropdownHeight = dropdownFrame.Size.Y.Offset
+        projectSection.Size = UDim2.new(1, 0, 0, PROJECT_SECTION_COLLAPSED + dropdownHeight + 8)
+    else
+        -- Collapse back to normal
+        projectSection.Size = UDim2.new(1, 0, 0, PROJECT_SECTION_COLLAPSED)
     end
 end)
 
@@ -2441,1143 +2463,6 @@ projectDirInput.FocusLost:Connect(function()
         end
     end
 end)
-
--- ============================================================================
--- Action Buttons (side by side)
--- ============================================================================
-do -- Scoped block for action buttons
-
-local actionsSection = Instance.new("Frame")
-actionsSection.Size = UDim2.new(1, 0, 0, 56)
-actionsSection.BackgroundTransparency = 1
-actionsSection.LayoutOrder = 3
-actionsSection.Parent = mainFrame
-
-local actionsPadding = Instance.new("UIPadding")
-actionsPadding.PaddingTop = UDim.new(0, 0)
-actionsPadding.PaddingLeft = UDim.new(0, 16)
-actionsPadding.PaddingRight = UDim.new(0, 16)
-actionsPadding.Parent = actionsSection
-
-local actionsFrame = Instance.new("Frame")
-actionsFrame.Size = UDim2.new(1, 0, 0, 40)
-actionsFrame.BackgroundTransparency = 1
-actionsFrame.Parent = actionsSection
-
-local actionsLayout = Instance.new("UIListLayout")
-actionsLayout.FillDirection = Enum.FillDirection.Horizontal
-actionsLayout.SortOrder = Enum.SortOrder.LayoutOrder
-actionsLayout.Padding = UDim.new(0, 8)
-actionsLayout.Parent = actionsFrame
-
--- Extract Button (Secondary style - outlined)
-local extractButton = Instance.new("TextButton")
-extractButton.Size = UDim2.new(0.5, -4, 1, 0)
-extractButton.BackgroundColor3 = Colors.surface
-extractButton.BorderSizePixel = 0
-extractButton.Text = ""
-extractButton.LayoutOrder = 1
-extractButton.AutoButtonColor = false
-extractButton.ClipsDescendants = true  -- Clip highlight to rounded corners
-extractButton.Parent = actionsFrame
-
-local extractCorner = Instance.new("UICorner")
-extractCorner.CornerRadius = UDim.new(0, 6)
-extractCorner.Parent = extractButton
-
--- Border stroke for extract button
-local extractStroke = Instance.new("UIStroke")
-extractStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-extractStroke.Color = Colors.border
-extractStroke.Thickness = 1
-extractStroke.Parent = extractButton
-
--- Extract button icon (larger for better visibility)
-local extractIcon = Instance.new("ImageLabel")
-extractIcon.Name = "Icon"
-extractIcon.Size = UDim2.new(0, 20, 0, 20)
-extractIcon.Position = UDim2.new(0, 10, 0.5, -10)
-extractIcon.BackgroundTransparency = 1
-extractIcon.Image = "rbxassetid://83856799245957"
-extractIcon.ImageColor3 = Colors.textSecondary
-extractIcon.ScaleType = Enum.ScaleType.Fit
-extractIcon.Parent = extractButton
-
--- Extract button text
-local extractLabel = Instance.new("TextLabel")
-extractLabel.Name = "Label"
-extractLabel.Size = UDim2.new(1, -34, 1, 0)
-extractLabel.Position = UDim2.new(0, 32, 0, 0)
-extractLabel.BackgroundTransparency = 1
-extractLabel.Text = "Extract"
-extractLabel.TextColor3 = Colors.textPrimary
-extractLabel.TextSize = 12
-extractLabel.Font = Enum.Font.GothamBold
-extractLabel.TextXAlignment = Enum.TextXAlignment.Left
-extractLabel.Parent = extractButton
-
--- Hover effect for Extract button (respects extraction state)
-extractButton.MouseEnter:Connect(function()
-    -- Only apply hover if not actively extracting or showing success
-    if currentExtractState == ExtractButtonState.IDLE or currentExtractState == ExtractButtonState.DISCONNECTED then
-        extractButton.BackgroundColor3 = Colors.surfaceHover
-    end
-end)
-extractButton.MouseLeave:Connect(function()
-    -- Only revert if not actively extracting or showing success
-    if currentExtractState == ExtractButtonState.IDLE then
-        extractButton.BackgroundColor3 = Colors.surface
-    elseif currentExtractState == ExtractButtonState.DISCONNECTED then
-        extractButton.BackgroundColor3 = Colors.surface
-    end
-    -- If EXTRACTING or SUCCESS, keep the current state colors
-end)
-
-extractButton.MouseButton1Click:Connect(function()
-    if not isConnected then
-        warn("Not connected. Click Connect first.")
-        return
-    end
-    if Config.getProjectDir() == "" then
-        warn("No project set. Enter path above.")
-        return
-    end
-
-    -- Check for path mismatch with VS Code
-    local hasMismatch, vscodePath = checkPathMismatch()
-    if hasMismatch and vscodePath then
-        showPathMismatchDialog(
-            vscodePath,
-            function()  -- onContinue: Extract anyway
-                extractGame({ extractTerrain = extractTerrainEnabled })
-                changeTracking.studioChanges = 0
-                updateButtonBadges()
-            end,
-            function()  -- onFixPath: Update to VS Code path and extract
-                Config.setProjectDir(vscodePath)
-                if projectDirInput then
-                    projectDirInput.Text = vscodePath
-                end
-                -- Re-register with server using new path
-                registerWithServer()
-                -- Now extract
-                extractGame({ extractTerrain = extractTerrainEnabled })
-                changeTracking.studioChanges = 0
-                updateButtonBadges()
-            end,
-            function()  -- onCancel: Do nothing
-            end
-        )
-        return
-    end
-
-    -- No mismatch, proceed directly
-    extractGame({ extractTerrain = extractTerrainEnabled })
-    -- Reset studio changes after extract
-    changeTracking.studioChanges = 0
-    updateButtonBadges()
-end)
-
--- Sync Button (Primary - solid green accent)
-local syncButton = Instance.new("TextButton")
-syncButton.Size = UDim2.new(0.5, -4, 1, 0)
-syncButton.BackgroundColor3 = Colors.accent
-syncButton.BorderSizePixel = 0
-syncButton.Text = ""
-syncButton.LayoutOrder = 2
-syncButton.AutoButtonColor = false
-syncButton.ClipsDescendants = true  -- Clip highlight to rounded corners
-syncButton.Parent = actionsFrame
-
-local syncCorner = Instance.new("UICorner")
-syncCorner.CornerRadius = UDim.new(0, 6)
-syncCorner.Parent = syncButton
-
--- Border stroke for sync button (subtle)
-local syncStroke = Instance.new("UIStroke")
-syncStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-syncStroke.Color = Colors.border
-syncStroke.Thickness = 1
-syncStroke.Parent = syncButton
-
--- Sync button icon (larger for better visibility)
-local syncIcon = Instance.new("ImageLabel")
-syncIcon.Name = "Icon"
-syncIcon.Size = UDim2.new(0, 20, 0, 20)
-syncIcon.Position = UDim2.new(0, 10, 0.5, -10)
-syncIcon.BackgroundTransparency = 1
-syncIcon.Image = "rbxassetid://85502241059648"
-syncIcon.ImageColor3 = Colors.background
-syncIcon.ScaleType = Enum.ScaleType.Fit
-syncIcon.Parent = syncButton
-
--- Sync button text
-local syncLabel = Instance.new("TextLabel")
-syncLabel.Name = "Label"
-syncLabel.Size = UDim2.new(1, -34, 1, 0)
-syncLabel.Position = UDim2.new(0, 32, 0, 0)
-syncLabel.BackgroundTransparency = 1
-syncLabel.Text = "Sync"
-syncLabel.TextColor3 = Colors.background
-syncLabel.TextSize = 12
-syncLabel.Font = Enum.Font.GothamBold
-syncLabel.TextXAlignment = Enum.TextXAlignment.Left
-syncLabel.Parent = syncButton
-
--- Hover effect for Sync button (respects sync state)
-syncButton.MouseEnter:Connect(function()
-    -- Only apply hover if in idle state (connected and ready)
-    if currentSyncState == SyncButtonState.IDLE then
-        syncButton.BackgroundColor3 = Colors.accentHover
-    end
-end)
-syncButton.MouseLeave:Connect(function()
-    -- Only revert if in idle state
-    if currentSyncState == SyncButtonState.IDLE then
-        syncButton.BackgroundColor3 = Colors.accent
-    end
-    -- If SYNCING, DISCONNECTED, or SUCCESS, keep the current state colors
-end)
-
--- Define button state update functions
-updateSyncButtonState = function(state: string)
-    currentSyncState = state
-
-    -- Clean up any existing pulse animation
-    if syncPulseConnection then
-        syncPulseConnection:Disconnect()
-        syncPulseConnection = nil
-    end
-
-    -- Reset transparency
-    syncButton.BackgroundTransparency = 0
-
-    if state == SyncButtonState.IDLE then
-        -- Stop timer if running
-        operationState.syncStartTime = nil
-        -- Ready state: primary solid green style
-        syncButton.BackgroundColor3 = Colors.accent
-        syncLabel.TextColor3 = Colors.background
-        syncIcon.ImageColor3 = Colors.background
-        -- Show last sync time if available
-        if operationState.lastSyncDuration and operationState.lastSyncCount then
-            syncLabel.Text = string.format("Sync (%.1fs)", operationState.lastSyncDuration)
-        else
-            syncLabel.Text = "Sync"
-        end
-
-    elseif state == SyncButtonState.SYNCING then
-        -- Active syncing: slightly brighter accent with timer
-        syncButton.BackgroundColor3 = Colors.accentHover
-        syncLabel.TextColor3 = Colors.background
-        syncIcon.ImageColor3 = Colors.background
-
-        -- Start timer update
-        operationState.syncStartTime = os.clock()
-        if operationState.timerThread then
-            task.cancel(operationState.timerThread)
-        end
-        operationState.timerThread = task.spawn(function()
-            while operationState.syncStartTime do
-                local elapsed = os.clock() - operationState.syncStartTime
-                syncLabel.Text = string.format("%.1fs", elapsed)
-                task.wait(0.1)
-            end
-        end)
-
-    elseif state == SyncButtonState.DISCONNECTED then
-        -- Stop timer if running
-        operationState.syncStartTime = nil
-        -- Disabled/disconnected: muted appearance
-        syncButton.BackgroundColor3 = Colors.surface
-        syncLabel.TextColor3 = Colors.textMuted
-        syncIcon.ImageColor3 = Colors.textMuted
-        syncLabel.Text = "Sync"
-        syncButton.BackgroundTransparency = 0.5
-
-    elseif state == SyncButtonState.SUCCESS then
-        -- Save duration before stopping timer
-        if operationState.syncStartTime then
-            operationState.lastSyncDuration = os.clock() - operationState.syncStartTime
-        end
-        operationState.syncStartTime = nil
-        -- Brief success flash with final time
-        syncButton.BackgroundColor3 = Colors.success
-        syncLabel.TextColor3 = Colors.background
-        syncIcon.ImageColor3 = Colors.background
-        if operationState.lastSyncDuration then
-            syncLabel.Text = string.format("✓ %.1fs", operationState.lastSyncDuration)
-        else
-            syncLabel.Text = "✓ Done"
-        end
-
-        -- Return to idle after 2s
-        task.delay(2, function()
-            if currentSyncState == SyncButtonState.SUCCESS then
-                updateSyncButtonState(SyncButtonState.IDLE)
-            end
-        end)
-    end
-end
-
-updateExtractButtonState = function(state: string)
-    currentExtractState = state
-
-    -- Clean up any existing pulse animation
-    if extractPulseConnection then
-        extractPulseConnection:Disconnect()
-        extractPulseConnection = nil
-    end
-
-    -- Reset transparency
-    extractButton.BackgroundTransparency = 0
-
-    if state == ExtractButtonState.IDLE then
-        -- Stop timer if running
-        operationState.extractStartTime = nil
-        -- Ready state: secondary style with border
-        extractButton.BackgroundColor3 = Colors.surface
-        extractLabel.TextColor3 = Colors.textPrimary
-        extractIcon.ImageColor3 = Colors.textSecondary
-        extractStroke.Color = Colors.border
-        -- Show last extract time if available
-        if operationState.lastExtractDuration and operationState.lastExtractCount then
-            extractLabel.Text = string.format("Extract (%.1fs)", operationState.lastExtractDuration)
-        else
-            extractLabel.Text = "Extract"
-        end
-
-    elseif state == ExtractButtonState.EXTRACTING then
-        -- Active extracting: accent color with timer
-        extractButton.BackgroundColor3 = Colors.accent
-        extractLabel.TextColor3 = Colors.background
-        extractIcon.ImageColor3 = Colors.background
-        extractStroke.Color = Colors.accent
-
-        -- Start timer update (in the button label)
-        local startTime = operationState.extractStartTime or os.clock()
-        if operationState.timerThread then
-            task.cancel(operationState.timerThread)
-        end
-        operationState.timerThread = task.spawn(function()
-            while currentExtractState == ExtractButtonState.EXTRACTING do
-                local elapsed = os.clock() - startTime
-                extractLabel.Text = string.format("%.1fs", elapsed)
-                task.wait(0.1)
-            end
-        end)
-
-    elseif state == ExtractButtonState.DISCONNECTED then
-        -- Stop timer if running
-        operationState.extractStartTime = nil
-        -- Disabled/disconnected: muted appearance
-        extractButton.BackgroundColor3 = Colors.surface
-        extractLabel.TextColor3 = Colors.textMuted
-        extractIcon.ImageColor3 = Colors.textMuted
-        extractStroke.Color = Colors.textMuted
-        extractLabel.Text = "Extract"
-        extractButton.BackgroundTransparency = 0.5
-
-    elseif state == ExtractButtonState.SUCCESS then
-        -- Save duration before stopping timer
-        if operationState.extractStartTime then
-            operationState.lastExtractDuration = os.clock() - operationState.extractStartTime
-        end
-        operationState.extractStartTime = nil
-        -- Brief success flash with final time
-        extractButton.BackgroundColor3 = Colors.success
-        extractLabel.TextColor3 = Colors.background
-        extractIcon.ImageColor3 = Colors.background
-        extractStroke.Color = Colors.success
-        if operationState.lastExtractDuration then
-            extractLabel.Text = string.format("✓ %.1fs", operationState.lastExtractDuration)
-        else
-            extractLabel.Text = "✓ Done"
-        end
-
-        -- Return to idle after 2s
-        task.delay(2, function()
-            if currentExtractState == ExtractButtonState.SUCCESS then
-                updateExtractButtonState(ExtractButtonState.IDLE)
-            end
-        end)
-    end
-end
-
--- Update button text to show change counts
-updateButtonBadges = function()
-    -- Update Extract button (only when idle)
-    if currentExtractState == ExtractButtonState.IDLE or currentExtractState == ExtractButtonState.DISCONNECTED then
-        if changeTracking.studioChanges > 0 then
-            extractLabel.Text = "Extract (" .. changeTracking.studioChanges .. ")"
-        else
-            extractLabel.Text = "Extract"
-        end
-    end
-
-    -- Update Sync button (only when idle)
-    if currentSyncState == SyncButtonState.IDLE or currentSyncState == SyncButtonState.DISCONNECTED then
-        if changeTracking.localChanges > 0 then
-            syncLabel.Text = "Sync (" .. changeTracking.localChanges .. ")"
-        else
-            syncLabel.Text = "Sync"
-        end
-    end
-end
-
--- Fetch pending local changes from server
-fetchLocalChanges = function()
-    if not isConnected then
-        changeTracking.localChanges = 0
-        return
-    end
-
-    local projectDir = Config.getProjectDir()
-    if projectDir == "" then
-        changeTracking.localChanges = 0
-        return
-    end
-
-    local success, result = httpPost("/sync/pending-changes", {
-        project_dir = projectDir,
-    })
-
-    if success and result and result.count then
-        changeTracking.localChanges = result.count
-    else
-        changeTracking.localChanges = 0
-    end
-
-    updateButtonBadges()
-end
-
-syncButton.MouseButton1Click:Connect(function()
-    if not isConnected then
-        warn("Not connected. Click Connect first.")
-        return
-    end
-    local projectDir = Config.getProjectDir()
-    if projectDir == "" then
-        warn("No project set. Enter path above.")
-        return
-    end
-    if isSyncing then
-        return
-    end
-
-    -- Show syncing state
-    updateSyncButtonState(SyncButtonState.SYNCING)
-
-    -- Request file tree from server
-    local success, result = httpPost("/sync/read-tree", {
-        project_dir = projectDir,
-    })
-
-    if not success or not result.success then
-        warn("Can't read files. " .. (result and result.error or "Try again."))
-        updateSyncButtonState(SyncButtonState.IDLE)
-        return
-    end
-
-    local instances = result.instances
-    if not instances or #instances == 0 then
-        updateSyncButtonState(SyncButtonState.IDLE)
-        return
-    end
-
-    -- Convert to operations
-    local operations = {}
-    for _, inst in ipairs(instances) do
-        if inst.path and inst.path ~= "" then
-            table.insert(operations, { type = "update", path = inst.path, data = inst })
-        end
-    end
-
-    -- Sort by depth (shallower paths first so parents are created before children)
-    table.sort(operations, function(a, b)
-        return select(2, string.gsub(a.path, "/", "")) < select(2, string.gsub(b.path, "/", ""))
-    end)
-
-    syncBatch({ operations = operations })
-
-    -- Delete orphans (instances in Studio not in files)
-    local filePaths: {[string]: boolean} = {}
-    for _, inst in ipairs(instances) do
-        if inst.path and inst.path ~= "" then
-            filePaths[inst.path] = true
-        end
-    end
-
-    -- Helper to escape name for path (same logic as Serializer)
-    local function escapeNameForPath(name: string): string
-        return string.gsub(name, "/", "[SLASH]")
-    end
-
-    -- Helper to build path for an instance
-    local function buildInstancePath(instance: Instance): string?
-        local pathParts: {string} = {}
-        local current = instance
-        -- Walk up to game, collecting names
-        while current and current ~= game do
-            pathParts[#pathParts + 1] = escapeNameForPath(current.Name)
-            if current.Parent then
-                current = current.Parent :: Instance
-            else
-                break
-            end
-        end
-        if #pathParts == 0 then
-            return nil
-        end
-        -- Reverse the array (we built it bottom-up)
-        local reversed: {string} = {}
-        for i = #pathParts, 1, -1 do
-            reversed[#reversed + 1] = pathParts[i]
-        end
-        return table.concat(reversed, "/")
-    end
-
-    -- Services to check for orphans
-    local trackedServices = {
-        "Workspace", "ReplicatedStorage", "ReplicatedFirst",
-        "ServerScriptService", "ServerStorage", "StarterGui",
-        "StarterPack", "StarterPlayer", "Lighting", "SoundService",
-        "Teams", "Chat", "LocalizationService", "TestService",
-        "MaterialService",
-    }
-
-    -- Collect all orphans with their depths
-    local orphans: {{instance: Instance, path: string, depth: number}} = {}
-    for _, serviceName in trackedServices do
-        local service = game:FindFirstChild(serviceName)
-        if service then
-            for _, descendant in service:GetDescendants() do
-                -- Skip Terrain (handled separately)
-                if descendant.ClassName == "Terrain" then
-                    continue
-                end
-                local path = buildInstancePath(descendant)
-                if path and not filePaths[path] then
-                    local depth = select(2, string.gsub(path, "/", ""))
-                    table.insert(orphans, { instance = descendant, path = path, depth = depth })
-                end
-            end
-        end
-    end
-
-    -- Sort by depth descending (delete children before parents)
-    table.sort(orphans, function(a, b)
-        return a.depth > b.depth
-    end)
-
-    -- Delete orphans
-    local deletedCount = 0
-    for _, orphan in orphans do
-        -- Check if instance still exists (parent might have been deleted)
-        if orphan.instance and orphan.instance.Parent then
-            pcall(function()
-                orphan.instance:Destroy()
-            end)
-            deletedCount += 1
-        end
-    end
-
-    if deletedCount > 0 then
-        print(string.format("[RbxSync] Deleted %d orphan instances", deletedCount))
-    end
-
-    -- Sync terrain if available
-    local terrainSuccess, terrainResult = httpPost("/sync/read-terrain", {
-        project_dir = projectDir,
-    })
-
-    print(string.format("[RbxSync] Terrain read result: success=%s, hasTerrain=%s, hasData=%s",
-        tostring(terrainSuccess),
-        tostring(terrainResult and terrainResult.success and terrainResult.hasTerrain),
-        tostring(terrainResult and terrainResult.terrain ~= nil)))
-
-    if terrainSuccess and terrainResult.success and terrainResult.hasTerrain and terrainResult.terrain then
-        print("[RbxSync] Applying terrain...")
-        local applied, chunkCount = TerrainHandler.applyTerrain(terrainResult.terrain)
-        if applied then
-            print(string.format("[RbxSync] Terrain applied: %d chunks", chunkCount))
-        else
-            warn("[RbxSync] Failed to apply terrain")
-        end
-    elseif terrainResult and terrainResult.error then
-        warn("[RbxSync] Terrain read error:", terrainResult.error)
-    end
-
-    -- Reset local changes after sync
-    changeTracking.localChanges = 0
-    updateButtonBadges()
-
-    -- Show success state
-    updateSyncButtonState(SyncButtonState.SUCCESS)
-end)
-
-end -- End action buttons scoped block
-
--- ============================================================================
--- Project Info Section
--- ============================================================================
-
-local infoSection = Instance.new("Frame")
-infoSection.Size = UDim2.new(1, 0, 0, 88)
-infoSection.BackgroundTransparency = 1
-infoSection.LayoutOrder = 4
-infoSection.Parent = mainFrame
-
-local infoSectionPadding = Instance.new("UIPadding")
-infoSectionPadding.PaddingTop = UDim.new(0, 0)
-infoSectionPadding.PaddingLeft = UDim.new(0, 16)
-infoSectionPadding.PaddingRight = UDim.new(0, 16)
-infoSectionPadding.PaddingBottom = UDim.new(0, 16)
-infoSectionPadding.Parent = infoSection
-
-local infoFrame = Instance.new("Frame")
-infoFrame.Size = UDim2.new(1, 0, 1, 0)
-infoFrame.BackgroundColor3 = Colors.surface  -- Clean neutral surface
-infoFrame.BorderSizePixel = 0
-infoFrame.ClipsDescendants = true  -- Clip accent bar to rounded corners
-infoFrame.Parent = infoSection
-
-local infoFrameCorner = Instance.new("UICorner")
-infoFrameCorner.CornerRadius = UDim.new(0, 6)
-infoFrameCorner.Parent = infoFrame
-
--- Subtle border stroke for info section
-local infoStroke = Instance.new("UIStroke")
-infoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-infoStroke.Color = Colors.border
-infoStroke.Thickness = 1
-infoStroke.Parent = infoFrame
-
--- Left accent bar - subtle blue for visual interest (not green)
-local infoAccentBar = Instance.new("Frame")
-infoAccentBar.Size = UDim2.new(0, 3, 1, -12)
-infoAccentBar.Position = UDim2.new(0, 6, 0, 6)
-infoAccentBar.BackgroundColor3 = Colors.info  -- Blue accent bar
-infoAccentBar.BorderSizePixel = 0
-infoAccentBar.Parent = infoFrame
-
-local infoAccentCorner = Instance.new("UICorner")
-infoAccentCorner.CornerRadius = UDim.new(0, 2)
-infoAccentCorner.Parent = infoAccentBar
-
--- Content frame for text (with layout and padding)
-local infoContent = Instance.new("Frame")
-infoContent.Size = UDim2.new(1, 0, 1, 0)
-infoContent.BackgroundTransparency = 1
-infoContent.Parent = infoFrame
-
-local infoLayout = Instance.new("UIListLayout")
-infoLayout.SortOrder = Enum.SortOrder.LayoutOrder
-infoLayout.Padding = UDim.new(0, 3)
-infoLayout.Parent = infoContent
-
-local infoPadding = Instance.new("UIPadding")
-infoPadding.PaddingTop = UDim.new(0, 8)
-infoPadding.PaddingLeft = UDim.new(0, 16)  -- More padding for accent bar
-infoPadding.PaddingRight = UDim.new(0, 10)
-infoPadding.Parent = infoContent
-
--- Place name line (larger and bolder)
-local placeNameLine = Instance.new("TextLabel")
-placeNameLine.Size = UDim2.new(1, 0, 0, 20)
-placeNameLine.BackgroundTransparency = 1
-placeNameLine.Text = "Loading..."
-placeNameLine.TextColor3 = Colors.textPrimary
-placeNameLine.TextSize = 14
-placeNameLine.Font = Enum.Font.GothamBold
-placeNameLine.TextXAlignment = Enum.TextXAlignment.Left
-placeNameLine.TextTruncate = Enum.TextTruncate.AtEnd
-placeNameLine.LayoutOrder = 1
-placeNameLine.Parent = infoContent
-
--- Instance count line (more visible)
-local instanceLine = Instance.new("TextLabel")
-instanceLine.Size = UDim2.new(1, 0, 0, 16)
-instanceLine.BackgroundTransparency = 1
-instanceLine.Text = "..."
-instanceLine.TextColor3 = Colors.textSecondary  -- Neutral for stats
-instanceLine.TextSize = 12
-instanceLine.Font = Enum.Font.GothamMedium
-instanceLine.TextXAlignment = Enum.TextXAlignment.Left
-instanceLine.LayoutOrder = 2
-instanceLine.Parent = infoContent
-
--- Optimization stats line (lights, meshes, sounds, etc.)
-local optimizationLine = Instance.new("TextLabel")
-optimizationLine.Size = UDim2.new(1, 0, 0, 14)
-optimizationLine.BackgroundTransparency = 1
-optimizationLine.Text = ""
-optimizationLine.TextColor3 = Colors.textSecondary
-optimizationLine.TextSize = 11
-optimizationLine.Font = Enum.Font.Gotham
-optimizationLine.TextXAlignment = Enum.TextXAlignment.Left
-optimizationLine.LayoutOrder = 3
-optimizationLine.Parent = infoContent
-
--- Status line (dynamic updates)
-local statusLine = Instance.new("TextLabel")
-statusLine.Size = UDim2.new(1, 0, 0, 14)
-statusLine.BackgroundTransparency = 1
-statusLine.Text = ""
-statusLine.TextColor3 = Colors.textSecondary  -- Neutral by default
-statusLine.TextSize = 11
-statusLine.Font = Enum.Font.GothamMedium
-statusLine.TextXAlignment = Enum.TextXAlignment.Left
-statusLine.LayoutOrder = 4
-statusLine.Parent = infoContent
-
--- Status update function (updates forward declaration)
-local statusClearTimeout: thread? = nil
-setStatus = function(text: string, color: Color3?, duration: number?)
-    statusLine.Text = text
-    statusLine.TextColor3 = color or Colors.textSecondary  -- Neutral default, use Colors.success for success
-
-    -- Clear previous timeout
-    if statusClearTimeout then
-        task.cancel(statusClearTimeout)
-    end
-
-    -- Auto-clear after duration (default 5s)
-    local clearAfter = duration or 5
-    if clearAfter > 0 then
-        statusClearTimeout = task.delay(clearAfter, function()
-            statusLine.Text = ""
-        end)
-    end
-end
-
--- Function to update project info display
-local function updateInfoDisplay()
-    -- Update place name
-    local placeName = getPlaceName()
-    local placeId = game.PlaceId
-    if placeId > 0 then
-        placeNameLine.Text = placeName .. " (" .. tostring(placeId) .. ")"
-    else
-        placeNameLine.Text = placeName .. " (unsaved)"
-    end
-
-    -- Update instance breakdown (classes instead of just count)
-    instanceLine.Text = getClassBreakdownString()
-
-    -- Update optimization stats
-    local optStats = getOptimizationStatsString()
-    optimizationLine.Text = optStats
-    optimizationLine.Visible = optStats ~= ""
-end
-
--- ============================================================================
--- Unified Settings Panel (Collapsible, Refined Design)
--- ============================================================================
-do -- Scoped block to reduce local variable count
-
-local settingsPanelExpanded = true  -- Track expand/collapse state
-local SETTINGS_COLLAPSED_HEIGHT = 40
-local SETTINGS_EXPANDED_HEIGHT = 140
-
-local settingsSection = Instance.new("Frame")
-settingsSection.Name = "SettingsPanel"
-settingsSection.Size = UDim2.new(1, 0, 0, SETTINGS_EXPANDED_HEIGHT)
-settingsSection.BackgroundTransparency = 1
-settingsSection.LayoutOrder = 5
-settingsSection.ClipsDescendants = true
-settingsSection.Parent = mainFrame
-
-local settingsPadding = Instance.new("UIPadding")
-settingsPadding.PaddingTop = UDim.new(0, 4)
-settingsPadding.PaddingLeft = UDim.new(0, 16)
-settingsPadding.PaddingRight = UDim.new(0, 16)
-settingsPadding.PaddingBottom = UDim.new(0, 12)
-settingsPadding.Parent = settingsSection
-
--- Main settings card
-local settingsCard = Instance.new("Frame")
-settingsCard.Name = "Card"
-settingsCard.Size = UDim2.new(1, 0, 0, SETTINGS_EXPANDED_HEIGHT - 16)
-settingsCard.BackgroundColor3 = Colors.surface
-settingsCard.BorderSizePixel = 0
-settingsCard.Parent = settingsSection
-
-local settingsCardCorner = Instance.new("UICorner")
-settingsCardCorner.CornerRadius = UDim.new(0, 6)
-settingsCardCorner.Parent = settingsCard
-
--- Border stroke for settings card (subtle like info section)
-local settingsCardStroke = Instance.new("UIStroke")
-settingsCardStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-settingsCardStroke.Color = Colors.border
-settingsCardStroke.Thickness = 1
-settingsCardStroke.Parent = settingsCard
-
--- Header row (clickable to expand/collapse)
-local settingsHeaderBtn = Instance.new("TextButton")
-settingsHeaderBtn.Name = "Header"
-settingsHeaderBtn.Size = UDim2.new(1, 0, 0, 32)
-settingsHeaderBtn.Position = UDim2.new(0, 0, 0, 0)
-settingsHeaderBtn.BackgroundTransparency = 1
-settingsHeaderBtn.Text = ""
-settingsHeaderBtn.Parent = settingsCard
-
--- Gear icon
-local settingsGearIcon = Instance.new("ImageLabel")
-settingsGearIcon.Size = UDim2.new(0, 14, 0, 14)
-settingsGearIcon.Position = UDim2.new(0, 12, 0.5, -7)
-settingsGearIcon.BackgroundTransparency = 1
-settingsGearIcon.Image = "rbxassetid://128166793525315"
-settingsGearIcon.ImageColor3 = Colors.textSecondary
-settingsGearIcon.ScaleType = Enum.ScaleType.Fit
-settingsGearIcon.Parent = settingsHeaderBtn
-
--- Settings title
-local settingsTitle = Instance.new("TextLabel")
-settingsTitle.Size = UDim2.new(1, -60, 1, 0)
-settingsTitle.Position = UDim2.new(0, 32, 0, 0)
-settingsTitle.BackgroundTransparency = 1
-settingsTitle.Text = "Settings"
-settingsTitle.TextColor3 = Colors.textPrimary
-settingsTitle.TextSize = 12
-settingsTitle.Font = Enum.Font.GothamMedium
-settingsTitle.TextXAlignment = Enum.TextXAlignment.Left
-settingsTitle.Parent = settingsHeaderBtn
-
--- Chevron indicator (text-based for reliability)
-local settingsChevron = Instance.new("TextLabel")
-settingsChevron.Size = UDim2.new(0, 24, 0, 24)
-settingsChevron.Position = UDim2.new(1, -32, 0.5, -12)
-settingsChevron.BackgroundTransparency = 1
-settingsChevron.Text = "▼"
-settingsChevron.TextColor3 = Colors.textSecondary
-settingsChevron.TextSize = 14
-settingsChevron.Font = Enum.Font.GothamBold
-settingsChevron.Parent = settingsHeaderBtn
-
--- Content container
-local settingsContent = Instance.new("Frame")
-settingsContent.Name = "Content"
-settingsContent.Size = UDim2.new(1, -24, 0, 90)
-settingsContent.Position = UDim2.new(0, 12, 0, 34)
-settingsContent.BackgroundTransparency = 1
-settingsContent.Parent = settingsCard
-
--- ═══════════════════════════════════════════════════════════════════════════
--- EXTRACTION GROUP
--- ═══════════════════════════════════════════════════════════════════════════
-
-local extractionGroup = Instance.new("Frame")
-extractionGroup.Size = UDim2.new(1, 0, 0, 28)
-extractionGroup.BackgroundTransparency = 1
-extractionGroup.Parent = settingsContent
-
-local extractionLabel = Instance.new("TextLabel")
-extractionLabel.Size = UDim2.new(0.6, 0, 1, 0)
-extractionLabel.BackgroundTransparency = 1
-extractionLabel.Text = "Include terrain"
-extractionLabel.TextColor3 = Colors.textSecondary
-extractionLabel.TextSize = 11
-extractionLabel.Font = Enum.Font.Gotham
-extractionLabel.TextXAlignment = Enum.TextXAlignment.Left
-extractionLabel.Parent = extractionGroup
-
--- Modern toggle switch for terrain
-local terrainToggleFrame = Instance.new("Frame")
-terrainToggleFrame.Size = UDim2.new(0, 36, 0, 20)
-terrainToggleFrame.Position = UDim2.new(1, -36, 0.5, -10)
-terrainToggleFrame.BackgroundColor3 = Colors.info  -- Blue for toggles
-terrainToggleFrame.BorderSizePixel = 0
-terrainToggleFrame.Parent = extractionGroup
-
-local terrainToggleCorner = Instance.new("UICorner")
-terrainToggleCorner.CornerRadius = UDim.new(1, 0)
-terrainToggleCorner.Parent = terrainToggleFrame
-
-local terrainToggleKnob = Instance.new("Frame")
-terrainToggleKnob.Size = UDim2.new(0, 16, 0, 16)
-terrainToggleKnob.Position = UDim2.new(1, -18, 0.5, -8)
-terrainToggleKnob.BackgroundColor3 = Color3.new(1, 1, 1)
-terrainToggleKnob.BorderSizePixel = 0
-terrainToggleKnob.Parent = terrainToggleFrame
-
-local terrainKnobCorner = Instance.new("UICorner")
-terrainKnobCorner.CornerRadius = UDim.new(1, 0)
-terrainKnobCorner.Parent = terrainToggleKnob
-
-local terrainToggleBtn = Instance.new("TextButton")
-terrainToggleBtn.Size = UDim2.new(1, 0, 1, 0)
-terrainToggleBtn.BackgroundTransparency = 1
-terrainToggleBtn.Text = ""
-terrainToggleBtn.Parent = terrainToggleFrame
-
-terrainToggleBtn.MouseButton1Click:Connect(function()
-    extractTerrainEnabled = not extractTerrainEnabled
-    if extractTerrainEnabled then
-        terrainToggleFrame.BackgroundColor3 = Colors.info  -- Blue for toggles
-        terrainToggleKnob.Position = UDim2.new(1, -18, 0.5, -8)
-    else
-        terrainToggleFrame.BackgroundColor3 = Colors.textMuted
-        terrainToggleKnob.Position = UDim2.new(0, 2, 0.5, -8)
-    end
-end)
-
--- ═══════════════════════════════════════════════════════════════════════════
--- LIVE SYNC GROUP (no header, just the toggles)
--- ═══════════════════════════════════════════════════════════════════════════
-
--- Studio → Files row
-local studioToFilesRow = Instance.new("Frame")
-studioToFilesRow.Size = UDim2.new(1, 0, 0, 26)
-studioToFilesRow.Position = UDim2.new(0, 0, 0, 30)
-studioToFilesRow.BackgroundTransparency = 1
-studioToFilesRow.Parent = settingsContent
-
-local studioToFilesLabel = Instance.new("TextLabel")
-studioToFilesLabel.Size = UDim2.new(0.7, 0, 1, 0)
-studioToFilesLabel.BackgroundTransparency = 1
-studioToFilesLabel.Text = "Studio → Files"
-studioToFilesLabel.TextColor3 = Colors.textSecondary
-studioToFilesLabel.TextSize = 11
-studioToFilesLabel.Font = Enum.Font.Gotham
-studioToFilesLabel.TextXAlignment = Enum.TextXAlignment.Left
-studioToFilesLabel.Parent = studioToFilesRow
-
--- Toggle for Studio → Files
-local studioToFilesToggle = Instance.new("Frame")
-studioToFilesToggle.Size = UDim2.new(0, 36, 0, 20)
-studioToFilesToggle.Position = UDim2.new(1, -36, 0.5, -10)
-studioToFilesToggle.BackgroundColor3 = Colors.textMuted
-studioToFilesToggle.BorderSizePixel = 0
-studioToFilesToggle.Parent = studioToFilesRow
-
-local studioToFilesCorner = Instance.new("UICorner")
-studioToFilesCorner.CornerRadius = UDim.new(1, 0)
-studioToFilesCorner.Parent = studioToFilesToggle
-
-local studioToFilesKnob = Instance.new("Frame")
-studioToFilesKnob.Size = UDim2.new(0, 16, 0, 16)
-studioToFilesKnob.Position = UDim2.new(0, 2, 0.5, -8)
-studioToFilesKnob.BackgroundColor3 = Color3.new(1, 1, 1)
-studioToFilesKnob.BorderSizePixel = 0
-studioToFilesKnob.Parent = studioToFilesToggle
-
-local studioToFilesKnobCorner = Instance.new("UICorner")
-studioToFilesKnobCorner.CornerRadius = UDim.new(1, 0)
-studioToFilesKnobCorner.Parent = studioToFilesKnob
-
--- Files → Studio row
-local filesToStudioRow = Instance.new("Frame")
-filesToStudioRow.Size = UDim2.new(1, 0, 0, 26)
-filesToStudioRow.Position = UDim2.new(0, 0, 0, 58)
-filesToStudioRow.BackgroundTransparency = 1
-filesToStudioRow.Parent = settingsContent
-
-local filesToStudioLabel = Instance.new("TextLabel")
-filesToStudioLabel.Size = UDim2.new(0.7, 0, 1, 0)
-filesToStudioLabel.BackgroundTransparency = 1
-filesToStudioLabel.Text = "Files → Studio"
-filesToStudioLabel.TextColor3 = Colors.textSecondary
-filesToStudioLabel.TextSize = 11
-filesToStudioLabel.Font = Enum.Font.Gotham
-filesToStudioLabel.TextXAlignment = Enum.TextXAlignment.Left
-filesToStudioLabel.Parent = filesToStudioRow
-
--- Toggle for Files → Studio (default ON)
-local filesToStudioToggle = Instance.new("Frame")
-filesToStudioToggle.Size = UDim2.new(0, 36, 0, 20)
-filesToStudioToggle.Position = UDim2.new(1, -36, 0.5, -10)
-filesToStudioToggle.BackgroundColor3 = Colors.info  -- Blue for toggles
-filesToStudioToggle.BorderSizePixel = 0
-filesToStudioToggle.Parent = filesToStudioRow
-
-local filesToStudioCorner = Instance.new("UICorner")
-filesToStudioCorner.CornerRadius = UDim.new(1, 0)
-filesToStudioCorner.Parent = filesToStudioToggle
-
-local filesToStudioKnob = Instance.new("Frame")
-filesToStudioKnob.Size = UDim2.new(0, 16, 0, 16)
-filesToStudioKnob.Position = UDim2.new(1, -18, 0.5, -8)
-filesToStudioKnob.BackgroundColor3 = Color3.new(1, 1, 1)
-filesToStudioKnob.BorderSizePixel = 0
-filesToStudioKnob.Parent = filesToStudioToggle
-
-local filesToStudioKnobCorner = Instance.new("UICorner")
-filesToStudioKnobCorner.CornerRadius = UDim.new(1, 0)
-filesToStudioKnobCorner.Parent = filesToStudioKnob
-
--- ═══════════════════════════════════════════════════════════════════════════
--- TOGGLE BUTTON HANDLERS (connected to sync logic)
--- ═══════════════════════════════════════════════════════════════════════════
-
--- Helper function to update toggle visual state (uses blue for enabled state)
-local function updateToggleVisual(toggleFrame: Frame, knob: Frame, isOn: boolean)
-    if isOn then
-        toggleFrame.BackgroundColor3 = Colors.info  -- Blue for toggles (not green)
-        knob.Position = UDim2.new(1, -18, 0.5, -8)
-    else
-        toggleFrame.BackgroundColor3 = Colors.textMuted
-        knob.Position = UDim2.new(0, 2, 0.5, -8)
-    end
-end
-
--- Studio → Files toggle button
-local studioToFilesBtn = Instance.new("TextButton")
-studioToFilesBtn.Size = UDim2.new(1, 0, 1, 0)
-studioToFilesBtn.BackgroundTransparency = 1
-studioToFilesBtn.Text = ""
-studioToFilesBtn.Parent = studioToFilesToggle
-
-studioToFilesBtn.MouseButton1Click:Connect(function()
-    local newState = not syncSettings.studioToFiles
-
-    if newState and isConnected and Config.getProjectDir() ~= "" then
-        -- Show confirmation dialog when enabling
-        showConfirmation(
-            "Extract to Files",
-            "This will extract all Studio instances to your local files. Continue?",
-            function()
-                -- User confirmed
-                syncSettings.studioToFiles = true
-                updateToggleVisual(studioToFilesToggle, studioToFilesKnob, true)
-                ChangeTracker.start()
-                task.spawn(function()
-                    extractGame({})
-                    changeTracking.studioChanges = 0
-                    updateButtonBadges()
-                end)
-            end,
-            function()
-                -- User cancelled - keep toggle off
-            end
-        )
-    else
-        -- Turn off immediately (no confirmation needed)
-        syncSettings.studioToFiles = newState
-        updateToggleVisual(studioToFilesToggle, studioToFilesKnob, newState)
-        if isConnected then
-            if newState then
-                ChangeTracker.start()
-            else
-                ChangeTracker.stop()
-            end
-        end
-    end
-end)
-
--- Files → Studio toggle button
-local filesToStudioBtn = Instance.new("TextButton")
-filesToStudioBtn.Size = UDim2.new(1, 0, 1, 0)
-filesToStudioBtn.BackgroundTransparency = 1
-filesToStudioBtn.Text = ""
-filesToStudioBtn.Parent = filesToStudioToggle
-
-filesToStudioBtn.MouseButton1Click:Connect(function()
-    local newState = not syncSettings.filesToStudio
-
-    if newState and isConnected and Config.getProjectDir() ~= "" then
-        -- Show confirmation dialog when enabling
-        showConfirmation(
-            "Sync to Studio",
-            "This will sync all files to Studio, overwriting Studio instances. Continue?",
-            function()
-                -- User confirmed
-                syncSettings.filesToStudio = true
-                updateToggleVisual(filesToStudioToggle, filesToStudioKnob, true)
-                task.spawn(function()
-                    local projectDir = Config.getProjectDir()
-                    local success, result = httpPost("/sync/read-tree", {
-                        project_dir = projectDir,
-                    })
-                    if success and result and result.instances then
-                        -- Build set of paths that exist in files
-                        local filePaths = {}
-                        for _, inst in ipairs(result.instances) do
-                            if inst.path and inst.path ~= "" then
-                                filePaths[inst.path] = true
-                            end
-                        end
-
-                        -- Collect paths from Studio to find what should be deleted
-                        local studioPaths = {}
-                        for _, serviceName in ipairs({"Workspace", "ReplicatedStorage", "ReplicatedFirst", "ServerScriptService", "ServerStorage", "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "SoundService"}) do
-                            local service = game:FindFirstChild(serviceName)
-                            if service then
-                                for _, desc in service:GetDescendants() do
-                                    local parts = {}
-                                    local current = desc
-                                    while current and current ~= game do
-                                        table.insert(parts, 1, current.Name)
-                                        current = current.Parent
-                                    end
-                                    if #parts > 0 then
-                                        local path = table.concat(parts, "/")
-                                        studioPaths[path] = desc
-                                    end
-                                end
-                            end
-                        end
-
-                        -- Build operations: updates for existing files, deletes for missing
-                        local operations = {}
-
-                        -- Add update operations for files
-                        for _, inst in ipairs(result.instances) do
-                            if inst.path and inst.path ~= "" then
-                                table.insert(operations, { type = "update", path = inst.path, data = inst })
-                            end
-                        end
-
-                        -- Add delete operations for instances in Studio but not in files
-                        for path, instance in pairs(studioPaths) do
-                            if not filePaths[path] then
-                                local parentPath = path:match("(.+)/[^/]+$")
-                                if not parentPath or filePaths[parentPath] then
-                                    table.insert(operations, { type = "delete", path = path, className = instance.ClassName })
-                                end
-                            end
-                        end
-
-                        if #operations > 0 then
-                            syncBatch({ operations = operations })
-                        end
-                        changeTracking.localChanges = 0
-                        updateButtonBadges()
-                    end
-                end)
-            end,
-            function()
-                -- User cancelled - keep toggle off
-            end
-        )
-    else
-        -- Turn off immediately (no confirmation needed)
-        syncSettings.filesToStudio = newState
-        updateToggleVisual(filesToStudioToggle, filesToStudioKnob, newState)
-    end
-end)
-
--- ═══════════════════════════════════════════════════════════════════════════
--- EXPAND/COLLAPSE LOGIC
--- ═══════════════════════════════════════════════════════════════════════════
-
-settingsHeaderBtn.MouseButton1Click:Connect(function()
-    settingsPanelExpanded = not settingsPanelExpanded
-    if settingsPanelExpanded then
-        settingsSection.Size = UDim2.new(1, 0, 0, SETTINGS_EXPANDED_HEIGHT)
-        settingsCard.Size = UDim2.new(1, 0, 0, SETTINGS_EXPANDED_HEIGHT - 16)
-        settingsChevron.Text = "▼"  -- Down arrow when expanded
-        settingsContent.Visible = true
-    else
-        settingsSection.Size = UDim2.new(1, 0, 0, SETTINGS_COLLAPSED_HEIGHT)
-        settingsCard.Size = UDim2.new(1, 0, 0, SETTINGS_COLLAPSED_HEIGHT - 8)
-        settingsChevron.Text = "▶"  -- Right arrow when collapsed
-        settingsContent.Visible = false
-    end
-end)
-
-end -- End of Settings Panel scoped block
 
 -- ═══════════════════════════════════════════════════════════════════════════
 -- BOTTOM SPACER (fixes scroll cutoff)
