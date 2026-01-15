@@ -641,16 +641,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       opacity: 0.7;
     }
 
-    /* Empty State - Minimal */
+    /* Empty State */
     .empty-state {
       display: flex;
+      flex-direction: column;
       align-items: center;
       gap: 8px;
-      padding: 6px 4px;
+      padding: 16px 12px;
       color: var(--text-muted);
+      text-align: center;
     }
     .empty-state .icon {
-      width: 16px; height: 16px;
+      width: 32px; height: 32px;
       opacity: 0.4;
       flex-shrink: 0;
     }
@@ -658,12 +660,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       flex: 1;
     }
     .empty-state h3 {
-      font-size: 11px;
+      font-size: 12px;
       font-weight: 500;
       color: var(--text-secondary);
+      margin-bottom: 2px;
     }
     .empty-state p {
-      display: none;
+      font-size: 11px;
+      color: var(--text-muted);
+      opacity: 0.8;
     }
 
     /* Server Control */
@@ -761,8 +766,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .zen-cat-container {
       display: flex;
       align-items: flex-start;
-      gap: 6px;
-      padding: 8px 12px;
+      gap: 12px;
+      padding: 12px;
       cursor: pointer;
       user-select: none;
       position: fixed;
@@ -776,7 +781,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     /* Spacer to push content above fixed cat */
     .cat-spacer {
-      height: 60px;
+      height: 72px;
     }
     .zen-cat-container:active .zen-cat {
       transform: scale(0.95);
@@ -818,7 +823,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     /* Speech bubble */
     .zen-quote-feed {
       position: relative;
-      padding-left: 6px;
+      padding-left: 8px;
       flex: 1;
       min-width: 0;
     }
@@ -827,35 +832,46 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       display: block;
       width: fit-content;
       max-width: 100%;
-      font-size: 10px;
+      font-size: 11px;
       color: var(--text-secondary);
       font-style: italic;
       background: var(--bubble-bg);
       border: 1px solid var(--border);
-      border-radius: 8px;
-      padding: 4px 8px;
+      border-radius: 10px;
+      padding: 6px 10px;
       position: relative;
       transition: border-color 0.3s ease, background 0.3s ease;
     }
-    /* Speech bubble tail - simple triangle */
-    .zen-quote::before {
+    /* Thought bubble dots */
+    .zen-quote::before,
+    .zen-quote::after {
       content: '';
       position: absolute;
-      left: -5px;
+      left: -10px;
+      border-radius: 50%;
+      background: var(--bubble-bg);
+      border: 1px solid var(--border);
+      transition: background 0.3s ease, border-color 0.3s ease;
+    }
+    .zen-quote::before {
+      width: 7px;
+      height: 7px;
       top: 50%;
       transform: translateY(-50%);
-      border: 5px solid transparent;
-      border-right-color: var(--bubble-bg);
-      border-left: 0;
-      transition: border-right-color 0.3s ease;
+    }
+    .zen-quote::after {
+      width: 5px;
+      height: 5px;
+      left: -18px;
+      top: 50%;
+      transform: translateY(-50%);
     }
     .zen-cat-container:hover .zen-quote {
       border-color: var(--border-light);
       color: var(--text-primary);
     }
-    /* Typewriter cursor */
-    .zen-quote.typing::after {
-      content: '|';
+    /* Typewriter cursor - inline span */
+    .typing-cursor {
       animation: blink 0.7s infinite;
       margin-left: 1px;
     }
@@ -1437,8 +1453,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       currentTypewriterText = text;
       isTyping = true;
-      element.innerHTML = '';
-      element.classList.add('typing');
+      element.innerHTML = '<span class="typing-cursor">|</span>';
 
       // Start cat talking animation
       const catEl = document.getElementById('zenCatArt');
@@ -1456,14 +1471,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       function typeChar() {
         if (i < text.length && currentTypewriterText === text) {
           displayText += text.charAt(i);
-          // Highlight "Sink" with cat's color
+          // Highlight "Sink" with cat's color, add cursor at end
           const catColor = getCatColor();
-          element.innerHTML = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
+          const highlighted = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
+          element.innerHTML = highlighted + '<span class="typing-cursor">|</span>';
           i++;
           typewriterTimeout = setTimeout(typeChar, speed);
         } else {
           isTyping = false;
-          element.classList.remove('typing');
+          // Remove cursor when done, show final text
+          const catColor = getCatColor();
+          element.innerHTML = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
           // Stop talking animation and restore cat
           if (talkInterval) {
             clearInterval(talkInterval);

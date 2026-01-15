@@ -1816,7 +1816,7 @@ scrollFrame.BorderSizePixel = 0
 scrollFrame.ScrollBarThickness = 4
 scrollFrame.ScrollBarImageColor3 = Colors.textMuted
 scrollFrame.ScrollBarImageTransparency = 0.5
-scrollFrame.CanvasSize = UDim2.new(1, 0, 0, 520)  -- Fixed content height
+scrollFrame.CanvasSize = UDim2.new(1, 0, 0, 0)  -- Auto-sized by layout
 scrollFrame.ScrollingDirection = Enum.ScrollingDirection.Y
 scrollFrame.Parent = widget
 
@@ -1848,14 +1848,6 @@ headerFrame.BackgroundColor3 = Colors.background
 headerFrame.BorderSizePixel = 0
 headerFrame.LayoutOrder = 0
 headerFrame.Parent = mainFrame
-
--- Bottom border for separation
-local headerBorder = Instance.new("Frame")
-headerBorder.Size = UDim2.new(1, 0, 0, 1)
-headerBorder.Position = UDim2.new(0, 0, 1, -1)
-headerBorder.BackgroundColor3 = Colors.border
-headerBorder.BorderSizePixel = 0
-headerBorder.Parent = headerFrame
 
 local headerPadding = Instance.new("UIPadding")
 headerPadding.PaddingTop = UDim.new(0, 6)
@@ -1979,15 +1971,40 @@ linkedBadgeLabel.TextSize = 9
 linkedBadgeLabel.Font = Enum.Font.GothamBold
 linkedBadgeLabel.Parent = linkedBadge
 
+-- UNLINKED badge (muted pill style - shows when disconnected, matches VS Code)
+local unlinkedBadge = Instance.new("Frame")
+unlinkedBadge.Name = "UnlinkedBadge"
+unlinkedBadge.Size = UDim2.new(0, 62, 0, 18)
+unlinkedBadge.Position = UDim2.new(0, 26, 0.5, -9)
+unlinkedBadge.BackgroundColor3 = Colors.textSecondary
+unlinkedBadge.BackgroundTransparency = 0.3
+unlinkedBadge.BorderSizePixel = 0
+unlinkedBadge.Visible = true  -- Shown by default (disconnected state)
+unlinkedBadge.Parent = connectionFrame
+
+local unlinkedBadgeCorner = Instance.new("UICorner")
+unlinkedBadgeCorner.CornerRadius = UDim.new(0, 4)
+unlinkedBadgeCorner.Parent = unlinkedBadge
+
+local unlinkedBadgeLabel = Instance.new("TextLabel")
+unlinkedBadgeLabel.Size = UDim2.new(1, 0, 1, 0)
+unlinkedBadgeLabel.BackgroundTransparency = 1
+unlinkedBadgeLabel.Text = "UNLINKED"
+unlinkedBadgeLabel.TextColor3 = Color3.fromRGB(255, 255, 255)
+unlinkedBadgeLabel.TextSize = 9
+unlinkedBadgeLabel.Font = Enum.Font.GothamBold
+unlinkedBadgeLabel.Parent = unlinkedBadge
+
 local connectionLabel = Instance.new("TextLabel")
 connectionLabel.Size = UDim2.new(1, -100, 1, 0)
 connectionLabel.Position = UDim2.new(0, 28, 0, 0)
 connectionLabel.BackgroundTransparency = 1
-connectionLabel.Text = "Disconnected"
+connectionLabel.Text = "Connected"
 connectionLabel.TextColor3 = Colors.textSecondary
 connectionLabel.TextSize = 12
 connectionLabel.Font = Enum.Font.GothamMedium
 connectionLabel.TextXAlignment = Enum.TextXAlignment.Left
+connectionLabel.Visible = false  -- Hidden by default, only shown when connected but not linked
 connectionLabel.Parent = connectionFrame
 
 local connectButton = Instance.new("TextButton")
@@ -2009,7 +2026,7 @@ connectBtnCorner.Parent = connectButton
 -- Stroke for disconnect state (outline style)
 local connectBtnStroke = Instance.new("UIStroke")
 connectBtnStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border  -- Apply to button border, not text
-connectBtnStroke.Color = Colors.textMuted
+connectBtnStroke.Color = Colors.border
 connectBtnStroke.Thickness = 1
 connectBtnStroke.Transparency = 1  -- Hidden by default (Connect state)
 connectBtnStroke.Parent = connectButton
@@ -2050,6 +2067,7 @@ updateConnectionUI = function()
         connectButton.BackgroundColor3 = Colors.surface
         connectButton.TextColor3 = Colors.textPrimary
         connectBtnStroke.Transparency = 0  -- Show outline for Disconnect button
+        unlinkedBadge.Visible = false  -- Hide UNLINKED badge when connected
 
         -- Show LINKED badge if linked to workspace
         if isLinked then
@@ -2067,10 +2085,9 @@ updateConnectionUI = function()
         updateSyncButtonState(SyncButtonState.IDLE)
         updateExtractButtonState(ExtractButtonState.IDLE)
     else
-        connectionLabel.Visible = true
-        connectionLabel.Text = "Disconnected"
-        connectionLabel.TextColor3 = Colors.textMuted
-        connectionLabel.Position = UDim2.new(0, 28, 0, 0)
+        -- Show UNLINKED badge instead of text
+        unlinkedBadge.Visible = true
+        connectionLabel.Visible = false
         connectionDot.BackgroundColor3 = Colors.textMuted
         connectionStroke.Color = Colors.border  -- Subtle border when disconnected
         connectionFrame.BackgroundColor3 = Colors.surface  -- Reset to normal when disconnected
@@ -2104,6 +2121,58 @@ connectButton.MouseButton1Click:Connect(function()
         userDisconnected = false  -- Allow reconnection
         local success, _ = httpGet("/health")
         if success then
+            -- Check for path mismatch BEFORE connecting
+            local currentPath = Config.getProjectDir()
+            if currentPath ~= "" and not hasShownPathMismatch then
+                local infoSuccess, infoData = httpGet("/rbxsync/server-info")
+                if infoSuccess and infoData and infoData.vscode_workspaces and #infoData.vscode_workspaces > 0 then
+                    local vscodePath = infoData.vscode_workspaces[1]
+                    if currentPath ~= vscodePath then
+                        -- Check if parent/child relationship
+                        local isRelated = string.find(currentPath, vscodePath, 1, true) == 1 or
+                                         string.find(vscodePath, currentPath, 1, true) == 1
+                        if not isRelated then
+                            hasShownPathMismatch = true
+                            lastKnownVscodePath = vscodePath
+                            print("[RbxSync] Path mismatch on connect - showing dialog")
+                            showPathMismatchDialog(
+                                vscodePath,
+                                function()  -- onContinue: connect with current path
+                                    isConnected = true
+                                    dismissViewportNotification()
+                                    registerWithServer()
+                                    ChangeTracker.setConnected(true)
+                                    startConsoleCapture()
+                                    print("Connected (kept Studio path)")
+                                    updateConnectionUI()
+                                end,
+                                function()  -- onFixPath: switch to VS Code path
+                                    Config.setProjectDir(vscodePath)
+                                    if projectDirInput then
+                                        projectDirInput.Text = vscodePath
+                                        updateFolderNameDisplay(vscodePath)
+                                    end
+                                    isConnected = true
+                                    dismissViewportNotification()
+                                    registerWithServer()
+                                    ChangeTracker.setConnected(true)
+                                    startConsoleCapture()
+                                    print("[RbxSync] Connected with VS Code path: " .. vscodePath)
+                                    updateConnectionUI()
+                                end,
+                                function()  -- onCancel: don't connect
+                                    hasShownPathMismatch = false
+                                    lastKnownVscodePath = nil
+                                    print("Connection cancelled - path mismatch")
+                                    updateConnectionUI()
+                                end
+                            )
+                            return  -- Don't continue with normal connect flow
+                        end
+                    end
+                end
+            end
+
             isConnected = true
             dismissViewportNotification()  -- Dismiss viewport notification if shown
             registerWithServer()
@@ -2331,8 +2400,6 @@ local function updateRecentProjectsDropdown()
     for i = 1, maxItems do
         local projectPath = recentProjects[i]
         local isActive = projectPath == currentPath
-        -- Extract folder name from path
-        local folderName = projectPath:match("([^/\\]+)$") or projectPath
 
         local option = Instance.new("TextButton")
         option.Size = UDim2.new(1, -8, 0, 28)
@@ -2360,12 +2427,12 @@ local function updateRecentProjectsDropdown()
         itemFolderIcon.ZIndex = 12
         itemFolderIcon.Parent = option
 
-        -- Folder name (white text, not green)
+        -- Full path (white text)
         local nameLabel = Instance.new("TextLabel")
         nameLabel.Size = UDim2.new(1, -28, 0, 14)
         nameLabel.Position = UDim2.new(0, 26, 0.5, -7)
         nameLabel.BackgroundTransparency = 1
-        nameLabel.Text = folderName
+        nameLabel.Text = projectPath
         nameLabel.TextColor3 = Colors.textPrimary  -- White for all items
         nameLabel.TextSize = 11
         nameLabel.Font = isActive and Enum.Font.GothamBold or Enum.Font.GothamMedium
@@ -2468,12 +2535,7 @@ end)
 -- BOTTOM SPACER (fixes scroll cutoff)
 -- ═══════════════════════════════════════════════════════════════════════════
 
-local bottomSpacer = Instance.new("Frame")
-bottomSpacer.Name = "BottomSpacer"
-bottomSpacer.Size = UDim2.new(1, 0, 0, 20)
-bottomSpacer.BackgroundTransparency = 1
-bottomSpacer.LayoutOrder = 99
-bottomSpacer.Parent = mainFrame
+-- Bottom spacer removed - no longer needed with compact UI
 
 -- Dummy syncOptionsSection reference for compatibility (not rendered)
 local syncOptionsSection = Instance.new("Frame")
