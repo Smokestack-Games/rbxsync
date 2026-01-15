@@ -6694,6 +6694,32 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
                         setActiveCompetitor(activeColumn);
                     }
                 }
+
+                // After compact mode is set, check if we need to scale
+                applyScaleIfNeeded();
+            }
+
+            function applyScaleIfNeeded() {
+                const auroraWrapper = section.querySelector('.comparison-aurora-wrapper');
+                if (!auroraWrapper) return;
+
+                // Reset scale first to measure natural size
+                auroraWrapper.style.transform = '';
+                auroraWrapper.style.transformOrigin = '';
+
+                if (!isCompact) return; // Only scale in compact mode
+
+                // Get the compact table's natural width
+                const tableWidth = table.scrollWidth;
+                const availableWidth = sectionInner.clientWidth - 32; // Account for section padding
+
+                if (tableWidth > availableWidth) {
+                    const scale = availableWidth / tableWidth;
+                    // Don't scale below 0.7 for readability
+                    const finalScale = Math.max(scale, 0.7);
+                    auroraWrapper.style.transform = `scale(${finalScale})`;
+                    auroraWrapper.style.transformOrigin = 'top center';
+                }
             }
 
             // Initialize - measure natural width first
