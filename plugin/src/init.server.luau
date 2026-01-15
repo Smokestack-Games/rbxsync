@@ -21,7 +21,7 @@ local CoreGui = game:GetService("CoreGui")
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
-local PLUGIN_VERSION = "1.1.0" -- Current plugin version (update on release)
+local PLUGIN_VERSION = "1.1.1" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
 -- Note: run:code feature removed for Creator Store compatibility
