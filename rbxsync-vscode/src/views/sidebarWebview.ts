@@ -371,6 +371,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       /* Override VS Code theme for consistent look */
       --vscode-sideBar-background: var(--bg-base);
     }
+    body.cat-hidden {
+      padding-top: 4px;
+    }
 
     /* Result Toast */
     .toast {
@@ -617,20 +620,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       opacity: 0.7;
     }
 
-    /* Empty State - Compact */
+    /* Empty State - Minimal */
     .empty-state {
       display: flex;
       align-items: center;
-      gap: 10px;
-      padding: 10px 12px;
-      color: var(--text-secondary);
-      background: var(--bg-surface);
-      border: 1px solid var(--border);
-      border-radius: var(--radius);
+      gap: 8px;
+      padding: 6px 4px;
+      color: var(--text-muted);
     }
     .empty-state .icon {
-      width: 24px; height: 24px;
-      opacity: 0.5;
+      width: 16px; height: 16px;
+      opacity: 0.4;
       flex-shrink: 0;
     }
     .empty-state .empty-text {
@@ -638,13 +638,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     .empty-state h3 {
       font-size: 11px;
-      font-weight: 600;
-      color: var(--text-primary);
-      margin-bottom: 2px;
+      font-weight: 500;
+      color: var(--text-secondary);
     }
     .empty-state p {
-      font-size: 10px;
-      margin: 0;
+      display: none;
     }
 
     /* Server Control */
@@ -776,6 +774,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px currentColor); }
       50% { opacity: 0.7; filter: drop-shadow(0 0 6px currentColor); }
     }
+    .zen-cat-wrapper {
+      position: relative;
+      flex-shrink: 0;
+    }
     .zen-cat {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 9px;
@@ -783,6 +785,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       white-space: pre;
       flex-shrink: 0;
       transition: color 0.3s ease, transform 0.15s ease;
+    }
+    .cat-name {
+      position: absolute;
+      bottom: 0;
+      left: 0;
+      right: 0;
+      text-align: center;
+      font-size: 8px;
+      font-weight: 600;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 1px;
     }
     .zen-cat.idle { color: #a78bfa; }
     .zen-cat.syncing { color: #60a5fa; animation: cat-bounce 0.5s ease infinite; }
@@ -945,7 +959,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
   <!-- Zen Cat Mascot -->
   <div class="zen-cat-container" id="zenCat">
-    <div class="zen-cat idle" id="zenCatArt"></div>
+    <div class="zen-cat-wrapper">
+      <div class="zen-cat idle" id="zenCatArt"></div>
+      <span class="cat-name">Sink</span>
+    </div>
     <div class="zen-quote-feed">
       <div class="zen-quote" id="zenQuote"></div>
     </div>
@@ -1141,6 +1158,25 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         "Separated meow"
       ]
     };
+
+    // Greeting messages for first launch - high priority welcome
+    const CAT_GREETINGS = [
+      "Welcome back, friend!",
+      "Hello there! Ready to code?",
+      "Hi! Sink is here to help~",
+      "Welcome to RbxSync!",
+      "Hey! Let's build something!",
+      "Good to see you!",
+      "Sink reporting for duty!",
+      "Hello, developer!",
+      "Ready when you are~",
+      "Let's make something cool!",
+      "Sink is happy to see you!",
+      "Welcome! *purrs*",
+      "Hey friend! Let's go~",
+      "Hi hi! Ready to sync?",
+      "Sink says hello!"
+    ];
 
     // Cat click reactions - fun cat things to say
     const CAT_CLICK_MESSAGES = [
@@ -1368,13 +1404,26 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     let lastQuoteTime = 0;
 
+    let isFirstLaunch = true;
+    let greetingUntil = 0; // Timestamp when greeting protection expires
+
     function initZenCat() {
       const quoteEl = document.getElementById('zenQuote');
       if (!quoteEl) return;
 
       // Shuffle quotes for variety
       shuffledQuotes = [...ZEN_QUOTES].sort(() => Math.random() - 0.5);
-      typewriterEffect(shuffledQuotes[0], quoteEl);
+
+      // Show greeting on first launch with high priority (8 seconds)
+      // Also set greetingUntil to block server status messages during greeting
+      if (isFirstLaunch) {
+        const greeting = CAT_GREETINGS[Math.floor(Math.random() * CAT_GREETINGS.length)];
+        greetingUntil = Date.now() + 8000;
+        showPriorityMessage(greeting, quoteEl, 8000);
+        isFirstLaunch = false;
+      } else {
+        typewriterEffect(shuffledQuotes[0], quoteEl);
+      }
       lastQuoteTime = Date.now();
 
       // Check every 2 seconds if we should show a new quote (10s after last activity)
@@ -1478,8 +1527,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       const container = document.getElementById('zenCat');
       const connStatus = s.connectionStatus;
 
-      // Check for server connection status changes
-      if (connStatus !== lastConnectionStatus && !isClickAnimating) {
+      // Check for server connection status changes (skip during greeting)
+      if (connStatus !== lastConnectionStatus && !isClickAnimating && Date.now() > greetingUntil) {
         if (connStatus === 'connecting' && lastConnectionStatus !== 'connecting') {
           // Server starting - show alert cat with animation
           if (catEl) {
@@ -1554,6 +1603,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             }
           }, 3000);
         }
+        lastConnectionStatus = connStatus;
+      } else if (Date.now() <= greetingUntil) {
+        // During greeting, still track status but don't show messages
         lastConnectionStatus = connStatus;
       } else if (!isClickAnimating) {
         // Normal mood updates (when not reacting to server changes)
@@ -1851,6 +1903,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       // Cat visibility
       document.getElementById('zenCat').classList.toggle('hidden', !s.catVisible);
       document.getElementById('catSpacer').classList.toggle('hidden', !s.catVisible);
+      document.body.classList.toggle('cat-hidden', !s.catVisible);
     }
 
     function shortenPath(p) {

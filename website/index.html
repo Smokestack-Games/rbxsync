@@ -2437,9 +2437,9 @@
         }
 
         .competitor-pill.active {
-            background: rgba(212, 164, 56, 0.08);
-            border-color: rgba(212, 164, 56, 0.35);
-            box-shadow: 0 0 20px -4px rgba(212, 164, 56, 0.25);
+            background: rgba(194, 60, 64, 0.12);
+            border-color: rgba(194, 60, 64, 0.4);
+            box-shadow: 0 0 20px -4px var(--rbx-red-glow);
         }
 
         .competitor-pill-logo {
@@ -2457,7 +2457,7 @@
         }
 
         .competitor-pill.active .competitor-pill-name {
-            color: var(--gold-light);
+            color: var(--rbx-red-light);
         }
 
         /* Swipe hint animation for pills */
@@ -2494,13 +2494,13 @@
         }
 
         [data-theme="light"] .competitor-pill.active {
-            background: rgba(184, 146, 46, 0.1);
-            border-color: rgba(184, 146, 46, 0.4);
-            box-shadow: 0 0 20px -4px rgba(184, 146, 46, 0.2);
+            background: rgba(194, 60, 64, 0.1);
+            border-color: rgba(194, 60, 64, 0.35);
+            box-shadow: 0 0 20px -4px rgba(194, 60, 64, 0.15);
         }
 
         [data-theme="light"] .competitor-pill.active .competitor-pill-name {
-            color: var(--gold-dark);
+            color: var(--rbx-red);
         }
 
         /* Compact comparison mode - triggered by JS when table is too wide */
@@ -2508,8 +2508,14 @@
             display: block;
         }
 
+        .comparison-compact .comparison-table-wrapper {
+            display: flex;
+            justify-content: center;
+        }
+
         .comparison-compact .comparison-table {
             min-width: unset !important;
+            width: auto !important;
         }
 
         .comparison-compact .comparison-table th,
@@ -2522,19 +2528,20 @@
         /* Feature column in compact mode */
         .comparison-compact .comparison-table th:first-child,
         .comparison-compact .comparison-table td:first-child {
-            width: 55% !important;
-            min-width: 140px !important;
+            width: auto !important;
+            min-width: 0 !important;
             max-width: none !important;
             position: relative !important;
             left: auto !important;
+            padding-right: 1.5rem !important;
         }
 
-        /* RbxSync column in compact mode - always visible */
+        /* RbxSync column in compact mode */
         .comparison-compact .comparison-table th:nth-child(2),
         .comparison-compact .comparison-table td:nth-child(2) {
-            width: 22.5% !important;
-            min-width: 80px !important;
-            max-width: none !important;
+            width: 140px !important;
+            min-width: 140px !important;
+            max-width: 140px !important;
             position: relative !important;
             left: auto !important;
         }
@@ -2549,8 +2556,9 @@
         .comparison-compact .comparison-table th.mobile-visible,
         .comparison-compact .comparison-table td.mobile-visible {
             display: table-cell !important;
-            width: 22.5% !important;
-            min-width: 80px !important;
+            width: 140px !important;
+            min-width: 140px !important;
+            max-width: 140px !important;
         }
 
         /* Adjust table wrapper in compact mode */

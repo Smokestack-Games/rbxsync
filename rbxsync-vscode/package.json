@@ -117,7 +117,7 @@
       {
         "command": "rbxsync.toggleCat",
         "title": "RbxSync: Toggle Cat",
-        "icon": "$(smiley)"
+        "icon": "$(heart)"
       }
     ],
     "viewsContainers": {
