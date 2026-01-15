@@ -2646,6 +2646,82 @@
             overflow-x: hidden;
         }
 
+        /* Scale down on very narrow screens */
+        @media (max-width: 420px) {
+            .comparison-compact .comparison-table-wrapper {
+                transform-origin: top center;
+            }
+
+            .comparison-compact .comparison-table th,
+            .comparison-compact .comparison-table td {
+                padding: 0.625rem 0.5rem !important;
+                font-size: 0.8125rem;
+            }
+
+            .comparison-compact .comparison-table th:nth-child(2),
+            .comparison-compact .comparison-table td:nth-child(2) {
+                width: 100px !important;
+                min-width: 100px !important;
+                max-width: 100px !important;
+            }
+
+            .comparison-compact .comparison-table th.mobile-visible,
+            .comparison-compact .comparison-table td.mobile-visible {
+                width: 90px !important;
+                min-width: 90px !important;
+                max-width: 90px !important;
+            }
+
+            .comparison-compact .comparison-table td:first-child {
+                padding-right: 0.75rem !important;
+            }
+
+            .comparison-compact .feature-name {
+                font-size: 0.75rem;
+            }
+
+            .comparison-compact .status-icon {
+                width: 22px;
+                height: 22px;
+            }
+
+            .comparison-compact .status-icon svg {
+                width: 12px;
+                height: 12px;
+            }
+
+            .comparison-compact .exclusive-tag {
+                font-size: 0.5rem;
+                padding: 0.2rem 0.4rem;
+                padding-left: calc(0.4rem + 0.08em);
+            }
+        }
+
+        @media (max-width: 360px) {
+            .comparison-compact .comparison-table th:nth-child(2),
+            .comparison-compact .comparison-table td:nth-child(2) {
+                width: 85px !important;
+                min-width: 85px !important;
+                max-width: 85px !important;
+            }
+
+            .comparison-compact .comparison-table th.mobile-visible,
+            .comparison-compact .comparison-table td.mobile-visible {
+                width: 75px !important;
+                min-width: 75px !important;
+                max-width: 75px !important;
+            }
+
+            .comparison-compact .feature-name {
+                font-size: 0.6875rem;
+            }
+
+            .comparison-compact .status-icon {
+                width: 20px;
+                height: 20px;
+            }
+        }
+
         /* rbxjson Section */
         .format-section {
             display: grid;
