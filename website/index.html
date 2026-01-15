@@ -2303,11 +2303,14 @@
             font-weight: 600;
         }
 
-        /* Exclusive tag - rainbow animated like .rbxjson */
+        /* Exclusive tag - rainbow animated text and border */
         .exclusive-tag {
+            position: relative;
             display: inline-flex;
             align-items: center;
-            padding: 0.2rem 0.5rem;
+            justify-content: center;
+            padding: 0.25rem 0.6rem;
+            padding-left: calc(0.6rem + 0.08em); /* compensate for letter-spacing on last char */
             font-size: 0.625rem;
             font-weight: 700;
             letter-spacing: 0.08em;
@@ -2320,11 +2323,27 @@
             -webkit-text-fill-color: transparent;
             background-clip: text;
             animation: rainbow-shift 3s linear infinite;
-            border: 1px solid rgba(255, 255, 255, 0.15);
+            z-index: 1;
         }
 
-        [data-theme="light"] .exclusive-tag {
-            border-color: rgba(0, 0, 0, 0.12);
+        .exclusive-tag::before {
+            content: '';
+            position: absolute;
+            inset: 0;
+            border-radius: 4px;
+            padding: 1px;
+            background: linear-gradient(90deg, #2dd4bf, #22d3ee, #6366f1, #f472b6, #fb923c, #4ade80, #2dd4bf);
+            background-size: 200% 100%;
+            animation: rainbow-shift 3s linear infinite;
+            -webkit-mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            mask: linear-gradient(#fff 0 0) content-box, linear-gradient(#fff 0 0);
+            -webkit-mask-composite: xor;
+            mask-composite: exclude;
+            z-index: -1;
+        }
+
+        [data-theme="light"] .exclusive-tag::before {
+            opacity: 0.8;
         }
 
         /* Status icons - SVG based */
