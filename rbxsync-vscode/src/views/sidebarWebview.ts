@@ -1317,6 +1317,53 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       "Become still and alert."
     ];
 
+    // Sink's personal thoughts and musings
+    const SINK_QUOTES = [
+      "Sink wonders what's for dinner...",
+      "Sink thinks you're doing great!",
+      "Sink believes in you~",
+      "Sink had a nice nap earlier.",
+      "Sink is proud of your code.",
+      "Sink enjoys watching you work.",
+      "Sink's favorite time is now.",
+      "Sink thinks bugs are just features in disguise.",
+      "Sink loves a good sync.",
+      "Sink finds comfort in routine.",
+      "Sink hopes you're staying hydrated!",
+      "Sink appreciates the little things.",
+      "Sink is grateful to be here.",
+      "Sink thinks you need a break soon.",
+      "Sink wonders about the meaning of meow.",
+      "Sink feels cozy today.",
+      "Sink is contemplating the void...",
+      "Sink thinks this code is beautiful.",
+      "Sink sends good vibes your way~",
+      "Sink is happy just being here.",
+      "Sink remembers to stretch sometimes.",
+      "Sink believes every bug can be fixed.",
+      "Sink thinks you're a good human.",
+      "Sink dreams of infinite treats.",
+      "Sink finds peace in the terminal.",
+      "Sink is cheering you on!",
+      "Sink thinks errors are just learning opportunities.",
+      "Sink's heart is full today.",
+      "Sink wonders if fish dream of cats...",
+      "Sink appreciates your patience.",
+      "Sink thinks debugging is an art form.",
+      "Sink feels lucky to help you.",
+      "Sink knows you've got this!",
+      "Sink is sending positive energy~",
+      "Sink thinks every save is progress.",
+      "Sink enjoys the sound of typing.",
+      "Sink believes in taking things slow.",
+      "Sink is here if you need a friend.",
+      "Sink thinks coffee breaks are important.",
+      "Sink wonders what you'll build next..."
+    ];
+
+    // Combine all quotes
+    const ALL_QUOTES = [...ZEN_QUOTES, ...SINK_QUOTES];
+
     // Initialize zen cat quote feed
     let quoteIndex = 0;
     let shuffledQuotes = [];
@@ -1411,8 +1458,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       const quoteEl = document.getElementById('zenQuote');
       if (!quoteEl) return;
 
-      // Shuffle quotes for variety
-      shuffledQuotes = [...ZEN_QUOTES].sort(() => Math.random() - 0.5);
+      // Shuffle quotes for variety (mix zen + Sink quotes)
+      shuffledQuotes = [...ALL_QUOTES].sort(() => Math.random() - 0.5);
 
       // Show greeting on first launch with high priority (8 seconds)
       // Also set greetingUntil to block server status messages during greeting
