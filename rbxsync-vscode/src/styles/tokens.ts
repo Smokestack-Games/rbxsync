@@ -109,13 +109,13 @@ export const tokens = {
       connecting: '#FACC15',
     },
 
-    // Toggle Switch
+    // Toggle Switch (uses blue for enabled state, green only for connected/linked)
     toggle: {
       trackWidth: '28px',
       trackHeight: '16px',
       knobSize: '12px',
       trackOff: '#71717A',
-      trackOn: '#4ADE80',
+      trackOn: '#60A5FA',  // Blue for toggles
       knob: '#FFFFFF',
     },
   },

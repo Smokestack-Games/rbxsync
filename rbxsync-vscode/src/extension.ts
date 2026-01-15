@@ -41,7 +41,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   }
 
   statusBar = new StatusBarManager(client);
-  sidebarView = new SidebarWebviewProvider(context.extensionUri);
+
+  // Get extension version from package.json
+  const extensionVersion = context.extension.packageJSON.version || '1.1.0';
+  sidebarView = new SidebarWebviewProvider(context.extensionUri, extensionVersion);
 
   // Register webview sidebar view
   const sidebarViewDisposable = vscode.window.registerWebviewViewProvider(

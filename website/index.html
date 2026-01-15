@@ -1973,27 +1973,75 @@
             position: relative;
             border-radius: 16px;
             isolation: isolate;
+            --aurora-brightness: 0;
         }
 
-        /* Outer aurora glow - emanates from RbxSync column */
+        /* Primary aurora glow layer - JS animated */
         .comparison-aurora-wrapper::before {
             content: '';
             position: absolute;
-            inset: -8px;
-            border-radius: 22px;
+            inset: -10px;
+            border-radius: 24px;
             background: conic-gradient(
                 from var(--aurora-rotate, 0deg),
-                rgba(45, 212, 191, 0.75) 0deg,
-                rgba(34, 211, 238, 0.45) 60deg,
-                rgba(99, 102, 241, 0.6) 120deg,
-                rgba(244, 114, 182, 0.4) 180deg,
-                rgba(251, 146, 60, 0.5) 240deg,
-                rgba(74, 222, 128, 0.55) 300deg,
-                rgba(45, 212, 191, 0.75) 360deg
+                rgba(45, 212, 191, 0.95) 0deg,
+                rgba(45, 212, 191, 0.4) 12deg,
+                transparent 22deg,
+                transparent 38deg,
+                rgba(34, 211, 238, 0.8) 48deg,
+                rgba(34, 211, 238, 0.3) 62deg,
+                transparent 72deg,
+                transparent 92deg,
+                rgba(99, 102, 241, 0.9) 102deg,
+                transparent 122deg,
+                transparent 148deg,
+                rgba(244, 114, 182, 0.7) 158deg,
+                rgba(244, 114, 182, 0.25) 175deg,
+                transparent 185deg,
+                transparent 208deg,
+                rgba(251, 146, 60, 0.75) 218deg,
+                transparent 238deg,
+                transparent 265deg,
+                rgba(74, 222, 128, 0.85) 278deg,
+                rgba(74, 222, 128, 0.35) 295deg,
+                transparent 308deg,
+                transparent 338deg,
+                rgba(45, 212, 191, 0.95) 360deg
             );
-            opacity: 0.6;
+            filter: blur(8px);
+            opacity: calc(0.6 + var(--aurora-brightness, 0) * 0.35);
             z-index: -1;
-            animation: aurora-hue-shift 8s ease-in-out infinite;
+            pointer-events: none;
+        }
+
+        /* Secondary aurora layer for depth */
+        .comparison-aurora-wrapper::after {
+            content: '';
+            position: absolute;
+            inset: -14px;
+            border-radius: 28px;
+            background: conic-gradient(
+                from var(--aurora-rotate-2, 180deg),
+                transparent 0deg,
+                transparent 30deg,
+                rgba(217, 70, 239, 0.6) 45deg,
+                rgba(217, 70, 239, 0.25) 65deg,
+                transparent 80deg,
+                transparent 125deg,
+                rgba(56, 189, 248, 0.7) 145deg,
+                rgba(56, 189, 248, 0.25) 170deg,
+                transparent 190deg,
+                transparent 240deg,
+                rgba(168, 85, 247, 0.6) 260deg,
+                transparent 290deg,
+                transparent 320deg,
+                rgba(251, 191, 36, 0.45) 340deg,
+                transparent 360deg
+            );
+            filter: blur(12px);
+            opacity: calc(0.4 + var(--aurora-brightness, 0) * 0.3);
+            z-index: -2;
+            pointer-events: none;
         }
 
         .comparison-table-wrapper {
@@ -2183,22 +2231,25 @@
         /* Tool header cells */
         .tool-header {
             position: relative;
-            padding: 1rem 0.75rem !important;
-            vertical-align: bottom;
+            padding: 0.875rem 0.75rem !important;
+            vertical-align: middle;
+            height: 90px;
         }
 
         .tool-header-content {
             display: flex;
             flex-direction: column;
             align-items: center;
-            gap: 0.5rem;
+            justify-content: center;
+            gap: 0.4rem;
+            height: 100%;
         }
 
         .tool-header-logo-wrap {
             display: flex;
-            align-items: flex-end;
+            align-items: center;
             justify-content: center;
-            height: 32px;
+            flex-shrink: 0;
         }
 
         .tool-header-logo {
@@ -2211,16 +2262,17 @@
             font-size: 0.8125rem;
             font-weight: 600;
             color: var(--text-primary);
+            line-height: 1;
             text-transform: none;
             letter-spacing: 0;
             white-space: nowrap;
         }
 
 
-        /* RbxSync Column Header - clean white text */
+        /* RbxSync Column Header - white text */
         .tool-header-aurora .tool-header-name {
-            color: #fff;
             font-weight: 700;
+            color: #fff;
         }
 
         /* RbxSync column class - inherits aurora from nth-child(2) */
@@ -7095,7 +7147,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
             const auroraElements = [
                 document.querySelector('.class-search-input-wrapper'),
                 document.querySelector('.btn-secondary-wrapper'),
-                document.querySelector('.tool-header-aurora')
+                document.querySelector('.comparison-aurora-wrapper')
             ].filter(Boolean);
 
             if (auroraElements.length === 0) {
@@ -7154,7 +7206,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
             }
 
             addHoverBoost(document.querySelector('.btn-secondary-wrapper'));
-            addHoverBoost(document.querySelector('.tool-header-aurora'));
+            addHoverBoost(document.querySelector('.comparison-aurora-wrapper'));
 
             // Proximity-based brightness for all aurora elements
             const proximityRadius = 100; // pixels

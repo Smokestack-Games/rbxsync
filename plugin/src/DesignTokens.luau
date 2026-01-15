@@ -126,12 +126,12 @@ DesignTokens.Components = {
 		padding = 12,
 	},
 
-	-- Card (Linked State)
+	-- Card (Linked State) - green border indicates connection, but background stays neutral
 	cardLinked = {
-		background = Color3.fromRGB(28, 36, 30), -- subtle green tint
-		border = DesignTokens.Colors.accent,
-		accentBar = DesignTokens.Colors.accent,
-		accentBarWidth = 4,
+		background = DesignTokens.Colors.surface,  -- neutral background
+		border = DesignTokens.Colors.accent,       -- green border for linked state
+		accentBar = DesignTokens.Colors.info,      -- blue accent bar for visual interest
+		accentBarWidth = 3,
 	},
 
 	-- Status Badge
@@ -155,13 +155,13 @@ DesignTokens.Components = {
 		glowTransparency = 0.7,
 	},
 
-	-- Toggle Switch
+	-- Toggle Switch (uses blue for enabled state, green only for connected/linked)
 	toggle = {
 		trackWidth = 28,
 		trackHeight = 16,
 		knobSize = 12,
 		trackOff = DesignTokens.Colors.textMuted,
-		trackOn = DesignTokens.Colors.accent,
+		trackOn = DesignTokens.Colors.info,  -- Blue for toggles
 		knob = Color3.fromRGB(255, 255, 255),
 	},
 }

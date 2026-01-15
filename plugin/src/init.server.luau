@@ -96,7 +96,7 @@ local Colors = {
     background = Color3.fromRGB(24, 24, 27),
     surface = Color3.fromRGB(32, 32, 36),
     surfaceHover = Color3.fromRGB(45, 45, 50),
-    surfaceActive = Color3.fromRGB(55, 55, 62),
+    surfaceActive = Color3.fromRGB(55, 55, 64),  -- #373740 - matches VS Code
     border = Color3.fromRGB(45, 45, 50),
     borderLight = Color3.fromRGB(60, 60, 68),
     -- Vibrant green accent
@@ -2514,12 +2514,21 @@ extractLabel.Font = Enum.Font.GothamBold
 extractLabel.TextXAlignment = Enum.TextXAlignment.Left
 extractLabel.Parent = extractButton
 
--- Hover effect for Extract button
+-- Hover effect for Extract button (respects extraction state)
 extractButton.MouseEnter:Connect(function()
-    extractButton.BackgroundColor3 = Colors.surfaceHover
+    -- Only apply hover if not actively extracting or showing success
+    if currentExtractState == ExtractButtonState.IDLE or currentExtractState == ExtractButtonState.DISCONNECTED then
+        extractButton.BackgroundColor3 = Colors.surfaceHover
+    end
 end)
 extractButton.MouseLeave:Connect(function()
-    extractButton.BackgroundColor3 = Colors.surface
+    -- Only revert if not actively extracting or showing success
+    if currentExtractState == ExtractButtonState.IDLE then
+        extractButton.BackgroundColor3 = Colors.surface
+    elseif currentExtractState == ExtractButtonState.DISCONNECTED then
+        extractButton.BackgroundColor3 = Colors.surface
+    end
+    -- If EXTRACTING or SUCCESS, keep the current state colors
 end)
 
 extractButton.MouseButton1Click:Connect(function()
@@ -2613,12 +2622,19 @@ syncLabel.Font = Enum.Font.GothamBold
 syncLabel.TextXAlignment = Enum.TextXAlignment.Left
 syncLabel.Parent = syncButton
 
--- Hover effect for Sync button
+-- Hover effect for Sync button (respects sync state)
 syncButton.MouseEnter:Connect(function()
-    syncButton.BackgroundColor3 = Colors.accentHover
+    -- Only apply hover if in idle state (connected and ready)
+    if currentSyncState == SyncButtonState.IDLE then
+        syncButton.BackgroundColor3 = Colors.accentHover
+    end
 end)
 syncButton.MouseLeave:Connect(function()
-    syncButton.BackgroundColor3 = Colors.accent
+    -- Only revert if in idle state
+    if currentSyncState == SyncButtonState.IDLE then
+        syncButton.BackgroundColor3 = Colors.accent
+    end
+    -- If SYNCING, DISCONNECTED, or SUCCESS, keep the current state colors
 end)
 
 -- Define button state update functions
@@ -3019,7 +3035,7 @@ infoSectionPadding.Parent = infoSection
 
 local infoFrame = Instance.new("Frame")
 infoFrame.Size = UDim2.new(1, 0, 1, 0)
-infoFrame.BackgroundColor3 = Color3.fromRGB(26, 32, 28)  -- Subtle green tint for project info
+infoFrame.BackgroundColor3 = Colors.surface  -- Clean neutral surface
 infoFrame.BorderSizePixel = 0
 infoFrame.ClipsDescendants = true  -- Clip accent bar to rounded corners
 infoFrame.Parent = infoSection
@@ -3028,18 +3044,18 @@ local infoFrameCorner = Instance.new("UICorner")
 infoFrameCorner.CornerRadius = UDim.new(0, 6)
 infoFrameCorner.Parent = infoFrame
 
--- Green border stroke for info section (matches accent)
+-- Subtle border stroke for info section
 local infoStroke = Instance.new("UIStroke")
 infoStroke.ApplyStrokeMode = Enum.ApplyStrokeMode.Border
-infoStroke.Color = Colors.accentMuted
+infoStroke.Color = Colors.border
 infoStroke.Thickness = 1
 infoStroke.Parent = infoFrame
 
--- Left accent bar for visual interest
+-- Left accent bar - subtle blue for visual interest (not green)
 local infoAccentBar = Instance.new("Frame")
 infoAccentBar.Size = UDim2.new(0, 3, 1, -12)
 infoAccentBar.Position = UDim2.new(0, 6, 0, 6)
-infoAccentBar.BackgroundColor3 = Colors.accent
+infoAccentBar.BackgroundColor3 = Colors.info  -- Blue accent bar
 infoAccentBar.BorderSizePixel = 0
 infoAccentBar.Parent = infoFrame
 
@@ -3082,7 +3098,7 @@ local instanceLine = Instance.new("TextLabel")
 instanceLine.Size = UDim2.new(1, 0, 0, 16)
 instanceLine.BackgroundTransparency = 1
 instanceLine.Text = "..."
-instanceLine.TextColor3 = Colors.accent  -- Green for key stats
+instanceLine.TextColor3 = Colors.textSecondary  -- Neutral for stats
 instanceLine.TextSize = 12
 instanceLine.Font = Enum.Font.GothamMedium
 instanceLine.TextXAlignment = Enum.TextXAlignment.Left
@@ -3106,7 +3122,7 @@ local statusLine = Instance.new("TextLabel")
 statusLine.Size = UDim2.new(1, 0, 0, 14)
 statusLine.BackgroundTransparency = 1
 statusLine.Text = ""
-statusLine.TextColor3 = Colors.accent
+statusLine.TextColor3 = Colors.textSecondary  -- Neutral by default
 statusLine.TextSize = 11
 statusLine.Font = Enum.Font.GothamMedium
 statusLine.TextXAlignment = Enum.TextXAlignment.Left
@@ -3117,7 +3133,7 @@ statusLine.Parent = infoContent
 local statusClearTimeout: thread? = nil
 setStatus = function(text: string, color: Color3?, duration: number?)
     statusLine.Text = text
-    statusLine.TextColor3 = color or Colors.accent
+    statusLine.TextColor3 = color or Colors.textSecondary  -- Neutral default, use Colors.success for success
 
     -- Clear previous timeout
     if statusClearTimeout then
@@ -3269,7 +3285,7 @@ extractionLabel.Parent = extractionGroup
 local terrainToggleFrame = Instance.new("Frame")
 terrainToggleFrame.Size = UDim2.new(0, 36, 0, 20)
 terrainToggleFrame.Position = UDim2.new(1, -36, 0.5, -10)
-terrainToggleFrame.BackgroundColor3 = Colors.accent
+terrainToggleFrame.BackgroundColor3 = Colors.info  -- Blue for toggles
 terrainToggleFrame.BorderSizePixel = 0
 terrainToggleFrame.Parent = extractionGroup
 
@@ -3297,7 +3313,7 @@ terrainToggleBtn.Parent = terrainToggleFrame
 terrainToggleBtn.MouseButton1Click:Connect(function()
     extractTerrainEnabled = not extractTerrainEnabled
     if extractTerrainEnabled then
-        terrainToggleFrame.BackgroundColor3 = Colors.accent
+        terrainToggleFrame.BackgroundColor3 = Colors.info  -- Blue for toggles
         terrainToggleKnob.Position = UDim2.new(1, -18, 0.5, -8)
     else
         terrainToggleFrame.BackgroundColor3 = Colors.textMuted
@@ -3370,7 +3386,7 @@ filesToStudioLabel.Parent = filesToStudioRow
 local filesToStudioToggle = Instance.new("Frame")
 filesToStudioToggle.Size = UDim2.new(0, 36, 0, 20)
 filesToStudioToggle.Position = UDim2.new(1, -36, 0.5, -10)
-filesToStudioToggle.BackgroundColor3 = Colors.accent
+filesToStudioToggle.BackgroundColor3 = Colors.info  -- Blue for toggles
 filesToStudioToggle.BorderSizePixel = 0
 filesToStudioToggle.Parent = filesToStudioRow
 
@@ -3393,10 +3409,10 @@ filesToStudioKnobCorner.Parent = filesToStudioKnob
 -- TOGGLE BUTTON HANDLERS (connected to sync logic)
 -- ═══════════════════════════════════════════════════════════════════════════
 
--- Helper function to update toggle visual state
+-- Helper function to update toggle visual state (uses blue for enabled state)
 local function updateToggleVisual(toggleFrame: Frame, knob: Frame, isOn: boolean)
     if isOn then
-        toggleFrame.BackgroundColor3 = Colors.accent
+        toggleFrame.BackgroundColor3 = Colors.info  -- Blue for toggles (not green)
         knob.Position = UDim2.new(1, -18, 0.5, -8)
     else
         toggleFrame.BackgroundColor3 = Colors.textMuted
@@ -4357,10 +4373,10 @@ local function createCheckbox(parent: Frame, yOffset: number, text: string, chec
     local checkboxButton = Instance.new("TextButton")
     checkboxButton.Size = UDim2.new(0, 16, 0, 16)
     checkboxButton.Position = UDim2.new(0, 0, 0.5, -8)
-    checkboxButton.BackgroundColor3 = checked and Colors.accent or Colors.surface
+    checkboxButton.BackgroundColor3 = checked and Colors.info or Colors.surface  -- Blue for checkboxes
     checkboxButton.BorderSizePixel = 0
     checkboxButton.Text = checked and "✓" or ""
-    checkboxButton.TextColor3 = Colors.background
+    checkboxButton.TextColor3 = Colors.textPrimary
     checkboxButton.TextSize = 12
     checkboxButton.Font = Enum.Font.GothamBold
     checkboxButton.Parent = checkboxFrame
@@ -4370,7 +4386,7 @@ local function createCheckbox(parent: Frame, yOffset: number, text: string, chec
     checkboxCorner.Parent = checkboxButton
 
     local checkboxStroke = Instance.new("UIStroke")
-    checkboxStroke.Color = checked and Colors.accent or Colors.textMuted
+    checkboxStroke.Color = checked and Colors.info or Colors.textMuted  -- Blue for checkboxes
     checkboxStroke.Thickness = 1
     checkboxStroke.Parent = checkboxButton
 
@@ -4390,9 +4406,9 @@ local function createCheckbox(parent: Frame, yOffset: number, text: string, chec
     -- Function to update visual state
     local function updateVisual(newState: boolean)
         isChecked = newState
-        checkboxButton.BackgroundColor3 = isChecked and Colors.accent or Colors.surface
+        checkboxButton.BackgroundColor3 = isChecked and Colors.info or Colors.surface  -- Blue for checkboxes
         checkboxButton.Text = isChecked and "✓" or ""
-        checkboxStroke.Color = isChecked and Colors.accent or Colors.textMuted
+        checkboxStroke.Color = isChecked and Colors.info or Colors.textMuted  -- Blue for checkboxes
     end
 
     checkboxButton.MouseButton1Click:Connect(function()

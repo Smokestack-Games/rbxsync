@@ -653,7 +653,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       position: relative;
       transition: background 0.2s;
     }
-    .quick-row .toggle.on { background: var(--success); }
+    .quick-row .toggle.on { background: var(--blue); }  /* Blue for toggles, not green */
     .quick-row .toggle::after {
       content: '';
       position: absolute;
@@ -690,23 +690,31 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     .hidden { display: none !important; }
 
-    /* Zen Cat Mascot */
+    /* Zen Cat Mascot - Compact */
     .zen-cat-container {
-      background: linear-gradient(135deg, var(--bg-surface) 0%, rgba(139, 92, 246, 0.08) 100%);
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface);
       border: 1px solid var(--border);
-      border-radius: var(--radius);
-      padding: 12px;
-      margin-bottom: 12px;
-      text-align: center;
+      border-radius: var(--radius-sm);
+      padding: 6px 10px;
+      margin-bottom: 8px;
       position: relative;
       overflow: hidden;
+      cursor: pointer;
+      user-select: none;
+    }
+    .zen-cat-container:hover {
+      border-color: var(--border-light);
+    }
+    .zen-cat-container:active .zen-cat {
+      transform: scale(0.95);
     }
     .zen-cat-container::before {
       content: '';
       position: absolute;
-      top: 0;
-      left: 0;
-      right: 0;
+      top: 0; left: 0; right: 0;
       height: 2px;
       background: linear-gradient(90deg, #f472b6, #a78bfa, #60a5fa, #4ade80, #facc15, #f472b6);
       background-size: 200% 100%;
@@ -718,12 +726,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     }
     .zen-cat {
       font-family: var(--vscode-editor-font-family, monospace);
-      font-size: 11px;
-      line-height: 1.3;
+      font-size: 9px;
+      line-height: 1.1;
       white-space: pre;
-      color: var(--text-primary);
-      margin-bottom: 8px;
-      transition: all 0.3s ease;
+      flex-shrink: 0;
+      transition: color 0.3s ease;
     }
     .zen-cat.idle { color: #a78bfa; }
     .zen-cat.syncing { color: #60a5fa; animation: cat-bounce 0.5s ease infinite; }
@@ -731,36 +738,26 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .zen-cat.error { color: #f87171; }
     @keyframes cat-bounce {
       0%, 100% { transform: translateY(0); }
-      50% { transform: translateY(-2px); }
+      50% { transform: translateY(-1px); }
     }
     .zen-quote-feed {
-      height: 48px;
-      overflow: hidden;
-      position: relative;
-      margin-top: 4px;
-    }
-    .zen-quote-track {
-      animation: quote-scroll 60s linear infinite;
-    }
-    @keyframes quote-scroll {
-      0% { transform: translateY(0); }
-      100% { transform: translateY(-50%); }
+      flex: 1;
+      display: flex;
+      align-items: center;
+      min-width: 0;
     }
     .zen-quote {
       font-size: 10px;
-      color: var(--text-secondary);
-      padding: 4px 8px;
+      color: var(--text-muted);
       font-style: italic;
-      opacity: 0.9;
-      transition: opacity 0.3s;
-    }
-    .zen-quote:hover {
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
       opacity: 1;
-      color: var(--text-primary);
+      transition: opacity 0.5s ease;
     }
-    .zen-cat-container:hover .zen-quote-track {
-      animation-play-state: paused;
-    }
+    .zen-quote.fade { opacity: 0; }
+    .zen-cat-container:hover .zen-quote { color: var(--text-secondary); }
 
     /* Collapsible Section */
     .collapsible-header {
@@ -811,7 +808,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       -webkit-appearance: none;
       width: 12px;
       height: 12px;
-      background: var(--accent);
+      background: var(--blue);  /* Blue for sliders, not green */
       border-radius: 50%;
       cursor: pointer;
     }
@@ -877,7 +874,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   <div class="zen-cat-container" id="zenCat">
     <div class="zen-cat idle" id="zenCatArt"></div>
     <div class="zen-quote-feed">
-      <div class="zen-quote-track" id="zenQuoteTrack"></div>
+      <div class="zen-quote" id="zenQuote"></div>
     </div>
   </div>
 
@@ -958,24 +955,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     const vscode = acquireVsCodeApi();
     let state = null;
 
-    // Zen Cat ASCII Art for different moods
+    // Zen Cat ASCII Art for different moods (compact)
     const CAT_ART = {
-      idle: \`  /\\\\_/\\\\
- ( -.- )
-  > ^ <
- ~zzz~\`,
-      syncing: \`  /\\\\_/\\\\
- ( o.o )
-  > ~ <
- ~~~>>\`,
-      success: \`  /\\\\_/\\\\
- ( ^.^ )
-  > v <
- *purr*\`,
-      error: \`  /\\\\_/\\\\
- ( >.< )
-  > ! <
-  ?!?\`
+      idle: \`/\\\\_/\\\\
+(-.-)\`,
+      syncing: \`/\\\\_/\\\\
+(o.o)\`,
+      success: \`/\\\\_/\\\\
+(^.^)\`,
+      error: \`/\\\\_/\\\\
+(>.<)\`
     };
 
     // Zen wisdom quotes
@@ -1082,16 +1071,33 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     ];
 
     // Initialize zen cat quote feed
+    let quoteIndex = 0;
+    let shuffledQuotes = [];
+
     function initZenCat() {
-      const track = document.getElementById('zenQuoteTrack');
-      if (!track) return;
+      const quoteEl = document.getElementById('zenQuote');
+      if (!quoteEl) return;
 
       // Shuffle quotes for variety
-      const shuffled = [...ZEN_QUOTES].sort(() => Math.random() - 0.5);
+      shuffledQuotes = [...ZEN_QUOTES].sort(() => Math.random() - 0.5);
+      quoteEl.textContent = shuffledQuotes[0];
 
-      // Create quote elements (duplicate for seamless loop)
-      const quotesHtml = shuffled.map(q => \`<div class="zen-quote">\${q}</div>\`).join('');
-      track.innerHTML = quotesHtml + quotesHtml;
+      // Swap quote every 10 seconds
+      setInterval(() => {
+        const quoteEl = document.getElementById('zenQuote');
+        if (!quoteEl) return;
+
+        // Fade out
+        quoteEl.classList.add('fade');
+
+        setTimeout(() => {
+          // Change quote
+          quoteIndex = (quoteIndex + 1) % shuffledQuotes.length;
+          quoteEl.textContent = shuffledQuotes[quoteIndex];
+          // Fade in
+          quoteEl.classList.remove('fade');
+        }, 500);
+      }, 10000);
 
       // Update cat art
       updateCatMood('idle');
@@ -1105,8 +1111,34 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       catEl.className = 'zen-cat ' + mood;
     }
 
+    // Cat click reaction
+    function onCatClick() {
+      const catEl = document.getElementById('zenCatArt');
+      const quoteEl = document.getElementById('zenQuote');
+      if (!catEl) return;
+
+      // Show surprised face
+      catEl.textContent = \`/\\\\_/\\\\
+(O.O)\`;
+      catEl.style.color = '#facc15';
+
+      // Show new quote immediately
+      if (quoteEl && shuffledQuotes.length > 0) {
+        quoteIndex = (quoteIndex + 1) % shuffledQuotes.length;
+        quoteEl.textContent = shuffledQuotes[quoteIndex];
+      }
+
+      // Return to normal after a moment
+      setTimeout(() => {
+        updateCatMood(state?.catMood || 'idle');
+      }, 800);
+    }
+
     // Initialize on load
     initZenCat();
+
+    // Add click handler to cat
+    document.getElementById('zenCat')?.addEventListener('click', onCatClick);
 
     window.addEventListener('message', e => {
       if (e.data.type === 'stateUpdate') {
