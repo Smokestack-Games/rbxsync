@@ -774,10 +774,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       0%, 100% { opacity: 1; filter: drop-shadow(0 0 2px currentColor); }
       50% { opacity: 0.7; filter: drop-shadow(0 0 6px currentColor); }
     }
-    .zen-cat-wrapper {
-      position: relative;
-      flex-shrink: 0;
-    }
     .zen-cat {
       font-family: var(--vscode-editor-font-family, monospace);
       font-size: 9px;
@@ -786,17 +782,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       flex-shrink: 0;
       transition: color 0.3s ease, transform 0.15s ease;
     }
-    .cat-name {
-      position: absolute;
-      bottom: 0;
-      left: 0;
-      right: 0;
-      text-align: center;
-      font-size: 8px;
+    .sink-name {
+      color: inherit;
       font-weight: 600;
-      color: var(--text-muted);
-      text-transform: uppercase;
-      letter-spacing: 1px;
     }
     .zen-cat.idle { color: #a78bfa; }
     .zen-cat.syncing { color: #60a5fa; animation: cat-bounce 0.5s ease infinite; }
@@ -959,10 +947,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
   <!-- Zen Cat Mascot -->
   <div class="zen-cat-container" id="zenCat">
-    <div class="zen-cat-wrapper">
-      <div class="zen-cat idle" id="zenCatArt"></div>
-      <span class="cat-name">Sink</span>
-    </div>
+    <div class="zen-cat idle" id="zenCatArt"></div>
     <div class="zen-quote-feed">
       <div class="zen-quote" id="zenQuote"></div>
     </div>
@@ -1380,6 +1365,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     // Typewriter effect - types text character by character
     let talkInterval = null;
 
+    // Get current cat color based on mood
+    function getCatColor() {
+      const catEl = document.getElementById('zenCatArt');
+      if (catEl) {
+        const style = window.getComputedStyle(catEl);
+        return style.color;
+      }
+      return '#a78bfa'; // default idle color
+    }
+
     function typewriterEffect(text, element, speed = 40) {
       // Clear any existing typewriter
       if (typewriterTimeout) {
@@ -1392,7 +1387,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       currentTypewriterText = text;
       isTyping = true;
-      element.textContent = '';
+      element.innerHTML = '';
       element.classList.add('typing');
 
       // Start cat talking animation
@@ -1406,9 +1401,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       }
 
       let i = 0;
+      let displayText = '';
+
       function typeChar() {
         if (i < text.length && currentTypewriterText === text) {
-          element.textContent += text.charAt(i);
+          displayText += text.charAt(i);
+          // Highlight "Sink" with cat's color
+          const catColor = getCatColor();
+          element.innerHTML = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
           i++;
           typewriterTimeout = setTimeout(typeChar, speed);
         } else {
