@@ -2692,43 +2692,60 @@
         .battle-aurora-wrapper::before {
             content: '';
             position: absolute;
-            inset: -10px;
+            inset: -8px;
             border-radius: 24px;
             background: conic-gradient(
                 from var(--aurora-rotate, 0deg),
                 rgba(45, 212, 191, 0.95) 0deg,
                 rgba(45, 212, 191, 0.4) 12deg,
-                transparent 40deg,
-                transparent 150deg,
-                rgba(34, 211, 238, 0.5) 180deg,
-                rgba(99, 102, 241, 0.6) 220deg,
-                transparent 260deg,
-                transparent 320deg,
+                transparent 20deg,
+                transparent 35deg,
+                rgba(34, 211, 238, 0.8) 42deg,
+                rgba(34, 211, 238, 0.3) 55deg,
+                transparent 65deg,
+                transparent 88deg,
+                rgba(99, 102, 241, 0.9) 95deg,
+                transparent 115deg,
+                transparent 145deg,
+                rgba(244, 114, 182, 0.7) 152deg,
+                rgba(244, 114, 182, 0.25) 168deg,
+                transparent 178deg,
+                transparent 200deg,
+                rgba(251, 146, 60, 0.75) 208deg,
+                transparent 225deg,
+                transparent 255deg,
+                rgba(74, 222, 128, 0.85) 268deg,
+                rgba(74, 222, 128, 0.35) 285deg,
+                transparent 298deg,
+                transparent 322deg,
+                rgba(45, 212, 191, 0.6) 335deg,
                 rgba(45, 212, 191, 0.95) 360deg
             );
-            filter: blur(25px);
-            opacity: calc(0.25 + var(--aurora-brightness, 0) * 0.4);
+            filter: blur(20px);
+            opacity: calc(0.5 + var(--aurora-brightness, 0) * 0.5);
             z-index: -1;
         }
 
         .battle-aurora-wrapper::after {
             content: '';
             position: absolute;
-            inset: -14px;
+            inset: -12px;
             border-radius: 28px;
             background: conic-gradient(
                 from var(--aurora-rotate-2, 180deg),
                 transparent 0deg,
-                transparent 30deg,
-                rgba(45, 212, 191, 0.3) 60deg,
-                transparent 120deg,
-                transparent 200deg,
-                rgba(99, 102, 241, 0.4) 240deg,
+                transparent 60deg,
+                rgba(45, 212, 191, 0.5) 90deg,
+                transparent 130deg,
+                transparent 180deg,
+                rgba(99, 102, 241, 0.5) 220deg,
+                transparent 260deg,
                 transparent 300deg,
+                rgba(244, 114, 182, 0.4) 330deg,
                 transparent 360deg
             );
-            filter: blur(35px);
-            opacity: calc(0.15 + var(--aurora-brightness, 0) * 0.3);
+            filter: blur(30px);
+            opacity: calc(0.3 + var(--aurora-brightness, 0) * 0.4);
             z-index: -2;
         }
 
