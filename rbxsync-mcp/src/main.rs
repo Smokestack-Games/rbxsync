@@ -27,6 +27,14 @@ pub struct ExtractParams {
     /// Optional list of services to extract (e.g., ["Workspace", "ServerScriptService"])
     #[schemars(description = "Optional services to extract")]
     pub services: Option<Vec<String>>,
+    /// Whether to include terrain data (voxel chunks). Defaults to true.
+    #[schemars(description = "Include terrain data (default: true)")]
+    #[serde(default = "default_include_terrain")]
+    pub include_terrain: bool,
+}
+
+fn default_include_terrain() -> bool {
+    true
 }
 
 /// Parameters for sync_to_studio tool
@@ -213,7 +221,7 @@ impl RbxSyncServer {
 
         // Start extraction
         let session = self.client
-            .start_extraction(&params.project_dir, params.services.as_deref())
+            .start_extraction(&params.project_dir, params.services.as_deref(), params.include_terrain)
             .await
             .map_err(|e| mcp_error(e.to_string()))?;
 

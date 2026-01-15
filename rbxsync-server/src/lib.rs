@@ -1394,6 +1394,17 @@ async fn handle_extract_finalize(
     // Backup existing src directory before clearing (for undo support)
     let backup_dir = PathBuf::from(&req.project_dir).join(".rbxsync-backup");
     let backup_src = backup_dir.join("src");
+
+    // IMPORTANT: Back up terrain data BEFORE any directory operations
+    // Terrain is saved during extraction and must survive the src clear
+    let terrain_file = src_dir.join("Workspace").join("Terrain").join("terrain.rbxjson");
+    let terrain_data = if terrain_file.exists() {
+        tracing::info!("Backing up terrain.rbxjson before finalize");
+        std::fs::read_to_string(&terrain_file).ok()
+    } else {
+        None
+    };
+
     if src_dir.exists() {
         // Remove old backup if exists
         if backup_src.exists() {
@@ -1408,7 +1419,7 @@ async fn handle_extract_finalize(
             if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
                 tracing::warn!("Failed to backup src directory: {}", e);
             }
-            // Clear existing src directory
+
             for entry in std::fs::read_dir(&src_dir).unwrap_or_else(|_| std::fs::read_dir(".").unwrap()) {
                 if let Ok(entry) = entry {
                     let path = entry.path();
@@ -1435,6 +1446,15 @@ async fn handle_extract_finalize(
 
     // Create src directory
     let _ = std::fs::create_dir_all(&src_dir);
+
+    // Restore terrain data that was backed up before clearing
+    if let Some(data) = terrain_data {
+        let terrain_dir = src_dir.join("Workspace").join("Terrain");
+        let _ = std::fs::create_dir_all(&terrain_dir);
+        if std::fs::write(terrain_dir.join("terrain.rbxjson"), &data).is_ok() {
+            tracing::info!("Restored terrain.rbxjson after finalize");
+        }
+    }
 
     // Track which services we've seen to create folders for them
     let mut service_folders: std::collections::HashSet<String> = std::collections::HashSet::new();
@@ -1713,7 +1733,9 @@ pub struct TerrainRequest {
 
 /// Handle terrain data from extraction (supports batched uploads)
 async fn handle_extract_terrain(Json(req): Json<TerrainRequest>) -> impl IntoResponse {
+    tracing::info!("Received terrain data for project: {}", req.project_dir);
     let terrain_dir = PathBuf::from(&req.project_dir).join("src").join("Workspace").join("Terrain");
+    tracing::info!("Terrain directory: {}", terrain_dir.display());
 
     // Create terrain directory
     if let Err(e) = std::fs::create_dir_all(&terrain_dir) {
@@ -2293,11 +2315,22 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
 
 /// Read terrain data for sync
 async fn handle_sync_read_terrain(Json(req): Json<ReadTreeRequest>) -> impl IntoResponse {
-    let terrain_file = PathBuf::from(&req.project_dir)
+    // Try both possible terrain file locations
+    let terrain_file_v1 = PathBuf::from(&req.project_dir)
+        .join("src")
+        .join("Workspace")
+        .join("Terrain.rbxjson");
+    let terrain_file_v2 = PathBuf::from(&req.project_dir)
         .join("src")
         .join("Workspace")
         .join("Terrain")
         .join("terrain.rbxjson");
+
+    let terrain_file = if terrain_file_v1.exists() {
+        terrain_file_v1
+    } else {
+        terrain_file_v2
+    };
 
     if !terrain_file.exists() {
         return (

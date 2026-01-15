@@ -248,11 +248,12 @@ export class RbxSyncClient {
   }
 
   // Extraction
-  async startExtraction(projectDir: string, services?: string[]): Promise<ExtractStartResponse | null> {
+  async startExtraction(projectDir: string, services?: string[], includeTerrain: boolean = true): Promise<ExtractStartResponse | null> {
     try {
       const request: ExtractStartRequest = {
         project_dir: projectDir,
-        services
+        services,
+        include_terrain: includeTerrain
       };
       const response = await this.client.post<ExtractStartResponse>('/extract/start', request);
       return response.data;
@@ -305,6 +306,30 @@ export class RbxSyncClient {
       return response.data;
     } catch (error) {
       this.handleError('Sync batch', error);
+      return null;
+    }
+  }
+
+  async getStudioPaths(): Promise<string[] | null> {
+    try {
+      const response = await this.client.post<{ paths: Array<{ path: string; className: string; name: string }> }>('/studio/paths', {});
+      // Extract just the path strings from the response objects
+      return response.data?.paths?.map(p => p.path) || [];
+    } catch (error) {
+      this.handleError('Get studio paths', error);
+      return null;
+    }
+  }
+
+  async readTerrain(projectDir: string): Promise<{ terrain: unknown } | null> {
+    try {
+      const response = await this.client.post<{ success: boolean; terrain?: unknown }>('/sync/read-terrain', { project_dir: projectDir });
+      if (response.data?.success && response.data?.terrain) {
+        return { terrain: response.data.terrain };
+      }
+      return null;
+    } catch (error) {
+      // Terrain might not exist, not an error
       return null;
     }
   }

@@ -237,9 +237,11 @@ impl RbxSyncClient {
         &self,
         project_dir: &str,
         services: Option<&[String]>,
+        include_terrain: bool,
     ) -> anyhow::Result<ExtractStartResponse> {
         let mut body = serde_json::json!({
-            "project_dir": project_dir
+            "project_dir": project_dir,
+            "include_terrain": include_terrain
         });
 
         if let Some(services) = services {

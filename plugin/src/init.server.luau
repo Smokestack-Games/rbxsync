@@ -1273,7 +1273,18 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
             local opType = op.type
             local result
 
-            if opType == "create" then
+            -- Special handling for terrain sync (has terrain chunk data)
+            if op.data and op.data.terrain and op.data.className == "Terrain" then
+                print("[RbxSync] Syncing terrain data...")
+                local terrainData = op.data.terrain
+                TerrainHandler.clearTerrain()
+                local ok, chunksApplied = TerrainHandler.applyTerrain(terrainData)
+                if ok then
+                    result = { success = true, action = "terrain_synced", reasons = {chunksApplied .. " chunks"} }
+                else
+                    result = { success = false, error = "Failed to apply terrain" }
+                end
+            elseif opType == "create" then
                 result = syncCreate(op)
             elseif opType == "update" then
                 result = syncUpdate(op)

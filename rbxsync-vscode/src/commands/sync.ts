@@ -23,29 +23,116 @@ export async function syncCommand(
     projectDir = workspaceFolders[0].uri.fsPath;
   }
 
-  // Read and sync
+  // Read file tree
   const treeResult = await client.readTree(projectDir);
   if (!treeResult) {
     vscode.window.showErrorMessage('Failed to read files.');
     return;
   }
 
-  const operations = treeResult.instances.map(inst => ({
-    type: 'update' as const,
-    path: inst.path,
-    data: inst
-  }));
+  console.log('[RbxSync] Read tree:', treeResult.instances?.length || 0, 'instances');
+
+  // Build set of file paths
+  const filePaths = new Set<string>();
+  for (const inst of treeResult.instances) {
+    if (inst.path) {
+      filePaths.add(inst.path);
+    }
+  }
+
+  // Create update operations for all file instances
+  // Use 'type' field as expected by the plugin (not 'op' from TypeScript types)
+  const operations: Array<{ type: string; path: string; data?: unknown }> =
+    treeResult.instances.map(inst => ({
+      type: 'update',
+      path: inst.path,
+      data: inst
+    }));
+
+  // Delete orphaned instances (only if they have a parent that exists in files)
+  // Skip special instances that shouldn't be deleted
+  const skipClasses = new Set([
+    'Terrain', 'Camera', 'Workspace', 'ReplicatedStorage', 'ReplicatedFirst',
+    'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack',
+    'StarterPlayer', 'Lighting', 'SoundService', 'Teams', 'Chat',
+    'LocalizationService', 'TestService', 'Players', 'RunService'
+  ]);
+  const skipNames = new Set(['SpawnLocation', 'Camera']);
+
+  try {
+    const studioPaths = await client.getStudioPaths();
+    console.log('[RbxSync] Studio paths:', studioPaths?.length || 0);
+    if (studioPaths && studioPaths.length > 0) {
+      let deleteCount = 0;
+      for (const studioPath of studioPaths) {
+        // Skip if path is in file tree
+        if (filePaths.has(studioPath)) continue;
+
+        // Get the instance name (last part of path)
+        const pathParts = studioPath.split('/');
+        const instanceName = pathParts[pathParts.length - 1];
+
+        // Skip services and special instances
+        if (skipClasses.has(instanceName) || skipNames.has(instanceName)) continue;
+
+        // Skip the service itself (top level)
+        if (pathParts.length === 1) continue;
+
+        // For direct service children (like Workspace/Baseplate), delete if service is in files
+        // For deeper paths, only delete if parent exists in files
+        const parentPath = studioPath.substring(0, studioPath.lastIndexOf('/'));
+        const parentInFiles = parentPath && filePaths.has(parentPath);
+        const isDirectServiceChild = pathParts.length === 2 && skipClasses.has(pathParts[0]);
+
+        if (parentInFiles || isDirectServiceChild) {
+          operations.push({
+            type: 'delete',
+            path: studioPath
+          });
+          deleteCount++;
+          console.log('[RbxSync] Will delete orphan:', studioPath);
+        }
+      }
+      console.log('[RbxSync] Delete operations:', deleteCount);
+    }
+  } catch (err) {
+    console.error('[RbxSync] Failed to get studio paths:', err);
+  }
+
+  // Sync terrain if it exists
+  try {
+    const terrainResult = await client.readTerrain(projectDir);
+    if (terrainResult?.terrain) {
+      console.log('[RbxSync] Adding terrain sync operation');
+      operations.push({
+        type: 'update',
+        path: 'Workspace/Terrain',
+        data: {
+          path: 'Workspace/Terrain',
+          className: 'Terrain',
+          name: 'Terrain',
+          terrain: terrainResult.terrain
+        }
+      });
+    }
+  } catch (err) {
+    console.error('[RbxSync] Failed to read terrain:', err);
+  }
 
   if (operations.length === 0) {
     return; // Silent - nothing to sync
   }
 
-  const syncResult = await client.syncBatch(operations, projectDir);
+  console.log('[RbxSync] Sending', operations.length, 'operations');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const syncResult = await client.syncBatch(operations as any, projectDir);
 
   if (!syncResult) {
     vscode.window.showErrorMessage('Sync failed. Try again.');
     return;
   }
+
+  console.log('[RbxSync] Sync result:', syncResult);
 
   if (syncResult.success) {
     const config = vscode.workspace.getConfiguration('rbxsync');
@@ -62,6 +149,7 @@ export async function syncCommand(
       }
     }
   } else if (syncResult.errors?.length) {
+    console.error('[RbxSync] Sync errors:', syncResult.errors);
     vscode.window.showWarningMessage(`Synced with ${syncResult.errors.length} error(s)`);
   }
 }

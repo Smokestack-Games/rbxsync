@@ -9,7 +9,8 @@ export async function extractCommand(
   sidebarView: SidebarWebviewProvider,
   targetProjectDir?: string,
   placeId?: number,
-  sessionId?: string | null
+  sessionId?: string | null,
+  includeTerrain: boolean = true
 ): Promise<void> {
   if (!client.connectionState.connected) {
     vscode.window.showErrorMessage('Not connected. Is Studio running?');
@@ -31,7 +32,7 @@ export async function extractCommand(
   await vscode.window.withProgress(
     { location: vscode.ProgressLocation.Notification, title: 'Extracting...', cancellable: true },
     async (progress, token) => {
-      const startResult = await client.startExtraction(projectDir);
+      const startResult = await client.startExtraction(projectDir, undefined, includeTerrain);
       if (!startResult) {
         sidebarView.logError('Extraction failed to start', placeId, sessionId);
         return;

@@ -9,6 +9,7 @@ export interface HealthResponse {
 export interface ExtractStartRequest {
   project_dir: string;
   services?: string[];
+  include_terrain?: boolean;
 }
 
 export interface ExtractStartResponse {
@@ -75,7 +76,22 @@ export interface SyncOperation {
 export interface SyncBatchResponse {
   success: boolean;
   applied: number;
+  skipped?: number;
   errors: string[];
+}
+
+export interface StudioPathsResponse {
+  paths: string[];
+}
+
+export interface SyncReadTerrainRequest {
+  project_dir: string;
+}
+
+export interface SyncReadTerrainResponse {
+  success: boolean;
+  terrain?: unknown;
+  error?: string;
 }
 
 export interface GitStatusResponse {
