@@ -66,11 +66,14 @@ local consoleCapture = {
     FLUSH_INTERVAL = 0.5,  -- Flush every 500ms
 }
 
--- Sync direction settings
+-- Sync direction settings (load from persistent config)
 local syncSettings = {
-    studioToFiles = false,  -- Auto-extract Studio changes to files
+    studioToFiles = Config.getAutoExtract(),  -- Auto-extract Studio changes to files
     filesToStudio = true,   -- Sync file changes to Studio (enabled for MCP workflow)
 }
+
+-- Debug: log loaded sync settings
+print("[RbxSync Debug] Loaded syncSettings.studioToFiles =", syncSettings.studioToFiles)
 
 -- Extraction settings
 local extractTerrainEnabled = true  -- Extract terrain data on extract
@@ -3596,6 +3599,7 @@ studioToFilesCheckbox = createCheckbox(
                     -- User confirmed - update checkbox and run extract
                     studioToFilesCheckbox.setChecked(true)
                     syncSettings.studioToFiles = true
+                    Config.setAutoExtract(true)  -- Persist setting
                     ChangeTracker.start()
                     task.spawn(function()
                         extractGame({})
@@ -3613,6 +3617,7 @@ studioToFilesCheckbox = createCheckbox(
     end,
     function(checked)
         syncSettings.studioToFiles = checked
+        Config.setAutoExtract(checked)  -- Persist setting
         if isConnected then
             if checked then
                 ChangeTracker.start()
