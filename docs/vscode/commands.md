@@ -59,3 +59,8 @@ Commit staged changes with a message.
 | `Cmd+Shift+E` | Extract Game |
 | `Cmd+Shift+S` | Sync Changes |
 | `Cmd+Shift+C` | Open Console |
+
+## Related
+
+- [Luau LSP Integration](/vscode/luau-lsp) - Intellisense and type checking setup
+- [E2E Testing](/vscode/e2e-testing) - Automated testing workflows
