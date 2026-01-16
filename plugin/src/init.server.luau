@@ -752,12 +752,8 @@ local function extractGame(config: {any})
             local instance = allInstances[i]
             local serialized = Serializer.serializeInstance(instance, apiDump)
             if serialized then
-                -- Store referenceId on instance for reliable lookup during sync
-                if serialized.referenceId then
-                    pcall(function()
-                        instance:SetAttribute("_rbxsync_ref", serialized.referenceId)
-                    end)
-                end
+                -- Note: We no longer store _rbxsync_ref on instances to avoid conflicts
+                -- with ScriptSync. Reference resolution uses in-memory caches only.
 
                 -- Special handling for UnionOperation: separate into component parts
                 if instance:IsA("UnionOperation") or instance:IsA("IntersectOperation") then

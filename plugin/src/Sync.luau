@@ -396,36 +396,16 @@ function Sync.registerInstanceByRefId(refId: string, instance: Instance)
 end
 
 -- Find instance by referenceId
+-- Note: We only use in-memory cache, not attributes, to avoid conflicts with ScriptSync
 function Sync.findInstanceByRefId(refId: string): Instance?
     if not refId or refId == "" then
         return nil
     end
 
-    -- Check our cache first
+    -- Check our cache (no longer search by attribute to avoid ScriptSync conflicts)
     local cached = instanceByRefId[refId]
     if cached and cached.Parent then
         return cached
-    end
-
-    -- Search by attribute in game tree
-    local services = {
-        "Workspace", "ReplicatedStorage", "ReplicatedFirst",
-        "ServerScriptService", "ServerStorage", "StarterGui",
-        "StarterPack", "StarterPlayer", "Lighting", "SoundService",
-        "Teams", "Chat", "LocalizationService", "TestService"
-    }
-
-    for _, serviceName in services do
-        local service = game:FindFirstChild(serviceName)
-        if service then
-            for _, desc in service:GetDescendants() do
-                local attr = desc:GetAttribute("_rbxsync_ref")
-                if attr == refId then
-                    instanceByRefId[refId] = desc
-                    return desc
-                end
-            end
-        end
     end
 
     return nil
@@ -626,12 +606,7 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
                     instanceCache[referenceId] = instance
                     Sync.registerInstanceByRefId(referenceId, instance)
                 end
-                -- Store referenceId as attribute
-                if referenceId then
-                    pcall(function()
-                        instance:SetAttribute("_rbxsync_ref", referenceId)
-                    end)
-                end
+                -- Note: We no longer store _rbxsync_ref on instances to avoid ScriptSync conflicts
                 -- Apply other properties (excluding MeshId which is already set)
                 if data.properties then
                     local propsWithoutMeshId = {}
@@ -694,12 +669,8 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
         Sync.registerInstanceByRefId(referenceId, instance)
     end
 
-    -- Store referenceId as attribute for future lookups
-    if referenceId then
-        pcall(function()
-            instance:SetAttribute("_rbxsync_ref", referenceId)
-        end)
-    end
+    -- Note: We no longer store _rbxsync_ref on instances to avoid ScriptSync conflicts
+    -- Reference resolution uses in-memory caches (instanceByRefId, instanceCache) only
 
     -- Apply properties
     if data.properties then
@@ -1020,12 +991,9 @@ function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?
     -- Cache for reference resolution AND register for lookup
     if data.referenceId then
         instanceCache[data.referenceId] = instance
-        -- Also register in the refId lookup cache and set attribute
+        -- Register in the refId lookup cache (no attribute to avoid ScriptSync conflicts)
         -- This ensures reference properties (Part0, Part1, etc.) can resolve
         Sync.registerInstanceByRefId(data.referenceId, instance)
-        pcall(function()
-            instance:SetAttribute("_rbxsync_ref", data.referenceId)
-        end)
     end
 
     -- Queue material overrides for MaterialService (apply after all MaterialVariants exist)
@@ -1260,8 +1228,8 @@ function Sync.instanceNeedsUpdate(instance: Instance, data: any): (boolean, {str
             if string.sub(attrName, 1, 4) == "RBX_" then
                 continue
             end
-            if attrName == SOURCE_ATTR or attrName == "_rbxsync_ref" then
-                continue -- Skip our internal attributes
+            if attrName == SOURCE_ATTR then
+                continue -- Skip our internal source tracking attribute
             end
             if data.attributes[attrName] == nil then
                 table.insert(reasons, "-attr:" .. attrName)
@@ -1535,13 +1503,10 @@ function Sync.reconstructPendingCSG(): number
                 end)
             end
 
-            -- Cache for reference resolution
+            -- Cache for reference resolution (no attribute to avoid ScriptSync conflicts)
             if data.referenceId then
                 instanceCache[data.referenceId] = union
                 Sync.registerInstanceByRefId(data.referenceId, union)
-                pcall(function()
-                    union:SetAttribute("_rbxsync_ref", data.referenceId)
-                end)
             end
 
             -- Track by path
