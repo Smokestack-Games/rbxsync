@@ -2,6 +2,7 @@ import * as vscode from 'vscode';
 import { RbxSyncClient } from '../server/client';
 import { StatusBarManager } from '../views/statusBar';
 import { SidebarWebviewProvider } from '../views/sidebarWebview';
+import { generateProjectJson, addToGitignore } from '../lsp/projectJson';
 
 export async function extractCommand(
   client: RbxSyncClient,
@@ -71,7 +72,19 @@ export async function extractCommand(
       const totalFiles = (result.filesWritten || 0) + (result.scriptsWritten || 0);
       sidebarView.logExtract(totalFiles, placeId, sessionId);
 
+      // Generate default.project.json for Luau LSP compatibility (RBXSYNC-19)
       const config = vscode.workspace.getConfiguration('rbxsync');
+      if (config.get('generateProjectJson', true)) {
+        try {
+          const projectJsonPath = await generateProjectJson(projectDir);
+          if (projectJsonPath) {
+            await addToGitignore(projectDir);
+          }
+        } catch (e) {
+          console.error('Failed to generate project.json:', e);
+        }
+      }
+
       if (config.get('showNotifications')) {
         vscode.window.showInformationMessage(`Extracted ${totalFiles} files (${result.scriptsWritten || 0} scripts)`);
       }

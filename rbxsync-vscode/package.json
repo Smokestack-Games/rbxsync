@@ -179,6 +179,11 @@
           "type": "boolean",
           "default": false,
           "description": "Delete orphaned instances in Studio that don't exist in local files during sync"
+        },
+        "rbxsync.generateProjectJson": {
+          "type": "boolean",
+          "default": false,
+          "description": "Delete orphaned instances in Studio that don't exist in local files during sync"
         }
       }
     },
