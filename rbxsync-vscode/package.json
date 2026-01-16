@@ -177,13 +177,18 @@
         },
         "rbxsync.deleteOrphans": {
           "type": "boolean",
-          "default": false,
+          "default": true,
           "description": "Delete orphaned instances in Studio that don't exist in local files during sync"
+        },
+        "rbxsync.useDiffSync": {
+          "type": "boolean",
+          "default": true,
+          "description": "Use diff-based sync to only send changed files instead of all files (more efficient)"
         },
         "rbxsync.generateProjectJson": {
           "type": "boolean",
           "default": false,
-          "description": "Delete orphaned instances in Studio that don't exist in local files during sync"
+          "description": "Generate project.json for Luau LSP compatibility"
         }
       }
     },

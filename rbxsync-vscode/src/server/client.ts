@@ -11,6 +11,9 @@ import {
   SyncReadTreeResponse,
   SyncBatchRequest,
   SyncBatchResponse,
+  SyncIncrementalRequest,
+  SyncIncrementalResponse,
+  DiffResponse,
   GitStatusResponse,
   GitLogResponse,
   GitCommitRequest,
@@ -295,6 +298,27 @@ export class RbxSyncClient {
       return response.data;
     } catch (error) {
       this.handleError('Read tree', error);
+      return null;
+    }
+  }
+
+  async syncIncremental(projectDir: string, markSynced: boolean = false): Promise<SyncIncrementalResponse | null> {
+    try {
+      const request: SyncIncrementalRequest = { project_dir: projectDir, mark_synced: markSynced };
+      const response = await this.client.post<SyncIncrementalResponse>('/sync/incremental', request);
+      return response.data;
+    } catch (error) {
+      this.handleError('Incremental sync', error);
+      return null;
+    }
+  }
+
+  async getDiff(projectDir: string): Promise<DiffResponse | null> {
+    try {
+      const response = await this.client.post<DiffResponse>('/diff', { project_dir: projectDir });
+      return response.data;
+    } catch (error) {
+      this.handleError('Get diff', error);
       return null;
     }
   }

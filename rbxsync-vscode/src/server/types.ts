@@ -195,3 +195,31 @@ export interface RegisterWorkspaceResponse {
   message: string;
   path_mismatch?: PathMismatch;
 }
+
+// Incremental sync types
+export interface SyncIncrementalRequest {
+  project_dir: string;
+  mark_synced?: boolean;
+}
+
+export interface SyncIncrementalResponse {
+  success: boolean;
+  instances: InstanceData[];
+  count: number;
+  full_sync: boolean;
+  files_checked?: number;
+  files_modified?: number;
+  marked_synced?: boolean;
+}
+
+// Diff types
+export interface DiffEntry {
+  path: string;
+  className: string;
+}
+
+export interface DiffResponse {
+  added: DiffEntry[];    // In files, not in Studio (would be created)
+  removed: DiffEntry[];  // In Studio, not in files (would be deleted)
+  common: number;        // Count of items in both
+}
