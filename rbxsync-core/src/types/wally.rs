@@ -174,13 +174,7 @@ pub fn find_wally_manifest<P: AsRef<Path>>(project_dir: P) -> Option<std::path::
         project_dir.join("src/wally.toml"),
     ];
 
-    for candidate in candidates {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-
-    None
+    candidates.into_iter().find(|c| c.exists())
 }
 
 /// Find wally.lock in a project directory
@@ -192,13 +186,7 @@ pub fn find_wally_lock<P: AsRef<Path>>(project_dir: P) -> Option<std::path::Path
         project_dir.join("src/wally.lock"),
     ];
 
-    for candidate in candidates {
-        if candidate.exists() {
-            return Some(candidate);
-        }
-    }
-
-    None
+    candidates.into_iter().find(|c| c.exists())
 }
 
 /// Determine if a path is within a Packages directory
