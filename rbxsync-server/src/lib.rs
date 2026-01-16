@@ -290,6 +290,8 @@ pub struct ExtractionSession {
     pub chunks_received: usize,
     pub total_chunks: Option<usize>,
     pub data: Vec<serde_json::Value>,
+    /// Whether finalize has been called (extraction complete even if 0 chunks)
+    pub finalized: bool,
 }
 
 /// Connected Studio place information
@@ -1104,6 +1106,7 @@ async fn handle_extract_start(
             chunks_received: 0,
             total_chunks: None,
             data: Vec::new(),
+            finalized: false,
         });
     }
 
@@ -1210,6 +1213,7 @@ async fn handle_extract_chunk(
             chunks_received: 0,
             total_chunks: None,
             data: Vec::new(),
+            finalized: false,
         });
     }
 
@@ -1259,11 +1263,14 @@ async fn handle_extract_status(State(state): State<Arc<AppState>>) -> impl IntoR
     let session = state.extraction_session.read().await;
 
     if let Some(ref s) = *session {
+        // Complete if finalized (handles 0 chunks case) OR all chunks received
+        let complete = s.finalized || s.total_chunks.map(|t| s.chunks_received >= t).unwrap_or(false);
         Json(serde_json::json!({
             "sessionId": s.id,
             "chunksReceived": s.chunks_received,
             "totalChunks": s.total_chunks,
-            "complete": s.total_chunks.map(|t| s.chunks_received >= t).unwrap_or(false)
+            "complete": complete,
+            "finalized": s.finalized
         }))
     } else {
         Json(serde_json::json!({
@@ -1347,9 +1354,9 @@ async fn handle_extract_finalize(
     State(state): State<Arc<AppState>>,
     Json(req): Json<FinalizeRequest>,
 ) -> impl IntoResponse {
-    let session = state.extraction_session.read().await;
+    let session_guard = state.extraction_session.read().await;
 
-    if session.is_none() {
+    if session_guard.is_none() {
         return (
             StatusCode::BAD_REQUEST,
             Json(serde_json::json!({
@@ -1359,7 +1366,7 @@ async fn handle_extract_finalize(
         );
     }
 
-    let session = session.as_ref().unwrap();
+    let session = session_guard.as_ref().unwrap();
     let src_dir = PathBuf::from(&req.project_dir).join("src");
 
     // Load project config and tree mapping
@@ -1709,6 +1716,18 @@ async fn handle_extract_finalize(
         state_for_cleanup.live_sync_paused.store(false, std::sync::atomic::Ordering::Relaxed);
         tracing::info!("Live sync resumed after extraction");
     });
+
+    // Mark session as finalized so status endpoint returns complete=true
+    // This is important when there are 0 chunks (excluded services case)
+    // Drop the read lock so we can take a write lock
+    drop(session_guard);
+    {
+        let mut session_write = state.extraction_session.write().await;
+        if let Some(ref mut s) = *session_write {
+            s.finalized = true;
+            tracing::info!("Extraction session marked as finalized");
+        }
+    }
 
     (
         StatusCode::OK,
