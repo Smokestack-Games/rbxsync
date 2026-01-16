@@ -22,6 +22,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock};
 use uuid::Uuid;
 
+/// Normalize Windows paths by converting backslashes to forward slashes.
+/// This ensures consistent path handling across platforms and prevents issues
+/// with backslash escape sequences in JSON/strings.
+/// Windows accepts both forward and backslashes as path separators.
+fn normalize_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 /// Load project config from rbxsync.json
 fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
     let config_path = PathBuf::from(project_dir).join("rbxsync.json");
@@ -412,6 +420,9 @@ async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> impl IntoResponse {
+    // Normalize path separators for Windows compatibility
+    let project_dir = normalize_path(&req.project_dir);
+
     let mut registry = state.place_registry.write().await;
 
     // Use session_id as unique key if provided (handles multiple unpublished places with PlaceId=0)
@@ -445,7 +456,7 @@ async fn handle_register(
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
         place_name: req.place_name.clone(),
-        project_dir: req.project_dir.clone(),
+        project_dir: project_dir.clone(),
         session_id: req.session_id.clone(),
         last_heartbeat: Some(Instant::now()),
     });
@@ -454,7 +465,7 @@ async fn handle_register(
     // Create project queue if it doesn't exist
     {
         let mut queues = state.project_queues.write().await;
-        queues.entry(req.project_dir.clone()).or_insert_with(VecDeque::new);
+        queues.entry(project_dir.clone()).or_insert_with(VecDeque::new);
     }
 
     // Only log once per session to prevent spam
@@ -467,13 +478,13 @@ async fn handle_register(
             req.place_id,
             req.session_id,
             key,
-            req.project_dir
+            project_dir
         );
 
         // Check for path mismatch with VS Code workspaces
         let workspaces = state.vscode_workspaces.read().await;
         if !workspaces.is_empty() {
-            let studio_dir = req.project_dir.as_str();
+            let studio_dir = project_dir.as_str();
             let vscode_dirs: Vec<&str> = workspaces.keys().map(|s| s.as_str()).collect();
 
             // Check if Studio project matches or is parent/child of any VS Code workspace
@@ -590,11 +601,14 @@ async fn handle_register_vscode(
         }));
     }
 
+    // Normalize path separators for Windows compatibility
+    let workspace_dir = normalize_path(&req.workspace_dir);
+
     // Update heartbeat timestamp
     let mut workspaces = state.vscode_workspaces.write().await;
-    let is_new = !workspaces.contains_key(&req.workspace_dir);
-    workspaces.insert(req.workspace_dir.clone(), VsCodeWorkspace {
-        workspace_dir: req.workspace_dir.clone(),
+    let is_new = !workspaces.contains_key(&workspace_dir);
+    workspaces.insert(workspace_dir.clone(), VsCodeWorkspace {
+        workspace_dir: workspace_dir.clone(),
         last_heartbeat: Some(Instant::now()),
     });
     drop(workspaces); // Release lock before acquiring another
@@ -602,18 +616,18 @@ async fn handle_register_vscode(
     // Only log and start file watcher if this is a new workspace this session
     // Use a separate set to prevent spam from heartbeat registrations
     let mut logged = state.logged_vscode_workspaces.write().await;
-    let should_log = !logged.contains(&req.workspace_dir);
+    let should_log = !logged.contains(&workspace_dir);
     if should_log {
-        logged.insert(req.workspace_dir.clone());
+        logged.insert(workspace_dir.clone());
         drop(logged); // Release lock
 
-        tracing::info!("VS Code workspace registered: {}", req.workspace_dir);
+        tracing::info!("VS Code workspace registered: {}", workspace_dir);
 
         // Check for path mismatch with Studio registrations
         let registry = state.place_registry.read().await;
         if !registry.is_empty() {
             let studio_dirs: Vec<&str> = registry.values().map(|p| p.project_dir.as_str()).collect();
-            let vscode_dir = req.workspace_dir.as_str();
+            let vscode_dir = workspace_dir.as_str();
 
             // Check if VS Code workspace matches or is parent/child of any Studio project
             let has_match = studio_dirs.iter().any(|studio_dir| {
@@ -655,7 +669,7 @@ async fn handle_register_vscode(
         // Start file watcher for new workspaces
         if is_new {
             let watcher_state = state.file_watcher_state.clone();
-            let dir = req.workspace_dir.clone();
+            let dir = workspace_dir.clone();
             tokio::spawn(async move {
                 if let Err(e) = file_watcher::start_file_watcher(dir, watcher_state).await {
                     tracing::error!("Failed to start file watcher: {}", e);
@@ -1582,7 +1596,7 @@ async fn handle_extract_finalize(
                         _ => ".luau",
                     };
                     // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
-                    let script_path = full_path.to_string_lossy().to_string() + extension;
+                    let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
                     if std::fs::write(&script_path, source).is_ok() {
                         scripts_written += 1;
                     }
@@ -1600,7 +1614,7 @@ async fn handle_extract_finalize(
         } else {
             // Leaf: write as sibling .rbxjson
             // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
-            PathBuf::from(full_path.to_string_lossy().to_string() + ".rbxjson")
+            rbxsync_core::pathbuf_with_suffix(&full_path, ".rbxjson")
         };
 
         // Create a clean instance object without source (for scripts)
@@ -2012,13 +2026,13 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                 let luau_extensions = [".server.luau", ".client.luau", ".luau"];
                 let mut deleted_any = false;
                 for ext in luau_extensions {
-                    let script_path = format!("{}{}", full_path.to_string_lossy(), ext);
+                    let script_path = rbxsync_core::path_with_suffix(&full_path, ext);
                     if std::fs::remove_file(&script_path).is_ok() {
                         deleted_any = true;
                         tracing::info!("Studio sync: deleted {}", script_path);
                     }
                 }
-                let json_path = format!("{}.rbxjson", full_path.to_string_lossy());
+                let json_path = rbxsync_core::path_with_suffix(&full_path, ".rbxjson");
                 if std::fs::remove_file(&json_path).is_ok() {
                     deleted_any = true;
                     tracing::info!("Studio sync: deleted {}", json_path);
@@ -2071,7 +2085,7 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                                 "LocalScript" => ".client.luau",
                                 _ => ".luau",
                             };
-                            let script_path = format!("{}{}", full_path.to_string_lossy(), extension);
+                            let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
 
                             match std::fs::write(&script_path, source) {
                                 Ok(_) => {
@@ -2099,7 +2113,7 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                         }
                     }
 
-                    let json_path = format!("{}.rbxjson", full_path.to_string_lossy());
+                    let json_path = rbxsync_core::path_with_suffix(&full_path, ".rbxjson");
                     if let Ok(json) = serde_json::to_string_pretty(&clean_data) {
                         match std::fs::write(&json_path, json) {
                             Ok(_) => {
@@ -2199,7 +2213,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 // Derive path from file system if not present in JSON
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rel_path.to_string_lossy().to_string();
+                                let path_str = rbxsync_core::path_to_string(rel_path);
                                 // Convert file path to instance path:
                                 // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
                                 // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
@@ -2240,7 +2254,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                     } else if ext == "luau" {
                         // Read script source
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                        let path_str = rel_path.to_string_lossy().to_string();
+                        let path_str = rbxsync_core::path_to_string(rel_path);
                         // Keep '/' as delimiter (matches instance path format)
                         // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService/MyScript"
                         let rel_inst_path = path_str
@@ -2502,7 +2516,7 @@ async fn handle_sync_incremental(
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rel_path.to_string_lossy().to_string();
+                                let path_str = rbxsync_core::path_to_string(rel_path);
                                 let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
                                 let inst_path = if is_meta {
                                     path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
@@ -2523,7 +2537,7 @@ async fn handle_sync_incremental(
                         }
                     } else if ext == "luau" {
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                        let path_str = rel_path.to_string_lossy().to_string();
+                        let path_str = rbxsync_core::path_to_string(rel_path);
                         let inst_path = path_str
                             .trim_end_matches(".server.luau")
                             .trim_end_matches(".client.luau")
@@ -2756,7 +2770,7 @@ async fn handle_diff(
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rel_path.to_string_lossy().to_string();
+                                let path_str = rbxsync_core::path_to_string(rel_path);
                                 let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
                                 let inst_path = if is_meta {
                                     path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")

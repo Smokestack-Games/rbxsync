@@ -275,12 +275,10 @@ pub fn process_file_change(
         // _meta.rbxjson represents the parent folder
         rel_path
             .parent()
-            .map(|p| p.to_string_lossy().replace('\\', "/"))
+            .map(rbxsync_core::path_to_string)
             .unwrap_or_default()
     } else {
-        rel_path
-            .to_string_lossy()
-            .replace('\\', "/")
+        rbxsync_core::path_to_string(rel_path)
             .trim_end_matches(".server.luau")
             .trim_end_matches(".client.luau")
             .trim_end_matches(".luau")
