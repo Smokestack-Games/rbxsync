@@ -1,14 +1,14 @@
 # RbxSync
 
-The sync tool that should have been: One-click extraction, two-way sync for all instance types (Scripts, Parts, GUIs, Animations, Sounds & more), native AI integration & E2E testing. Zero setup.
+Bidirectional sync between Roblox Studio and filesystem. Full property preservation, git integration, and native MCP support for AI-assisted development.
 
-## Why RbxSync?
+## Key Features
 
-- **No More "Which Version?"**: Everyone syncs from Git. One source of truth.
-- **Full Property Preservation**: Captures ALL properties using `.rbxjson` - a JSON format with explicit type annotations, not lossy XML
-- **True Two-Way Sync**: Automatic, real-time bidirectional sync. Edit in Studio or VS Code - changes propagate instantly
-- **AI-Ready Architecture**: Native MCP integration lets AI agents read, write, test, and debug your game
-- **One-Click Extraction**: Extract any existing game to a Git repo in seconds
+- **One Source of Truth**: Everyone syncs from git. No more "which version is latest?"
+- **Full Property Preservation**: Serializes all instance properties using `.rbxjson` format with explicit type annotations
+- **True Two-Way Sync**: Edit in Studio or VS Code—changes sync automatically in both directions
+- **AI-Native Architecture**: Built-in MCP server lets AI agents extract, sync, test, and debug
+- **One-Click Extraction**: Extract any existing game to files in seconds
 
 ## Feature Comparison
 
@@ -354,12 +354,12 @@ AI agents can run playtests and see console output in real-time:
 2. Open the console: `RbxSync: Open Console`
 3. Studio `print()`, `warn()`, and `error()` output streams to the terminal
 
-This enables AI to:
-- Write code
-- Run playtests
-- See errors in real-time
-- Debug and fix issues
-- Iterate autonomously
+This enables AI agents to:
+- Write and modify code
+- Execute playtests
+- Monitor console output
+- Debug based on runtime errors
+- Iterate on code changes
 
 ## Architecture
 

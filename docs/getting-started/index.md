@@ -1,13 +1,13 @@
 # Introduction
 
-RbxSync is a professional tool for syncing Roblox games between Studio and VS Code with full property preservation, git integration, and AI-powered development workflows.
+RbxSync syncs Roblox Studio with your filesystem—bidirectionally, automatically, and with full property preservation. Use git for version control and let AI agents help build your game.
 
-## What Makes RbxSync Different?
+## Why RbxSync?
 
-- **No More Workspace Discrepancies**: Everyone syncs from Git. No more "which version is the latest?"
-- **Full Property Extraction**: Captures ALL properties (not just scripts) using API dump reflection
-- **Two-Way Sync**: Changes in Studio automatically sync back to files
-- **AI-Powered Development**: MCP integration lets AI agents write, test, and debug code
+- **No More "Which Version?"**: Everyone syncs from git. One source of truth for your whole team
+- **All Properties, Not Just Scripts**: Extracts Parts, GUIs, Animations, Sounds—everything—using Roblox API dump reflection
+- **True Two-Way Sync**: Edit in Studio or VS Code. Changes flow both ways automatically
+- **AI-Ready**: Built-in MCP server lets Claude and other AI tools extract, sync, test, and debug
 
 ## Components
 

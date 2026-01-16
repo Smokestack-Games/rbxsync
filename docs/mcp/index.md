@@ -23,7 +23,7 @@ The MCP server lets AI agents:
 
 3. Connect Studio to RbxSync
 
-4. Your AI agent can now control your Roblox development!
+4. AI agents can now extract, sync, test, and debug your game
 
 ## Available Tools
 
@@ -41,16 +41,16 @@ See [Tools](/mcp/tools) for full reference.
 ## Use Cases
 
 ### Autonomous Development
-AI writes code, tests it, sees errors, fixes them - all without human intervention.
+AI writes code, runs playtests, sees errors, fixes them—iterating until it works.
 
 ### Code Review
-AI can extract the game, analyze code, and suggest improvements.
+Extract a game and let AI analyze patterns, suggest refactors, and catch bugs.
 
 ### Automated Testing
-Run test suites and parse output programmatically.
+Run test suites programmatically and parse console output for pass/fail results.
 
-### Asset Management
-Create and modify instances through AI commands.
+### Live Debugging
+AI sees runtime errors in real-time and can fix them on the spot.
 
 ## Next Steps
 
