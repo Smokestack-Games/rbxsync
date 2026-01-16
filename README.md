@@ -373,6 +373,8 @@ This enables AI agents to:
 - Debug based on runtime errors
 - Iterate on code changes
 
+See the [AI-Assisted E2E Testing Guide](https://docs.rbxsync.dev/ai-testing) for detailed workflows and examples.
+
 ## Architecture
 
 ```
