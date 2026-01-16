@@ -4,11 +4,11 @@ import * as fs from 'fs';
 import { RbxSyncClient } from './server/client';
 import { StatusBarManager } from './views/statusBar';
 import { SidebarWebviewProvider } from './views/sidebarWebview';
-import { connectCommand, disconnectCommand } from './commands/connect';
+import { connectCommand, disconnectCommand, initServerTerminal, disposeServerTerminal } from './commands/connect';
 import { extractCommand } from './commands/extract';
 import { syncCommand } from './commands/sync';
 import { runPlayTest, disposeTestChannel } from './commands/test';
-import { openConsole, closeConsole, toggleE2EMode, initE2EMode, disposeConsole, isE2EMode } from './commands/console';
+import { openConsole, closeConsole, toggleE2EMode, initE2EMode, disposeConsole, isE2EMode, initConsoleTerminal } from './commands/console';
 import { initTrashSystem, recoverDeletedFolder } from './commands/trash';
 import {
   LanguageClient,
@@ -33,6 +33,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Initialize E2E mode from saved state
   initE2EMode(context);
+
+  // Initialize terminal tracking to prevent duplicate terminals (RBXSYNC-18)
+  const serverTerminalDisposable = initServerTerminal();
+  const consoleTerminalDisposable = initConsoleTerminal();
+  context.subscriptions.push(serverTerminalDisposable, consoleTerminalDisposable);
 
   // Set project directory for multi-workspace support
   const workspaceFolders = vscode.workspace.workspaceFolders;
@@ -384,6 +389,7 @@ async function startLanguageServer(context: vscode.ExtensionContext): Promise<vo
 export async function deactivate(): Promise<void> {
   disposeTestChannel();
   disposeConsole();
+  disposeServerTerminal();
 
   // Stop the language server
   if (languageClient) {

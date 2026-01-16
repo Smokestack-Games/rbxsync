@@ -14,7 +14,6 @@ interface ConsoleMessage {
   source?: string;
 }
 
-// ANSI color codes
 const COLORS = {
   reset: '\x1b[0m',
   dim: '\x1b[2m',
@@ -37,9 +36,6 @@ function formatMessage(msg: ConsoleMessage): string {
   return `${COLORS.dim}[${msg.timestamp}]${COLORS.reset} ${typeColor}[${typeLabel}]${COLORS.reset} ${msg.message}\r\n`;
 }
 
-/**
- * Create a pseudo-terminal that displays Studio console output
- */
 function createConsoleTerminal(client: RbxSyncClient): vscode.Terminal {
   const writeEmitterLocal = new vscode.EventEmitter<string>();
   writeEmitter = writeEmitterLocal;
@@ -55,8 +51,7 @@ function createConsoleTerminal(client: RbxSyncClient): vscode.Terminal {
       stopSSEStream();
     },
     handleInput: (data: string) => {
-      // Ignore input - this is a read-only console
-      if (data === '\x03') { // Ctrl+C
+      if (data === '\x03') {
         writeEmitterLocal.fire(`${COLORS.dim}(Use Cmd+W to close)${COLORS.reset}\r\n`);
       }
     }
@@ -69,9 +64,6 @@ function createConsoleTerminal(client: RbxSyncClient): vscode.Terminal {
   });
 }
 
-/**
- * Start streaming console messages via SSE
- */
 function startSSEStream(client: RbxSyncClient): void {
   const url = `http://127.0.0.1:${client.port}/console/subscribe`;
 
@@ -123,9 +115,6 @@ function startSSEStream(client: RbxSyncClient): void {
   sseRequest = req;
 }
 
-/**
- * Stop SSE stream
- */
 function stopSSEStream(): void {
   if (sseRequest) {
     sseRequest.destroy();
@@ -133,22 +122,14 @@ function stopSSEStream(): void {
   }
 }
 
-/**
- * Open the console terminal
- */
 export async function openConsole(client: RbxSyncClient): Promise<void> {
-  // Close existing terminal if open
   if (consoleTerminal) {
     consoleTerminal.dispose();
   }
-
   consoleTerminal = createConsoleTerminal(client);
   consoleTerminal.show();
 }
 
-/**
- * Close the console terminal
- */
 export function closeConsole(): void {
   if (consoleTerminal) {
     consoleTerminal.dispose();
@@ -156,9 +137,6 @@ export function closeConsole(): void {
   }
 }
 
-/**
- * Toggle E2E testing mode
- */
 export function toggleE2EMode(context: vscode.ExtensionContext): boolean {
   isE2EModeEnabled = !isE2EModeEnabled;
   context.globalState.update('rbxsync.e2eMode', isE2EModeEnabled);
@@ -172,23 +150,28 @@ export function toggleE2EMode(context: vscode.ExtensionContext): boolean {
   return isE2EModeEnabled;
 }
 
-/**
- * Check if E2E mode is enabled
- */
 export function isE2EMode(): boolean {
   return isE2EModeEnabled;
 }
 
-/**
- * Initialize E2E mode from saved state
- */
 export function initE2EMode(context: vscode.ExtensionContext): void {
   isE2EModeEnabled = context.globalState.get('rbxsync.e2eMode', false);
 }
 
-/**
- * Dispose resources
- */
+export function initConsoleTerminal(): vscode.Disposable {
+  const listener = vscode.window.onDidCloseTerminal((closedTerminal) => {
+    if (closedTerminal === consoleTerminal) {
+      stopSSEStream();
+      consoleTerminal = undefined;
+      if (writeEmitter) {
+        writeEmitter.dispose();
+        writeEmitter = undefined;
+      }
+    }
+  });
+  return listener;
+}
+
 export function disposeConsole(): void {
   stopSSEStream();
   if (consoleTerminal) {
