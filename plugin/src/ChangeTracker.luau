@@ -20,6 +20,10 @@ local isTracking = false
 -- Track connection state - don't queue changes when disconnected
 local isConnectedToServer = false
 
+-- Suppress outbound changes during inbound sync (prevents echo loops)
+-- This is the primary mechanism to prevent data loss - see Azul plugin analysis
+local isSyncingFromServer = false
+
 -- Services to track for changes
 local trackedServices = {
     "Workspace",
@@ -68,6 +72,22 @@ function ChangeTracker.setLastFileWatcherSync(paths: {string}?)
             recentFileWatcherPaths[path] = now
         end
     end
+end
+
+-- Set syncing from server state (suppresses ALL outbound changes during inbound sync)
+-- This prevents echo loops: server→plugin→ChangeTracker→server→file→server...
+-- Call with true before applying sync operations, false after completion
+function ChangeTracker.setSyncingFromServer(syncing: boolean)
+    isSyncingFromServer = syncing
+    if syncing then
+        -- Clear any pending changes to prevent stale echoes
+        table.clear(pendingChanges)
+    end
+end
+
+-- Check if currently syncing from server
+function ChangeTracker.isSyncingFromServer(): boolean
+    return isSyncingFromServer
 end
 
 -- Clean up expired grace period entries
@@ -134,14 +154,19 @@ end
 
 -- Queue a change for batched sending (with deduplication)
 local function queueChange(instance: Instance, changeType: string, data: any?)
+    -- Primary echo prevention: suppress ALL changes during inbound sync
+    if isSyncingFromServer then
+        return
+    end
+
     local isDelete = changeType == "delete"
     local path = getInstancePath(instance, isDelete)
     if not path then
         return
     end
 
+    -- Secondary echo prevention: grace period for file watcher paths
     -- Deletes always go through - they can't be echo from file watcher
-    -- Only check grace period for create/modify operations
     if changeType ~= "delete" and shouldIgnoreChange(path) then
         return
     end

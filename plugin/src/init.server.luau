@@ -1255,6 +1255,9 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     Sync.clearRecentlyCreated()
     Sync.clearPendingReferences()
 
+    -- Suppress outbound changes during inbound sync (prevents echo loops)
+    ChangeTracker.setSyncingFromServer(true)
+
     isSyncing = true
     setStatus("Checking " .. #operations .. " instances...", Colors.info, 0)
     local results = {}
@@ -1337,8 +1340,9 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         end
     end)
 
-    -- ALWAYS reset isSyncing, even on error
+    -- ALWAYS reset flags, even on error
     isSyncing = false
+    ChangeTracker.setSyncingFromServer(false)
 
     -- If sync errored out, report it
     if not syncOk then
@@ -1390,12 +1394,23 @@ local function handleCommand(command: string, payload: any)
     if command == "extract:start" then
         extractGame(payload or {})
     elseif command == "sync:create" then
-        return syncCreate(payload or {})
+        -- Suppress outbound for individual sync operations
+        ChangeTracker.setSyncingFromServer(true)
+        local result = syncCreate(payload or {})
+        ChangeTracker.setSyncingFromServer(false)
+        return result
     elseif command == "sync:update" then
-        return syncUpdate(payload or {})
+        ChangeTracker.setSyncingFromServer(true)
+        local result = syncUpdate(payload or {})
+        ChangeTracker.setSyncingFromServer(false)
+        return result
     elseif command == "sync:delete" then
-        return syncDelete(payload or {})
+        ChangeTracker.setSyncingFromServer(true)
+        local result = syncDelete(payload or {})
+        ChangeTracker.setSyncingFromServer(false)
+        return result
     elseif command == "sync:batch" then
+        -- syncBatch handles its own flag management
         return syncBatch(payload or {})
     elseif command == "ping" then
         return { success = true }
