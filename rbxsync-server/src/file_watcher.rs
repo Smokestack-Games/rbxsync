@@ -51,9 +51,13 @@ impl FileWatcherState {
 }
 
 /// Start the file watcher for a project directory
+///
+/// If `sync_packages` is true, Wally package changes will be included in file sync.
+/// By default, packages are excluded from file watching.
 pub async fn start_file_watcher(
     project_dir: String,
     state: Arc<RwLock<FileWatcherState>>,
+    sync_packages: bool,
 ) -> anyhow::Result<()> {
     // Check if already watching
     {
@@ -196,9 +200,9 @@ pub async fn start_file_watcher(
                                 continue;
                             }
 
-                            // Skip package paths (Wally packages should not be synced from filesystem)
-                            if is_package_path(&path) {
-                                tracing::trace!("Skipping package path: {:?}", path);
+                            // Skip package paths unless sync_packages is enabled
+                            if !sync_packages && is_package_path(&path) {
+                                tracing::trace!("Skipping package path (sync_packages=false): {:?}", path);
                                 continue;
                             }
 

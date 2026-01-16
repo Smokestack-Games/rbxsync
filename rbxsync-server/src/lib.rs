@@ -672,8 +672,21 @@ async fn handle_register_vscode(
         if is_new {
             let watcher_state = state.file_watcher_state.clone();
             let dir = workspace_dir.clone();
+
+            // Load config to check package sync settings
+            let config = load_project_config(&dir);
+            let packages_config = config.as_ref().and_then(|c| c.get("packages"));
+
+            // Check if packages should sync (excludeFromWatch: false means sync packages)
+            // Also enable if packages.enabled is true and excludeFromWatch is not explicitly set
+            let sync_packages = packages_config
+                .and_then(|p| p.get("excludeFromWatch"))
+                .and_then(|v| v.as_bool())
+                .map(|exclude| !exclude)  // Invert: excludeFromWatch=false means sync_packages=true
+                .unwrap_or(false);  // Default: don't sync packages (for backwards compatibility)
+
             tokio::spawn(async move {
-                if let Err(e) = file_watcher::start_file_watcher(dir, watcher_state).await {
+                if let Err(e) = file_watcher::start_file_watcher(dir, watcher_state, sync_packages).await {
                     tracing::error!("Failed to start file watcher: {}", e);
                 }
             });
@@ -2361,14 +2374,17 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     // Load project config for package settings
     let config = load_project_config(&req.project_dir);
     let packages_config = config.as_ref().and_then(|c| c.get("packages"));
-    let packages_enabled = packages_config
-        .and_then(|p| p.get("enabled"))
-        .and_then(|v| v.as_bool())
-        .unwrap_or(false);
     let packages_folder = packages_config
         .and_then(|p| p.get("packagesFolder"))
         .and_then(|v| v.as_str())
         .unwrap_or("Packages");
+
+    // Auto-detect packages: enabled if explicitly set, OR if Packages folder exists (zero-config)
+    let packages_dir = project_dir.join(packages_folder);
+    let packages_enabled = packages_config
+        .and_then(|p| p.get("enabled"))
+        .and_then(|v| v.as_bool())
+        .unwrap_or_else(|| packages_dir.exists() && packages_dir.is_dir());
     let shared_packages_path = packages_config
         .and_then(|p| p.get("sharedPackagesPath"))
         .and_then(|v| v.as_str())
@@ -2476,19 +2492,16 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     // Walk the main src directory (no prefix - paths map directly to DataModel)
     walk_dir(&src_dir, &src_dir, "", &mut instances, &mut scripts);
 
-    // Walk packages directory if enabled
+    // Walk packages directory if enabled (packages_dir already validated when packages_enabled was set)
     if packages_enabled {
-        let packages_dir = project_dir.join(packages_folder);
-        if packages_dir.exists() && packages_dir.is_dir() {
-            tracing::info!("Reading Wally packages from {} -> {}", packages_folder, shared_packages_path);
-            walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut instances, &mut scripts);
+        tracing::info!("Reading Wally packages from {} -> {}", packages_folder, shared_packages_path);
+        walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut instances, &mut scripts);
 
-            // Also check for server packages subdirectory
-            let server_pkg_dir = packages_dir.join("ServerPackages");
-            if server_pkg_dir.exists() && server_pkg_dir.is_dir() {
-                tracing::info!("Reading server packages from ServerPackages -> {}", server_packages_path);
-                walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut instances, &mut scripts);
-            }
+        // Also check for server packages subdirectory
+        let server_pkg_dir = packages_dir.join("ServerPackages");
+        if server_pkg_dir.exists() && server_pkg_dir.is_dir() {
+            tracing::info!("Reading server packages from ServerPackages -> {}", server_packages_path);
+            walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut instances, &mut scripts);
         }
     }
 
