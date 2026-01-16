@@ -47,6 +47,9 @@ function Serializer.buildDisambiguatedPaths(root: Instance, rootPath: string?)
     -- Also store path for the root itself
     instancePaths[root] = startPath
 
+    -- Counter for yielding to avoid script timeout on large games (RBXSYNC-25)
+    local processedCount = 0
+
     local function buildPathsRecursive(instance: Instance, parentPath: string)
         -- Group children by name to find duplicates
         local children = instance:GetChildren()
@@ -84,6 +87,12 @@ function Serializer.buildDisambiguatedPaths(root: Instance, rootPath: string?)
             end
 
             instancePaths[child] = childPath
+
+            -- Yield periodically to avoid script timeout on large games (RBXSYNC-25)
+            processedCount += 1
+            if processedCount % 5000 == 0 then
+                task.wait()
+            end
 
             -- Recurse to children
             buildPathsRecursive(child, childPath)

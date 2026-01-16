@@ -1559,10 +1559,16 @@ function Sync.buildCacheFromGame(): ()
     for _, serviceName in services do
         local service = game:FindFirstChild(serviceName)
         if service then
-            for _, descendant in service:GetDescendants() do
+            local descendants = service:GetDescendants()
+            for i, descendant in descendants do
                 -- Use full name as cache key for now
                 local fullName = descendant:GetFullName()
                 instanceCache[fullName] = descendant
+
+                -- Yield periodically to avoid script timeout on large games (RBXSYNC-25)
+                if i % 5000 == 0 then
+                    task.wait()
+                end
             end
         end
     end

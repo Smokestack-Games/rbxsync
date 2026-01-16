@@ -644,11 +644,16 @@ local function extractGame(config: {any})
     for _, serviceName in servicesToExtract do
         local service = game:FindFirstChild(serviceName)
         if service then
-            local count = #service:GetDescendants()
+            local descendants = service:GetDescendants()
+            local count = #descendants
             print("[RbxSync Debug] Found service:", serviceName, "with", count, "descendants")
             table.insert(allInstances, service)
-            for _, descendant in service:GetDescendants() do
+            for i, descendant in descendants do
                 table.insert(allInstances, descendant)
+                -- Yield periodically to avoid script timeout on large games (RBXSYNC-25)
+                if i % 5000 == 0 then
+                    task.wait()
+                end
             end
         else
             print("[RbxSync Debug] Service not found:", serviceName)
@@ -825,6 +830,11 @@ local function extractGame(config: {any})
             end
         end
         serializedChunks[chunkIndex] = chunkInstances
+
+        -- Yield periodically to avoid script timeout on large games (RBXSYNC-25)
+        if chunkIndex % 10 == 0 then
+            task.wait()
+        end
     end
 
     -- Second pass: send chunks in parallel with concurrency limit
@@ -1537,7 +1547,8 @@ local function handleCommand(command: string, payload: any)
                 })
 
                 -- Add all descendants
-                for _, desc in service:GetDescendants() do
+                local descendants = service:GetDescendants()
+                for i, desc in descendants do
                     -- Build path by walking up parent chain
                     local parts = {}
                     local current = desc
@@ -1553,6 +1564,11 @@ local function handleCommand(command: string, payload: any)
                             className = desc.ClassName,
                             name = desc.Name
                         })
+                    end
+
+                    -- Yield periodically to avoid script timeout on large games (RBXSYNC-25)
+                    if i % 5000 == 0 then
+                        task.wait()
                     end
                 end
             end
@@ -3637,7 +3653,8 @@ filesToStudioCheckbox = createCheckbox(
                             for _, serviceName in ipairs({"Workspace", "ReplicatedStorage", "ReplicatedFirst", "ServerScriptService", "ServerStorage", "StarterGui", "StarterPack", "StarterPlayer", "Lighting", "SoundService"}) do
                                 local service = game:FindFirstChild(serviceName)
                                 if service then
-                                    for _, desc in service:GetDescendants() do
+                                    local descendants = service:GetDescendants()
+                                    for i, desc in descendants do
                                         local parts = {}
                                         local current = desc
                                         while current and current ~= game do
@@ -3647,6 +3664,10 @@ filesToStudioCheckbox = createCheckbox(
                                         if #parts > 0 then
                                             local path = table.concat(parts, "/")
                                             studioPaths[path] = desc
+                                        end
+                                        -- Yield periodically to avoid script timeout on large games (RBXSYNC-25)
+                                        if i % 5000 == 0 then
+                                            task.wait()
                                         end
                                     end
                                 end
