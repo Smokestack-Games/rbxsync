@@ -869,31 +869,83 @@ async fn cmd_extract(
     Ok(())
 }
 
-/// Start the sync server
-async fn cmd_serve(port: u16, background: bool) -> Result<()> {
-    // Validate config file exists and is valid JSON
-    let config_path = std::env::current_dir()?.join("rbxsync.json");
-    if !config_path.exists() {
-        eprintln!("Error: rbxsync.json not found in current directory.");
-        eprintln!();
-        eprintln!("To create a new project, run:");
-        eprintln!("  rbxsync init --name MyProject");
-        eprintln!();
-        eprintln!("Or navigate to an existing RbxSync project directory.");
-        std::process::exit(1);
+/// Detect project structure for zero-config mode
+fn detect_project_structure() -> Option<String> {
+    let cwd = std::env::current_dir().ok()?;
+
+    // Check for common project structures
+    if cwd.join("src").is_dir() {
+        return Some("src".to_string());
     }
 
-    // Validate JSON is parseable
-    let config_content = std::fs::read_to_string(&config_path)
-        .context("Failed to read rbxsync.json")?;
+    // Check for Rojo-style project
+    if cwd.join("default.project.json").exists() {
+        return Some("rojo".to_string());
+    }
 
-    if let Err(e) = serde_json::from_str::<serde_json::Value>(&config_content) {
-        eprintln!("Error: Invalid JSON in rbxsync.json");
-        eprintln!();
-        eprintln!("Parse error: {}", e);
-        eprintln!();
-        eprintln!("Please fix the JSON syntax and try again.");
-        std::process::exit(1);
+    // Check for any .luau or .lua files indicating a Roblox project
+    if let Ok(entries) = std::fs::read_dir(&cwd) {
+        for entry in entries.flatten() {
+            let path = entry.path();
+            if let Some(ext) = path.extension() {
+                if ext == "luau" || ext == "lua" {
+                    return Some("flat".to_string());
+                }
+            }
+        }
+    }
+
+    None
+}
+
+/// Start the sync server
+async fn cmd_serve(port: u16, background: bool) -> Result<()> {
+    let config_path = std::env::current_dir()?.join("rbxsync.json");
+    let zero_config_mode = !config_path.exists();
+
+    if zero_config_mode {
+        // Zero-config mode: work without rbxsync.json
+        let project_structure = detect_project_structure();
+
+        println!("Running in zero-config mode (no rbxsync.json found)");
+        println!();
+
+        match project_structure {
+            Some(ref structure) if structure == "src" => {
+                println!("Detected: src/ directory (standard structure)");
+            }
+            Some(ref structure) if structure == "rojo" => {
+                println!("Detected: Rojo project (default.project.json)");
+                println!("Tip: Run `rbxsync migrate` to convert to RbxSync format");
+            }
+            Some(_) => {
+                println!("Detected: Luau files in current directory");
+            }
+            None => {
+                println!("No existing project detected - will create src/ on first extract");
+            }
+        }
+
+        println!();
+        println!("Using defaults:");
+        println!("  Source folder: ./src");
+        println!("  Assets folder: ./assets");
+        println!();
+        println!("For more control, create rbxsync.json with: rbxsync init");
+        println!();
+    } else {
+        // Validate JSON is parseable if config exists
+        let config_content = std::fs::read_to_string(&config_path)
+            .context("Failed to read rbxsync.json")?;
+
+        if let Err(e) = serde_json::from_str::<serde_json::Value>(&config_content) {
+            eprintln!("Error: Invalid JSON in rbxsync.json");
+            eprintln!();
+            eprintln!("Parse error: {}", e);
+            eprintln!();
+            eprintln!("Please fix the JSON syntax and try again.");
+            std::process::exit(1);
+        }
     }
 
     // Check if port is available before attempting to start

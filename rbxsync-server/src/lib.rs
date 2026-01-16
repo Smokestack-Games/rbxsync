@@ -1586,9 +1586,28 @@ async fn handle_extract_finalize(
         normalized
     };
 
-    // Write each instance to its own file using the path field
-    let mut files_written = 0;
-    let mut scripts_written = 0;
+    // PERFORMANCE OPTIMIZATION for large games (RBXSYNC-26):
+    // Instead of writing files sequentially (which causes PC hang on 180k+ instances),
+    // we batch directory creation and write files in parallel with bounded concurrency.
+
+    use futures::stream::{self, StreamExt};
+
+    // Maximum concurrent file writes to prevent overwhelming the filesystem
+    const MAX_CONCURRENT_WRITES: usize = 64;
+
+    // Struct to hold pending write operations
+    struct WriteOp {
+        path: PathBuf,
+        content: String,
+    }
+
+    // First pass: Collect all directories needed and prepare write operations
+    let mut directories_needed: HashSet<PathBuf> = HashSet::new();
+    let mut script_write_ops: Vec<WriteOp> = Vec::new();
+    let mut json_write_ops: Vec<WriteOp> = Vec::new();
+
+    tracing::info!("Preparing {} instances for parallel write...", all_instances.len());
+    let prep_start = std::time::Instant::now();
 
     for inst in &all_instances {
         let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
@@ -1618,9 +1637,9 @@ async fn handle_extract_finalize(
             service_folders.insert(service_name.to_string());
         }
 
-        // Create parent directories
+        // Collect parent directory instead of creating immediately
         if let Some(parent) = full_path.parent() {
-            let _ = std::fs::create_dir_all(parent);
+            directories_needed.insert(parent.to_path_buf());
         }
 
         // Check if this instance has children (use normalized path)
@@ -1630,7 +1649,7 @@ async fn handle_extract_finalize(
         let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
 
         if is_script {
-            // Extract script source to .luau file
+            // Prepare script source write operation
             if let Some(props) = inst.get("properties") {
                 if let Some(source) = props.get("Source").and_then(|v| v.get("value")).and_then(|v| v.as_str()) {
                     let extension = match class_name {
@@ -1638,25 +1657,22 @@ async fn handle_extract_finalize(
                         "LocalScript" => ".client.luau",
                         _ => ".luau",
                     };
-                    // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
                     let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
-                    if std::fs::write(&script_path, source).is_ok() {
-                        scripts_written += 1;
-                    }
+                    script_write_ops.push(WriteOp {
+                        path: PathBuf::from(script_path),
+                        content: source.to_string(),
+                    });
                 }
             }
         }
 
-        // Write .rbxjson file for all instances (including scripts for metadata)
-        // For containers (instances with children), write _meta.rbxjson inside the folder
-        // For leaf instances, write as sibling .rbxjson
+        // Prepare .rbxjson file write operation
         let json_path = if is_container {
-            // Container: create folder and put _meta.rbxjson inside
-            let _ = std::fs::create_dir_all(&full_path);
+            // Container: folder will be created, put _meta.rbxjson inside
+            directories_needed.insert(full_path.clone());
             full_path.join("_meta.rbxjson")
         } else {
             // Leaf: write as sibling .rbxjson
-            // Don't use with_extension() - it breaks names with periods like "Br. yellowish orange"
             rbxsync_core::pathbuf_with_suffix(&full_path, ".rbxjson")
         };
 
@@ -1671,10 +1687,73 @@ async fn handle_extract_finalize(
         }
 
         if let Ok(json) = serde_json::to_string_pretty(&clean_inst) {
-            if std::fs::write(&json_path, json).is_ok() {
-                files_written += 1;
-            }
+            json_write_ops.push(WriteOp {
+                path: json_path,
+                content: json,
+            });
         }
+    }
+
+    tracing::info!(
+        "Preparation complete in {:?}: {} directories, {} scripts, {} json files",
+        prep_start.elapsed(),
+        directories_needed.len(),
+        script_write_ops.len(),
+        json_write_ops.len()
+    );
+
+    // Batch create all directories (run in blocking task to not block async runtime)
+    let dirs_to_create: Vec<PathBuf> = directories_needed.into_iter().collect();
+    let dir_count = dirs_to_create.len();
+
+    let dir_start = std::time::Instant::now();
+    tokio::task::spawn_blocking(move || {
+        for dir in dirs_to_create {
+            let _ = std::fs::create_dir_all(&dir);
+        }
+    }).await.unwrap_or_else(|e| {
+        tracing::error!("Failed to create directories: {}", e);
+    });
+    tracing::info!("Created {} directories in {:?}", dir_count, dir_start.elapsed());
+
+    // Write files in parallel with bounded concurrency
+    let write_start = std::time::Instant::now();
+
+    // Write scripts in parallel
+    let script_count = script_write_ops.len();
+    let script_results: Vec<bool> = stream::iter(script_write_ops)
+        .map(|op| async move {
+            tokio::fs::write(&op.path, &op.content).await.is_ok()
+        })
+        .buffer_unordered(MAX_CONCURRENT_WRITES)
+        .collect()
+        .await;
+    let scripts_written = script_results.iter().filter(|&&ok| ok).count();
+
+    // Write JSON files in parallel
+    let json_count = json_write_ops.len();
+    let json_results: Vec<bool> = stream::iter(json_write_ops)
+        .map(|op| async move {
+            tokio::fs::write(&op.path, &op.content).await.is_ok()
+        })
+        .buffer_unordered(MAX_CONCURRENT_WRITES)
+        .collect()
+        .await;
+    let files_written = json_results.iter().filter(|&&ok| ok).count();
+
+    tracing::info!(
+        "Wrote {} scripts and {} json files in {:?} ({} concurrent writes)",
+        scripts_written, files_written, write_start.elapsed(), MAX_CONCURRENT_WRITES
+    );
+
+    // Log if there were any failures
+    let script_failures = script_count - scripts_written;
+    let json_failures = json_count - files_written;
+    if script_failures > 0 || json_failures > 0 {
+        tracing::warn!(
+            "Write failures: {} scripts, {} json files",
+            script_failures, json_failures
+        );
     }
 
     // Clean up chunk files
