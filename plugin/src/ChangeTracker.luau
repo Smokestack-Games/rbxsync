@@ -384,7 +384,86 @@ local function trackInstanceChanges(instance: Instance)
 
     -- Track name changes (renames)
     local nameConnection = instance:GetPropertyChangedSignal("Name"):Connect(function()
-        -- TODO: Handle renames (need old path)
+        -- Primary echo prevention: suppress ALL changes during inbound sync
+        if isSyncingFromServer then
+            return
+        end
+
+        -- Get the OLD path (stored before rename)
+        local oldPath = instancePaths[instance]
+        if not oldPath then
+            -- Instance wasn't tracked, nothing to rename
+            return
+        end
+
+        -- Calculate the NEW path by walking up the parent tree
+        local parts = {}
+        local current = instance
+        while current and current ~= game do
+            table.insert(parts, 1, current.Name)
+            current = current.Parent
+        end
+
+        if #parts == 0 then
+            return
+        end
+
+        -- Check if new path is in a tracked service
+        local serviceName = parts[1]
+        local isTracked = false
+        for _, tracked in trackedServices do
+            if tracked == serviceName then
+                isTracked = true
+                break
+            end
+        end
+
+        if not isTracked then
+            return
+        end
+
+        local newPath = table.concat(parts, "/")
+
+        -- Skip if path didn't actually change (shouldn't happen, but be safe)
+        if oldPath == newPath then
+            return
+        end
+
+        -- Update the stored path immediately
+        instancePaths[instance] = newPath
+
+        -- Path-based deduplication: skip if recently applied from server (50ms window)
+        if recentlyApplied[oldPath] and (tick() - recentlyApplied[oldPath]) < APPLY_DEBOUNCE then
+            return
+        end
+        if recentlyApplied[newPath] and (tick() - recentlyApplied[newPath]) < APPLY_DEBOUNCE then
+            return
+        end
+
+        -- Secondary echo prevention: grace period for file watcher paths
+        if shouldIgnoreChange(oldPath) or shouldIgnoreChange(newPath) then
+            return
+        end
+
+        -- Log the rename
+        print("[RbxSync Debug] Queueing rename: " .. oldPath .. " -> " .. newPath)
+
+        -- Queue rename operation (use newPath as key since that's the current identity)
+        pendingChanges[newPath] = {
+            path = newPath,
+            className = instance.ClassName,
+            changeType = "rename",
+            data = {
+                oldPath = oldPath,
+                newPath = newPath,
+            },
+            timestamp = tick(),
+        }
+
+        -- Remove any pending changes for the old path (they're now stale)
+        if pendingChanges[oldPath] then
+            pendingChanges[oldPath] = nil
+        end
     end)
 
     table.insert(connections, nameConnection)

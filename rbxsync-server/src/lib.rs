@@ -2115,7 +2115,7 @@ pub struct SyncFromStudioRequest {
 #[derive(Debug, Deserialize)]
 pub struct StudioChangeOperation {
     #[serde(rename = "type")]
-    pub change_type: String,  // "create", "modify", "delete"
+    pub change_type: String,  // "create", "modify", "delete", "rename"
     pub path: String,
     #[serde(rename = "className")]
     pub class_name: Option<String>,
@@ -2182,6 +2182,66 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
 
                 if deleted_any {
                     files_written += 1;
+                }
+            }
+            "rename" => {
+                // Handle rename: move files from old path to new path
+                if let Some(data) = &op.data {
+                    let old_inst_path = data.get("oldPath").and_then(|v| v.as_str());
+                    let new_inst_path = data.get("newPath").and_then(|v| v.as_str());
+
+                    if let (Some(old_path), Some(new_path)) = (old_inst_path, new_inst_path) {
+                        let old_fs_path = apply_tree_mapping(old_path, &tree_mapping);
+                        let new_fs_path = apply_tree_mapping(new_path, &tree_mapping);
+                        let old_full_path = src_dir.join(&old_fs_path);
+                        let new_full_path = src_dir.join(&new_fs_path);
+
+                        tracing::info!("Studio sync: renaming {:?} -> {:?}", old_full_path, new_full_path);
+
+                        // Ensure new parent directory exists
+                        if let Some(parent) = new_full_path.parent() {
+                            let _ = std::fs::create_dir_all(parent);
+                        }
+
+                        // Try to rename directory (for folders with children)
+                        if old_full_path.is_dir() {
+                            match std::fs::rename(&old_full_path, &new_full_path) {
+                                Ok(_) => {
+                                    tracing::info!("Studio sync: renamed folder {:?} -> {:?}", old_full_path, new_full_path);
+                                    files_written += 1;
+                                }
+                                Err(e) => {
+                                    errors.push(format!("Failed to rename folder {:?}: {}", old_full_path, e));
+                                }
+                            }
+                        } else {
+                            // Rename script files (try all extensions)
+                            let extensions = [".server.luau", ".client.luau", ".luau", ".rbxjson"];
+                            let mut renamed_any = false;
+                            for ext in extensions {
+                                let old_file_str = rbxsync_core::path_with_suffix(&old_full_path, ext);
+                                let new_file_str = rbxsync_core::path_with_suffix(&new_full_path, ext);
+                                let old_file = PathBuf::from(&old_file_str);
+                                let new_file = PathBuf::from(&new_file_str);
+                                if old_file.exists() {
+                                    match std::fs::rename(&old_file, &new_file) {
+                                        Ok(_) => {
+                                            tracing::info!("Studio sync: renamed {:?} -> {:?}", old_file, new_file);
+                                            renamed_any = true;
+                                        }
+                                        Err(e) => {
+                                            errors.push(format!("Failed to rename {:?}: {}", old_file, e));
+                                        }
+                                    }
+                                }
+                            }
+                            if renamed_any {
+                                files_written += 1;
+                            }
+                        }
+                    } else {
+                        errors.push("Rename operation missing oldPath or newPath".to_string());
+                    }
                 }
             }
             "create" | "modify" => {
