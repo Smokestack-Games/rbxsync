@@ -1,0 +1,96 @@
+{
+  "$schema": "vscode://schemas/icon-theme",
+  "hidesExplorerArrows": false,
+  "iconDefinitions": {
+    "_script": {
+      "iconPath": "../media/icons/classes/Script.svg"
+    },
+    "_localscript": {
+      "iconPath": "../media/icons/classes/LocalScript.svg"
+    },
+    "_modulescript": {
+      "iconPath": "../media/icons/classes/ModuleScript.svg"
+    },
+    "_folder": {
+      "iconPath": "../media/icons/classes/Folder.svg"
+    },
+    "_part": {
+      "iconPath": "../media/icons/classes/Part.svg"
+    },
+    "_meshpart": {
+      "iconPath": "../media/icons/classes/MeshPart.svg"
+    },
+    "_model": {
+      "iconPath": "../media/icons/classes/Model.svg"
+    },
+    "_sound": {
+      "iconPath": "../media/icons/classes/Sound.svg"
+    },
+    "_spawnlocation": {
+      "iconPath": "../media/icons/classes/SpawnLocation.svg"
+    },
+    "_remoteevent": {
+      "iconPath": "../media/icons/classes/RemoteEvent.svg"
+    },
+    "_remotefunction": {
+      "iconPath": "../media/icons/classes/RemoteFunction.svg"
+    },
+    "_bindableevent": {
+      "iconPath": "../media/icons/classes/BindableEvent.svg"
+    },
+    "_bindablefunction": {
+      "iconPath": "../media/icons/classes/BindableFunction.svg"
+    },
+    "_configuration": {
+      "iconPath": "../media/icons/classes/Configuration.svg"
+    },
+    "_unionoperation": {
+      "iconPath": "../media/icons/classes/UnionOperation.svg"
+    },
+    "_instance": {
+      "iconPath": "../media/icons/classes/Instance.svg"
+    },
+    "_workspace": {
+      "iconPath": "../media/icons/classes/Workspace.svg"
+    },
+    "_camera": {
+      "iconPath": "../media/icons/classes/Camera.svg"
+    },
+    "_stringvalue": {
+      "iconPath": "../media/icons/classes/StringValue.svg"
+    },
+    "_numbervalue": {
+      "iconPath": "../media/icons/classes/NumberValue.svg"
+    },
+    "_boolvalue": {
+      "iconPath": "../media/icons/classes/BoolValue.svg"
+    }
+  },
+  "fileExtensions": {
+    "server.luau": "_script",
+    "client.luau": "_localscript",
+    "luau": "_modulescript",
+    "server.lua": "_script",
+    "client.lua": "_localscript",
+    "lua": "_modulescript",
+    "rbxjson": "_instance"
+  },
+  "fileNames": {},
+  "file": null,
+  "folder": "_folder",
+  "folderExpanded": "_folder",
+  "languageIds": {
+    "luau": "_modulescript"
+  },
+  "light": {
+    "fileExtensions": {
+      "server.luau": "_script",
+      "client.luau": "_localscript",
+      "luau": "_modulescript",
+      "server.lua": "_script",
+      "client.lua": "_localscript",
+      "lua": "_modulescript",
+      "rbxjson": "_instance"
+    }
+  }
+}

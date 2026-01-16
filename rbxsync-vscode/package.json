@@ -2,7 +2,7 @@
   "name": "rbxsync",
   "displayName": "RbxSync",
   "description": "Two-way sync between Roblox Studio and VS Code. One-click extraction, real-time bidirectional sync, console streaming, and MCP integration for AI workflows.",
-  "version": "1.1.2",
+  "version": "1.2.1",
   "license": "SEE LICENSE IN LICENSE.txt",
   "publisher": "rbxsync",
   "icon": "media/icons/rbxsync.png",
@@ -51,6 +51,13 @@
         "language": "rbxjson",
         "scopeName": "source.rbxjson",
         "path": "./syntaxes/rbxjson.tmLanguage.json"
+      }
+    ],
+    "iconThemes": [
+      {
+        "id": "rbxsync-icons",
+        "label": "RbxSync Icons (Roblox)",
+        "path": "./icons/rbxsync-icon-theme.json"
       }
     ],
     "commands": [
