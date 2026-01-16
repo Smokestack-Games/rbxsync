@@ -7,6 +7,7 @@
 //! - Plugin building (.rbxm generation)
 //! - Rojo project file parsing and migration
 
+pub mod path_utils;
 pub mod plugin_builder;
 pub mod rojo;
 pub mod types;
@@ -23,3 +24,4 @@ pub use types::{
     PackageConfig, PackageDirectories, WallyError, WallyLock, WallyLockedPackage,
     WallyManifest, WallyPackageInfo, find_wally_manifest, find_wally_lock, is_package_path,
 };
+pub use path_utils::{normalize_path, path_to_string, path_with_suffix, pathbuf_with_suffix, sanitize_filename};
