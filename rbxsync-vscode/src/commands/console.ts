@@ -137,7 +137,13 @@ function stopSSEStream(): void {
  * Open the console terminal
  */
 export async function openConsole(client: RbxSyncClient): Promise<void> {
-  // Close existing terminal if open
+  // Reuse existing terminal if available and not disposed
+  if (consoleTerminal && !consoleTerminal.exitStatus) {
+    consoleTerminal.show();
+    return;
+  }
+
+  // Only create new terminal if none exists or previous was closed
   if (consoleTerminal) {
     consoleTerminal.dispose();
   }
@@ -184,6 +190,24 @@ export function isE2EMode(): boolean {
  */
 export function initE2EMode(context: vscode.ExtensionContext): void {
   isE2EModeEnabled = context.globalState.get('rbxsync.e2eMode', false);
+}
+
+/**
+ * Initialize console terminal tracking
+ * Registers listener to clean up reference when terminal is closed by user
+ */
+export function initConsole(context: vscode.ExtensionContext): void {
+  const terminalCloseListener = vscode.window.onDidCloseTerminal((closedTerminal) => {
+    if (closedTerminal === consoleTerminal) {
+      stopSSEStream();
+      consoleTerminal = undefined;
+      if (writeEmitter) {
+        writeEmitter.dispose();
+        writeEmitter = undefined;
+      }
+    }
+  });
+  context.subscriptions.push(terminalCloseListener);
 }
 
 /**
