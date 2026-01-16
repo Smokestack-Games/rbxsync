@@ -4,16 +4,46 @@ import { RbxSyncClient } from '../server/client';
 import { StatusBarManager } from '../views/statusBar';
 
 let serverTerminal: vscode.Terminal | null = null;
+let terminalCloseListener: vscode.Disposable | null = null;
+
+/**
+ * Initialize terminal tracking - call this during extension activation.
+ * This prevents multiple terminal windows by clearing the reference when
+ * the user closes the terminal manually (RBXSYNC-18).
+ */
+export function initServerTerminal(): vscode.Disposable {
+  if (terminalCloseListener) {
+    terminalCloseListener.dispose();
+  }
+  terminalCloseListener = vscode.window.onDidCloseTerminal((terminal) => {
+    if (terminal === serverTerminal) {
+      serverTerminal = null;
+    }
+  });
+  return terminalCloseListener;
+}
+
+/**
+ * Dispose server terminal and cleanup
+ */
+export function disposeServerTerminal(): void {
+  if (serverTerminal) {
+    serverTerminal.dispose();
+    serverTerminal = null;
+  }
+  if (terminalCloseListener) {
+    terminalCloseListener.dispose();
+    terminalCloseListener = null;
+  }
+}
 
 export async function connectCommand(
   client: RbxSyncClient,
   statusBar: StatusBarManager
 ): Promise<void> {
-  // First check if server is already running
   let connected = await client.connect();
 
   if (connected) {
-    // Register workspace with server
     if (client.projectDir) {
       await client.registerWorkspace(client.projectDir);
     }
@@ -21,10 +51,8 @@ export async function connectCommand(
     return;
   }
 
-  // Server not running - start it
   vscode.window.showInformationMessage('Starting RbxSync server...');
 
-  // Create or reuse terminal
   if (!serverTerminal || serverTerminal.exitStatus !== undefined) {
     serverTerminal = vscode.window.createTerminal({
       name: 'RbxSync Server',
@@ -33,14 +61,12 @@ export async function connectCommand(
   }
 
   serverTerminal.sendText('rbxsync serve');
-  serverTerminal.show(true);  // Show but don't take focus
+  serverTerminal.show(true);
 
-  // Wait for server to start (poll up to 5 seconds)
   for (let i = 0; i < 10; i++) {
     await new Promise(resolve => setTimeout(resolve, 500));
     connected = await client.connect();
     if (connected) {
-      // Register workspace with server
       if (client.projectDir) {
         await client.registerWorkspace(client.projectDir);
       }
@@ -59,7 +85,6 @@ export async function disconnectCommand(
 ): Promise<void> {
   statusBar.stopPolling();
 
-  // Send shutdown request to server
   try {
     const config = vscode.workspace.getConfiguration('rbxsync');
     const port = config.get<number>('serverPort') || 44755;
@@ -75,7 +100,7 @@ export async function disconnectCommand(
         resolve();
       });
 
-      req.on('error', () => resolve());  // Server might close before responding
+      req.on('error', () => resolve());
       req.on('timeout', () => {
         req.destroy();
         resolve();

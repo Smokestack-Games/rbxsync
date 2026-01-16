@@ -12,6 +12,7 @@ export {
   findPropertyRanges,
   findClassNameRange,
 } from './documentAnalyzer';
+export { generateProjectJson, hasProjectJson, addToGitignore } from './projectJson';
 export type { DocumentContext, ParsedDocument, ContextType } from './documentAnalyzer';
 export type {
   APIDump,
