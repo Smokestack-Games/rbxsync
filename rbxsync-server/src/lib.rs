@@ -1147,6 +1147,42 @@ async fn handle_extract_start(
         }
     }
 
+    // Clear existing src folder before extraction to remove stale files (Fixes RBXSYNC-27)
+    if let Some(ref project_dir) = req.project_dir {
+        if !project_dir.is_empty() {
+            let src_dir = PathBuf::from(project_dir).join("src");
+
+            if src_dir.exists() {
+                let backup_dir = PathBuf::from(project_dir).join(".rbxsync-backup");
+                let backup_src = backup_dir.join("src");
+
+                // Remove old backup if exists
+                if backup_src.exists() {
+                    let _ = std::fs::remove_dir_all(&backup_src);
+                }
+
+                // Create backup directory
+                let _ = std::fs::create_dir_all(&backup_dir);
+
+                // Move src to backup (rename is atomic and fast)
+                if let Err(e) = std::fs::rename(&src_dir, &backup_src) {
+                    // If rename fails (cross-device), fall back to copy+delete
+                    tracing::warn!("Rename failed, falling back to copy: {}", e);
+                    if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
+                        tracing::warn!("Failed to backup src directory: {}", e);
+                    }
+                    // Delete original src after backup
+                    let _ = std::fs::remove_dir_all(&src_dir);
+                }
+
+                tracing::info!("Cleared src folder before extraction (backed up to .rbxsync-backup/src)");
+            }
+
+            // Create fresh src directory
+            let _ = std::fs::create_dir_all(&src_dir);
+        }
+    }
+
     // Queue request to plugin
     let plugin_request = PluginRequest {
         id: session_uuid,
