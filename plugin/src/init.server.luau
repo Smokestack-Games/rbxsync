@@ -762,7 +762,11 @@ local function extractGame(config: {any})
 
                 -- Special handling for UnionOperation: separate into component parts
                 if instance:IsA("UnionOperation") or instance:IsA("IntersectOperation") then
-                    local separated = CSGHandler.separate(plugin, instance :: BasePart)
+                    -- Clone the union before separating to preserve the original (RBXSYNC-38)
+                    -- Plugin:Separate() destroys its input, so we operate on a clone
+                    local unionClone = instance:Clone()
+                    unionClone.Parent = instance.Parent
+                    local separated = CSGHandler.separate(plugin, unionClone :: BasePart)
                     if separated.success and (#separated.addParts > 0 or #separated.subtractParts > 0) then
                         -- Build CSG metadata
                         local operations = {}
