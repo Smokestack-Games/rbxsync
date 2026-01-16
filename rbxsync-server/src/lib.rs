@@ -22,6 +22,14 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{broadcast, mpsc, watch, Mutex, RwLock};
 use uuid::Uuid;
 
+/// Normalize Windows paths by converting backslashes to forward slashes.
+/// This ensures consistent path handling across platforms and prevents issues
+/// with backslash escape sequences in JSON/strings.
+/// Windows accepts both forward and backslashes as path separators.
+fn normalize_path(path: &str) -> String {
+    path.replace('\\', "/")
+}
+
 /// Load project config from rbxsync.json
 fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
     let config_path = PathBuf::from(project_dir).join("rbxsync.json");
@@ -412,6 +420,9 @@ async fn handle_register(
     State(state): State<Arc<AppState>>,
     Json(req): Json<RegisterRequest>,
 ) -> impl IntoResponse {
+    // Normalize path separators for Windows compatibility
+    let project_dir = normalize_path(&req.project_dir);
+
     let mut registry = state.place_registry.write().await;
 
     // Use session_id as unique key if provided (handles multiple unpublished places with PlaceId=0)
@@ -445,7 +456,7 @@ async fn handle_register(
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
         place_name: req.place_name.clone(),
-        project_dir: req.project_dir.clone(),
+        project_dir: project_dir.clone(),
         session_id: req.session_id.clone(),
         last_heartbeat: Some(Instant::now()),
     });
@@ -454,7 +465,7 @@ async fn handle_register(
     // Create project queue if it doesn't exist
     {
         let mut queues = state.project_queues.write().await;
-        queues.entry(req.project_dir.clone()).or_insert_with(VecDeque::new);
+        queues.entry(project_dir.clone()).or_insert_with(VecDeque::new);
     }
 
     // Only log once per session to prevent spam
@@ -467,13 +478,13 @@ async fn handle_register(
             req.place_id,
             req.session_id,
             key,
-            req.project_dir
+            project_dir
         );
 
         // Check for path mismatch with VS Code workspaces
         let workspaces = state.vscode_workspaces.read().await;
         if !workspaces.is_empty() {
-            let studio_dir = req.project_dir.as_str();
+            let studio_dir = project_dir.as_str();
             let vscode_dirs: Vec<&str> = workspaces.keys().map(|s| s.as_str()).collect();
 
             // Check if Studio project matches or is parent/child of any VS Code workspace
@@ -590,11 +601,14 @@ async fn handle_register_vscode(
         }));
     }
 
+    // Normalize path separators for Windows compatibility
+    let workspace_dir = normalize_path(&req.workspace_dir);
+
     // Update heartbeat timestamp
     let mut workspaces = state.vscode_workspaces.write().await;
-    let is_new = !workspaces.contains_key(&req.workspace_dir);
-    workspaces.insert(req.workspace_dir.clone(), VsCodeWorkspace {
-        workspace_dir: req.workspace_dir.clone(),
+    let is_new = !workspaces.contains_key(&workspace_dir);
+    workspaces.insert(workspace_dir.clone(), VsCodeWorkspace {
+        workspace_dir: workspace_dir.clone(),
         last_heartbeat: Some(Instant::now()),
     });
     drop(workspaces); // Release lock before acquiring another
@@ -602,18 +616,18 @@ async fn handle_register_vscode(
     // Only log and start file watcher if this is a new workspace this session
     // Use a separate set to prevent spam from heartbeat registrations
     let mut logged = state.logged_vscode_workspaces.write().await;
-    let should_log = !logged.contains(&req.workspace_dir);
+    let should_log = !logged.contains(&workspace_dir);
     if should_log {
-        logged.insert(req.workspace_dir.clone());
+        logged.insert(workspace_dir.clone());
         drop(logged); // Release lock
 
-        tracing::info!("VS Code workspace registered: {}", req.workspace_dir);
+        tracing::info!("VS Code workspace registered: {}", workspace_dir);
 
         // Check for path mismatch with Studio registrations
         let registry = state.place_registry.read().await;
         if !registry.is_empty() {
             let studio_dirs: Vec<&str> = registry.values().map(|p| p.project_dir.as_str()).collect();
-            let vscode_dir = req.workspace_dir.as_str();
+            let vscode_dir = workspace_dir.as_str();
 
             // Check if VS Code workspace matches or is parent/child of any Studio project
             let has_match = studio_dirs.iter().any(|studio_dir| {
@@ -655,7 +669,7 @@ async fn handle_register_vscode(
         // Start file watcher for new workspaces
         if is_new {
             let watcher_state = state.file_watcher_state.clone();
-            let dir = req.workspace_dir.clone();
+            let dir = workspace_dir.clone();
             tokio::spawn(async move {
                 if let Err(e) = file_watcher::start_file_watcher(dir, watcher_state).await {
                     tracing::error!("Failed to start file watcher: {}", e);
@@ -689,18 +703,21 @@ async fn handle_update_project_path(
         }));
     }
 
+    // Normalize path separators for Windows compatibility
+    let project_dir = normalize_path(&req.project_dir);
+
     let mut registry = state.place_registry.write().await;
     let mut updated_count = 0;
 
     // Update all registered places to use the new project directory
     for (_key, place_info) in registry.iter_mut() {
         let old_path = place_info.project_dir.clone();
-        place_info.project_dir = req.project_dir.clone();
+        place_info.project_dir = project_dir.clone();
         updated_count += 1;
         tracing::info!(
             "Updated Studio project path: '{}' -> '{}'",
             old_path,
-            req.project_dir
+            project_dir
         );
     }
 
@@ -718,9 +735,9 @@ async fn handle_update_project_path(
         // Move commands from old paths to new path
         let old_keys: Vec<String> = queues.keys().cloned().collect();
         for old_key in old_keys {
-            if old_key != req.project_dir {
+            if old_key != project_dir {
                 if let Some(commands) = queues.remove(&old_key) {
-                    queues.entry(req.project_dir.clone())
+                    queues.entry(project_dir.clone())
                         .or_insert_with(VecDeque::new)
                         .extend(commands);
                 }
@@ -730,7 +747,7 @@ async fn handle_update_project_path(
 
     Json(serde_json::json!({
         "success": true,
-        "message": format!("Updated {} Studio instance(s) to use path: {}", updated_count, req.project_dir),
+        "message": format!("Updated {} Studio instance(s) to use path: {}", updated_count, project_dir),
         "updated_count": updated_count
     }))
 }
@@ -748,6 +765,9 @@ async fn handle_link_studio(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LinkStudioRequest>,
 ) -> impl IntoResponse {
+    // Normalize path separators for Windows compatibility
+    let new_project_dir = normalize_path(&req.new_project_dir);
+
     let mut registry = state.place_registry.write().await;
 
     // Find the entry with matching place_id (key is now session_id, not place_id)
@@ -760,21 +780,21 @@ async fn handle_link_studio(
         // This ensures only one studio is linked to each workspace at a time
         let mut unlinked_studios: Vec<String> = Vec::new();
         for (other_key, other_place) in registry.iter_mut() {
-            if other_place.project_dir == req.new_project_dir && other_key != &key {
+            if other_place.project_dir == new_project_dir && other_key != &key {
                 let old_name = other_place.place_name.clone();
                 other_place.project_dir = String::new();
                 unlinked_studios.push(old_name);
                 tracing::info!(
                     "Auto-unlinked '{}' from {} (new studio linking)",
                     other_place.place_name,
-                    req.new_project_dir
+                    new_project_dir
                 );
             }
         }
 
         if let Some(place_info) = registry.get_mut(&key) {
             let old_path = place_info.project_dir.clone();
-            place_info.project_dir = req.new_project_dir.clone();
+            place_info.project_dir = new_project_dir.clone();
             place_info.last_heartbeat = Some(std::time::Instant::now());
 
             let place_name = place_info.place_name.clone();
@@ -783,13 +803,13 @@ async fn handle_link_studio(
                 "Linked Studio {} '{}' to workspace: '{}' (was: '{}')",
                 req.place_id,
                 place_name,
-                req.new_project_dir,
+                new_project_dir,
                 old_path
             );
 
             return Json(serde_json::json!({
                 "success": true,
-                "message": format!("Linked {} to {}", place_name, req.new_project_dir),
+                "message": format!("Linked {} to {}", place_name, new_project_dir),
                 "place_name": place_name,
                 "auto_unlinked": unlinked_studios
             }));
