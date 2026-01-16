@@ -1,0 +1,46 @@
+# RbxSync Cursor Rules
+
+## Project Context
+This is RbxSync, a bidirectional sync tool for Roblox Studio. Use RbxSync tools instead of Rojo.
+
+## Languages
+- Rust: Core libraries (rbxsync-core, rbxsync-server, rbxsync-cli, rbxsync-mcp)
+- Luau: Roblox Studio plugin (plugin/)
+- TypeScript: VS Code extension (rbxsync-vscode/)
+
+## Code Style
+
+### Rust
+- Use `cargo fmt` and `cargo clippy`
+- Prefer `Result<T, E>` over panics
+- Document public APIs
+
+### Luau
+- Use strict type annotations
+- Follow Roblox Luau style guide
+- Use `task.wait()` not `wait()`
+
+### TypeScript
+- Use ESLint + Prettier
+- Prefer async/await over callbacks
+
+## MCP Integration
+RbxSync has MCP tools for AI control of Roblox Studio:
+- extract_game, sync_to_studio, run_test, run_code
+- bot_observe, bot_move, bot_action for testing
+
+## Testing
+- Rust: `cargo test`
+- Use MCP bot tools for integration testing
+- Test on both Mac and Windows
+
+## Git Workflow
+- Branch protection on master
+- Create feature branches: `fix/rbxsync-XX-description`
+- Reference Linear issues: `Fixes RBXSYNC-XX`
+
+## Key Files
+- CLAUDE.md: Detailed AI agent instructions
+- llms.txt: AI discovery file
+- plugin/src/Sync.luau: Studio sync logic
+- rbxsync-server/src/server.rs: HTTP server
