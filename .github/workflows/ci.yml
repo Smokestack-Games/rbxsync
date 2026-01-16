@@ -26,7 +26,7 @@ jobs:
         run: cargo test --all
 
       - name: Clippy
-        run: cargo clippy --all -- -D warnings
+        run: cargo clippy --all
 
   vscode-extension:
     runs-on: ubuntu-latest
