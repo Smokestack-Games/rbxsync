@@ -15,10 +15,6 @@ local Reflection = require(script.Parent.Reflection)
 type APIDump = Reflection.APIDump
 type PropertyInfo = Reflection.PropertyInfo
 
--- UUID counter for reference IDs
-local uuidCounter = 0
-local instanceUUIDs: {[Instance]: string} = {}
-
 -- Cache for disambiguated paths (to handle duplicate sibling names)
 local instancePaths: {[Instance]: string} = {}
 
@@ -94,25 +90,13 @@ function Serializer.buildDisambiguatedPaths(root: Instance, rootPath: string?)
     buildPathsRecursive(root, startPath)
 end
 
--- Generate a unique ID for an instance
+-- Get unique ID for an instance using Roblox's built-in debug ID
+-- GetDebugId(0) returns a session-scoped unique identifier that is:
+-- - Stable across property changes, reparenting, and undo/redo
+-- - Unique across all instances within a session
+-- - Simpler than custom UUID generation (RBXSYNC-36)
 local function getInstanceUUID(instance: Instance): string
-    if instanceUUIDs[instance] then
-        return instanceUUIDs[instance]
-    end
-
-    uuidCounter += 1
-    -- Generate last 12 hex digits using three 16-bit randoms (safer than one large number)
-    local uuid = string.format("%08x-%04x-%04x-%04x-%04x%04x%04x",
-        uuidCounter,
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF),
-        math.random(0, 0xFFFF)
-    )
-    instanceUUIDs[instance] = uuid
-    return uuid
+    return instance:GetDebugId(0)
 end
 
 -- Encode a value to our JSON format
@@ -554,11 +538,9 @@ function Serializer.serializeInstance(instance: Instance, apiDump: APIDump): any
     return serialized
 end
 
--- Clear UUID cache (call between extractions)
+-- Clear path cache (call between extractions)
 function Serializer.clearCache()
-    table.clear(instanceUUIDs)
     table.clear(instancePaths)
-    uuidCounter = 0
 end
 
 return Serializer
