@@ -9,7 +9,7 @@ members = [
 ]
 
 [workspace.package]
-version = "1.1.2"
+version = "1.2.1"
 edition = "2021"
 license = "MIT"
 authors = ["RbxSync Team"]
@@ -19,6 +19,7 @@ repository = "https://github.com/devmarissa/rbxsync"
 # Serialization
 serde = { version = "1.0", features = ["derive"] }
 serde_json = "1.0"
+serde_yaml = "0.9"
 toml = "0.8"
 
 # Async runtime

@@ -5,6 +5,7 @@
 
 pub mod git;
 pub mod file_watcher;
+pub mod harness;
 
 use std::collections::{HashMap, HashSet, VecDeque};
 use std::path::PathBuf;
@@ -381,6 +382,12 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/health", get(handle_health))
         // Shutdown endpoint
         .route("/shutdown", post(handle_shutdown))
+        // Harness system for multi-session AI development
+        .route("/harness/init", post(harness::handle_harness_init))
+        .route("/harness/session/start", post(harness::handle_session_start))
+        .route("/harness/session/end", post(harness::handle_session_end))
+        .route("/harness/feature/update", post(harness::handle_feature_update))
+        .route("/harness/status", post(harness::handle_harness_status))
         .with_state(state)
         // Allow large body sizes for extraction chunks (10MB limit)
         .layer(DefaultBodyLimit::max(10 * 1024 * 1024))

@@ -23,5 +23,8 @@ pub use types::{
     // Wally package support
     PackageConfig, PackageDirectories, WallyError, WallyLock, WallyLockedPackage,
     WallyManifest, WallyPackageInfo, find_wally_manifest, find_wally_lock, is_package_path,
+    // Harness system for multi-session AI development
+    Feature, FeaturePriority, FeatureStatus, FeaturesFile, GameDefinition,
+    HarnessState, SessionLog, SessionLogEntry,
 };
 pub use path_utils::{normalize_path, path_to_string, path_with_suffix, pathbuf_with_suffix, sanitize_filename};
