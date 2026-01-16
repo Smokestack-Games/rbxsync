@@ -1,0 +1,6 @@
+# Local settings (permissions, MCP config)
+settings.local.json
+settings.json
+
+# OS files
+.DS_Store
