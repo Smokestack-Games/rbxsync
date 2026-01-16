@@ -58,9 +58,20 @@ local pendingChanges: {[string]: {
 local recentFileWatcherPaths: {[string]: number} = {}
 local FILE_WATCHER_GRACE_PERIOD = 0.5  -- seconds
 
+-- Path-based deduplication: track recently applied paths with 50ms window (Azul pattern)
+-- This provides responsive echo prevention without waiting for full grace period
+local recentlyApplied: {[string]: number} = {}
+local APPLY_DEBOUNCE = 0.05  -- 50ms window for path-based deduplication
+
 -- Mark a specific path as recently synced from file watcher
 function ChangeTracker.markPathFromFileWatcher(path: string)
     recentFileWatcherPaths[path] = tick()
+end
+
+-- Mark a path as recently applied from server (for 50ms deduplication window)
+-- Call this when applying changes from sync to prevent echo back to server
+function ChangeTracker.markPathApplied(path: string)
+    recentlyApplied[path] = tick()
 end
 
 -- Set last file watcher sync time (called when receiving sync from server)
@@ -162,6 +173,12 @@ local function queueChange(instance: Instance, changeType: string, data: any?)
     local isDelete = changeType == "delete"
     local path = getInstancePath(instance, isDelete)
     if not path then
+        return
+    end
+
+    -- Path-based deduplication: skip if recently applied from server (50ms window)
+    -- This is faster than the file watcher grace period for responsive echo prevention
+    if recentlyApplied[path] and (tick() - recentlyApplied[path]) < APPLY_DEBOUNCE then
         return
     end
 
