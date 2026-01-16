@@ -8,7 +8,7 @@ import { connectCommand, disconnectCommand } from './commands/connect';
 import { extractCommand } from './commands/extract';
 import { syncCommand } from './commands/sync';
 import { runPlayTest, disposeTestChannel } from './commands/test';
-import { openConsole, closeConsole, toggleE2EMode, initE2EMode, disposeConsole, isE2EMode } from './commands/console';
+import { openConsole, closeConsole, toggleE2EMode, initE2EMode, initConsole, disposeConsole, isE2EMode } from './commands/console';
 import { initTrashSystem, recoverDeletedFolder } from './commands/trash';
 import {
   LanguageClient,
@@ -33,6 +33,9 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Initialize E2E mode from saved state
   initE2EMode(context);
+
+  // Initialize console terminal tracking (handles terminal close events)
+  initConsole(context);
 
   // Set project directory for multi-workspace support
   const workspaceFolders = vscode.workspace.workspaceFolders;
