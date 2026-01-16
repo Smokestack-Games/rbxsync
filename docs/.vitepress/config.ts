@@ -97,6 +97,7 @@ export default defineConfig({
             { text: 'Overview', link: '/mcp/' },
             { text: 'Setup', link: '/mcp/setup' },
             { text: 'Tools', link: '/mcp/tools' },
+            { text: 'AI Testing Workflow', link: '/ai-testing' },
           ]
         }
       ],
