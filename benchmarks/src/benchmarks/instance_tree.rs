@@ -7,18 +7,18 @@ const CATEGORY: &str = "Instance Tree";
 const ITERATIONS: u32 = 50;
 
 pub fn run_all() -> Vec<BenchmarkResult> {
-    let mut results = Vec::new();
-    results.push(bench_build_flat_tree());
-    results.push(bench_build_nested_tree());
-    results.push(bench_traverse_tree());
-    results.push(bench_clone_tree());
-    results
+    vec![
+        bench_build_flat_tree(),
+        bench_build_nested_tree(),
+        bench_traverse_tree(),
+        bench_clone_tree(),
+    ]
 }
 
 fn build_flat_tree(size: usize) -> Instance {
     let mut root = Instance::new("Workspace", "Workspace");
     for i in 0..size {
-        root.add_child(Instance::new("Part", &format!("Part_{}", i)));
+        root.add_child(Instance::new("Part", format!("Part_{}", i)));
     }
     root
 }

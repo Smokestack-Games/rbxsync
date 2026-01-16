@@ -74,11 +74,11 @@ where
     BenchmarkResult { name: name.to_string(), category: category.to_string(), iterations, mean_ms, min_ms, max_ms, std_dev_ms, throughput: None }
 }
 
-pub fn run_benchmark_with_throughput<F>(name: &str, category: &str, iterations: u32, bytes: u64, mut f: F) -> BenchmarkResult
+pub fn run_benchmark_with_throughput<F>(name: &str, category: &str, iterations: u32, bytes: u64, f: F) -> BenchmarkResult
 where
     F: FnMut(),
 {
-    let mut result = run_benchmark(name, category, iterations, || f());
+    let mut result = run_benchmark(name, category, iterations, f);
     let bytes_per_sec = (bytes as f64 * 1000.0) / result.mean_ms;
     result.throughput = Some(Throughput { value: bytes_per_sec / (1024.0 * 1024.0), unit: "MB/s".to_string() });
     result

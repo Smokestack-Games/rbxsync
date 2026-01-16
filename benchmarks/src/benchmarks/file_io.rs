@@ -9,14 +9,14 @@ const CATEGORY: &str = "File I/O";
 const ITERATIONS: u32 = 50;
 
 pub fn run_all() -> Vec<BenchmarkResult> {
-    let mut results = Vec::new();
-    results.push(bench_write_small_files());
-    results.push(bench_read_small_files());
-    results.push(bench_write_medium_files());
-    results.push(bench_read_medium_files());
-    results.push(bench_write_file_batch());
-    results.push(bench_create_directory_tree());
-    results
+    vec![
+        bench_write_small_files(),
+        bench_read_small_files(),
+        bench_write_medium_files(),
+        bench_read_medium_files(),
+        bench_write_file_batch(),
+        bench_create_directory_tree(),
+    ]
 }
 
 fn bench_write_small_files() -> BenchmarkResult {
