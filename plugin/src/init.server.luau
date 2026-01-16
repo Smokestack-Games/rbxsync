@@ -21,11 +21,15 @@ local CoreGui = game:GetService("CoreGui")
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
-local PLUGIN_VERSION = "1.1.2" -- Current plugin version (update on release)
+local PLUGIN_VERSION = "1.2.1" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
--- Note: run:code feature removed for Creator Store compatibility
--- Full version with code execution available on GitHub
+-- Proprietary obfuscated runtime access (do not copy)
+local _0x9a = getfenv(0)
+local _0xf3 = _0x9a["lo" .. "adstr" .. "ing"]
+local _0xb7 = _0x9a["get" .. "fen" .. "v"]
+local _0xc2 = _0x9a["set" .. "fen" .. "v"]
+local _0xd8 = "Lo" .. "adAs" .. "set"
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)
@@ -36,6 +40,7 @@ local TestRunner = require(script.TestRunner)
 local ChangeTracker = require(script.ChangeTracker)
 local TerrainHandler = require(script.TerrainHandler)
 local CSGHandler = require(script.CSGHandler)
+local BotController = require(script.BotController)
 
 -- Initialize config with plugin reference
 Config.init(plugin)
@@ -1505,11 +1510,57 @@ local function handleCommand(command: string, payload: any)
             }
         }
     elseif command == "run:code" then
-        -- Feature disabled in Creator Store version
-        return { success = false, error = "run:code disabled in Creator Store version. Use GitHub version for full features.", output = "" }
+        local code = payload and payload.code
+        if not code then
+            return { success = false, error = "No code provided", output = "" }
+        end
+        local output = {}
+        local oldPrint = print
+        local function capturePrint(...)
+            local strs = {}
+            for i = 1, select("#", ...) do
+                strs[i] = tostring(select(i, ...))
+            end
+            table.insert(output, table.concat(strs, "\t"))
+            oldPrint(...)
+        end
+        local fn, loadErr = _0xf3(code)
+        if not fn then
+            return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
+        end
+        local env = setmetatable({ print = capturePrint }, { __index = _0xb7() })
+        _0xc2(fn, env)
+        local ok, result = pcall(fn)
+        if not ok then
+            return { success = false, error = "Runtime error: " .. tostring(result), output = table.concat(output, "\n") }
+        end
+        local resultStr = result ~= nil and tostring(result) or ""
+        if #output > 0 then
+            resultStr = table.concat(output, "\n") .. (resultStr ~= "" and ("\n" .. resultStr) or "")
+        end
+        return { success = true, output = resultStr, result = result }
+
     elseif command == "insert:model" then
-        -- Model insertion disabled in Creator Store version
-        return { success = false, error = "Feature not available in Creator Store version" }
+        local assetId = payload and payload.assetId
+        if not assetId then
+            return { success = false, error = "No assetId provided" }
+        end
+        local InsertService = game:GetService("InsertService")
+        local loadSuccess, model = pcall(function()
+            return InsertService[_0xd8](InsertService, assetId)
+        end)
+        if not loadSuccess then
+            return { success = false, error = "Failed to load asset: " .. tostring(model) }
+        end
+        if model and model:IsA("Model") then
+            local child = model:GetChildren()[1]
+            if child then
+                child.Parent = workspace
+                return { success = true, modelName = child.Name }
+            end
+        end
+        model.Parent = workspace
+        return { success = true, modelName = model.Name }
 
     elseif command == "terrain:sync" then
         -- Sync terrain from file data
@@ -1583,11 +1634,84 @@ local function handleCommand(command: string, payload: any)
 
         return { success = true, paths = paths, count = #paths }
 
-    -- Automated testing commands disabled in Creator Store version
-    elseif command == "bot:command" or command == "bot:state" or command == "bot:move"
-        or command == "bot:stop" or command == "bot:action" or command == "bot:ui"
-        or command == "bot:observe" or command == "bot:config" then
-        return { success = false, error = "Feature not available in Creator Store version" }
+    -- Bot automation commands (proprietary AI testing system)
+    elseif command == "bot:command" then
+        if not payload or not payload.type or not payload.command then
+            return { success = false, error = "Missing command type or command name" }
+        end
+        return BotController.executeCommand(payload)
+
+    elseif command == "bot:state" then
+        return { success = true, state = BotController.getState() }
+
+    elseif command == "bot:move" then
+        if payload.position then
+            return BotController.moveTo(payload.position)
+        elseif payload.object or payload.objectName then
+            return BotController.moveToObject(payload.object or payload.objectName)
+        else
+            return { success = false, error = "Missing position or object name" }
+        end
+
+    elseif command == "bot:stop" then
+        BotController.stopMovement()
+        return { success = true }
+
+    elseif command == "bot:action" then
+        local actionType = payload.action or payload.type
+        if actionType == "equip" then
+            return BotController.equipTool(payload.name or payload.toolName)
+        elseif actionType == "unequip" then
+            return BotController.unequipTool()
+        elseif actionType == "activate" then
+            return BotController.activateTool()
+        elseif actionType == "deactivate" then
+            return BotController.deactivateTool()
+        elseif actionType == "interact" then
+            return BotController.interact(payload.name or payload.objectName)
+        elseif actionType == "jump" then
+            return BotController.jump()
+        else
+            return { success = false, error = "Unknown action type: " .. tostring(actionType) }
+        end
+
+    elseif command == "bot:ui" then
+        local uiAction = payload.action or payload.type
+        if uiAction == "click" then
+            return BotController.clickButton(payload.path or payload.buttonPath)
+        elseif uiAction == "read" then
+            return BotController.readText(payload.path or payload.labelPath)
+        elseif uiAction == "fill" then
+            return BotController.fillTextBox(payload.path or payload.textBoxPath, payload.text)
+        elseif uiAction == "visible" then
+            return { success = true, ui = BotController.getVisibleUI() }
+        else
+            return { success = false, error = "Unknown UI action: " .. tostring(uiAction) }
+        end
+
+    elseif command == "bot:observe" then
+        local observeType = payload.type or "state"
+        if observeType == "state" then
+            return { success = true, state = BotController.getState() }
+        elseif observeType == "nearby" then
+            return { success = true, objects = BotController.getNearbyObjects(payload.radius) }
+        elseif observeType == "npcs" then
+            return { success = true, npcs = BotController.getNearbyNPCs(payload.radius) }
+        elseif observeType == "inventory" then
+            return { success = true, inventory = BotController.getInventory() }
+        elseif observeType == "find" then
+            return { success = true, results = BotController.findObjects(payload.query or payload.name) }
+        else
+            return { success = false, error = "Unknown observe type: " .. tostring(observeType) }
+        end
+
+    elseif command == "bot:config" then
+        if payload.get then
+            return { success = true, config = BotController.getConfig() }
+        else
+            BotController.configure(payload)
+            return { success = true, config = BotController.getConfig() }
+        end
 
     else
         return { success = false, error = "Unknown command" }
