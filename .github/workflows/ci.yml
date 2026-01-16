@@ -8,7 +8,11 @@ on:
 
 jobs:
   build:
-    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest, macos-latest, windows-latest]
+    runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
 
@@ -20,6 +24,9 @@ jobs:
 
       - name: Test
         run: cargo test --all
+
+      - name: Clippy
+        run: cargo clippy --all -- -D warnings
 
   vscode-extension:
     runs-on: ubuntu-latest
