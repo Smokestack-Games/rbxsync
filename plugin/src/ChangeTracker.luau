@@ -221,8 +221,96 @@ end
 -- Configuration
 local MAX_BATCH_SIZE = 100  -- Max changes per batch to prevent memory issues
 local DEBOUNCE_TIME = 0.3   -- 300ms debounce
+local MAX_PAYLOAD_SIZE = 900000  -- ~900KB, stay under Roblox 1MB HTTP limit
 
--- Send pending changes to server
+-- Send a batch of operations to server, returns (success, filesWritten, errors)
+local function sendOperationBatch(operations: {{type: string, path: string, className: string, data: any?}}): (boolean, number, {string})
+    local url = Config.getServerUrl() .. "/sync/from-studio"
+    local payload = HttpService:JSONEncode({
+        operations = operations,
+        projectDir = Config.getProjectDir(),
+    })
+
+    local ok, result = pcall(function()
+        return HttpService:RequestAsync({
+            Url = url,
+            Method = "POST",
+            Headers = { ["Content-Type"] = "application/json" },
+            Body = payload,
+        })
+    end)
+
+    if ok and result.Success then
+        local responseOk, responseData = pcall(function()
+            return HttpService:JSONDecode(result.Body)
+        end)
+
+        if responseOk and responseData then
+            return true, responseData.filesWritten or 0, responseData.errors or {}
+        end
+        return true, #operations, {}
+    elseif ok then
+        return false, 0, {"HTTP " .. tostring(result.StatusCode)}
+    else
+        return false, 0, {"Request failed"}
+    end
+end
+
+-- Chunk operations to stay under payload size limit
+-- Returns array of operation batches, each under MAX_PAYLOAD_SIZE
+local function chunkOperations(operations: {{type: string, path: string, className: string, data: any?}}): {{{type: string, path: string, className: string, data: any?}}}
+    if #operations == 0 then
+        return {}
+    end
+
+    -- First, check if all operations fit in one batch
+    local fullPayload = HttpService:JSONEncode({
+        operations = operations,
+        projectDir = Config.getProjectDir(),
+    })
+
+    if #fullPayload <= MAX_PAYLOAD_SIZE then
+        return {operations}
+    end
+
+    -- Need to chunk - build batches by size
+    local batches = {}
+    local currentBatch = {}
+    local currentSize = #HttpService:JSONEncode({operations = {}, projectDir = Config.getProjectDir()}) -- Base overhead
+
+    for _, op in operations do
+        local opJson = HttpService:JSONEncode(op)
+        local opSize = #opJson + 1 -- +1 for comma separator
+
+        -- If single operation exceeds limit, send it alone (server will handle or reject)
+        if opSize > MAX_PAYLOAD_SIZE - 100 then
+            if #currentBatch > 0 then
+                table.insert(batches, currentBatch)
+                currentBatch = {}
+            end
+            table.insert(batches, {op})
+            currentSize = #HttpService:JSONEncode({operations = {}, projectDir = Config.getProjectDir()})
+        elseif currentSize + opSize > MAX_PAYLOAD_SIZE then
+            -- Current batch is full, start new one
+            table.insert(batches, currentBatch)
+            currentBatch = {op}
+            currentSize = #HttpService:JSONEncode({operations = {op}, projectDir = Config.getProjectDir()})
+        else
+            -- Add to current batch
+            table.insert(currentBatch, op)
+            currentSize = currentSize + opSize
+        end
+    end
+
+    -- Don't forget the last batch
+    if #currentBatch > 0 then
+        table.insert(batches, currentBatch)
+    end
+
+    return batches
+end
+
+-- Send pending changes to server (with chunking for large payloads)
 local function sendPendingChanges()
     if not isTracking then
         return
@@ -253,7 +341,7 @@ local function sendPendingChanges()
         return
     end
 
-    -- Build request payload
+    -- Build operations array
     local operations = {}
     for _, change in readyChanges do
         table.insert(operations, {
@@ -264,51 +352,45 @@ local function sendPendingChanges()
         })
     end
 
-    -- Send to server
-    local url = Config.getServerUrl() .. "/sync/from-studio"
-    local payload = HttpService:JSONEncode({
-        operations = operations,
-        projectDir = Config.getProjectDir(),
-    })
+    -- Chunk operations to stay under 1MB limit
+    local batches = chunkOperations(operations)
 
-    local ok, result = pcall(function()
-        return HttpService:RequestAsync({
-            Url = url,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = payload,
-        })
-    end)
+    if #batches > 1 then
+        print("[RbxSync] Chunking sync into " .. #batches .. " batches to stay under 1MB limit")
+    end
 
-    if ok and result.Success then
-        -- Parse response to get detailed info
-        local responseOk, responseData = pcall(function()
-            return HttpService:JSONDecode(result.Body)
-        end)
+    -- Send each batch
+    local totalFilesWritten = 0
+    local allErrors = {}
 
-        if responseOk and responseData then
-            local filesWritten = responseData.filesWritten or 0
-            local errors = responseData.errors or {}
+    for batchIndex, batch in batches do
+        local success, filesWritten, errors = sendOperationBatch(batch)
 
-            if filesWritten > 0 then
-                print("[RbxSync] Auto-extracted " .. filesWritten .. " file(s)")
-            elseif #operations > 0 then
-                warn("[RbxSync] Sync sent " .. #operations .. " changes but no files written - check project path")
-            end
-
-            if #errors > 0 then
-                warn("[RbxSync] Sync errors:")
-                for _, err in errors do
-                    warn("  " .. err)
-                end
+        if success then
+            totalFilesWritten = totalFilesWritten + filesWritten
+            for _, err in errors do
+                table.insert(allErrors, err)
             end
         else
-            print("[RbxSync] Auto-extracted " .. #operations .. " change(s)")
+            warn("[RbxSync] Sync batch " .. batchIndex .. "/" .. #batches .. " failed")
+            for _, err in errors do
+                table.insert(allErrors, err)
+            end
         end
-    elseif ok then
-        warn("[RbxSync] Sync failed: HTTP " .. tostring(result.StatusCode))
-    else
-        warn("[RbxSync] Sync request failed")
+    end
+
+    -- Report results
+    if totalFilesWritten > 0 then
+        print("[RbxSync] Auto-extracted " .. totalFilesWritten .. " file(s)")
+    elseif #operations > 0 and #allErrors == 0 then
+        warn("[RbxSync] Sync sent " .. #operations .. " changes but no files written - check project path")
+    end
+
+    if #allErrors > 0 then
+        warn("[RbxSync] Sync errors:")
+        for _, err in allErrors do
+            warn("  " .. err)
+        end
     end
 end
 
@@ -587,7 +669,7 @@ function ChangeTracker.clearQueue()
     end
 end
 
--- Force send all pending changes immediately (ignores debounce)
+-- Force send all pending changes immediately (ignores debounce, uses chunking)
 function ChangeTracker.flushQueue()
     if not isConnectedToServer then
         warn("[RbxSync] Cannot flush queue - not connected")
@@ -599,9 +681,9 @@ function ChangeTracker.flushQueue()
         return true
     end
 
-    -- Build request payload from all pending changes
+    -- Build operations array from all pending changes
     local operations = {}
-    for path, change in pairs(pendingChanges) do
+    for _, change in pairs(pendingChanges) do
         table.insert(operations, {
             type = change.changeType,
             path = change.path,
@@ -613,28 +695,33 @@ function ChangeTracker.flushQueue()
     -- Clear queue before sending
     table.clear(pendingChanges)
 
-    -- Send to server
-    local HttpService = game:GetService("HttpService")
-    local url = Config.getServerUrl() .. "/sync/from-studio"
-    local payload = HttpService:JSONEncode({
-        operations = operations,
-        projectDir = Config.getProjectDir(),
-    })
+    -- Chunk operations to stay under 1MB limit
+    local batches = chunkOperations(operations)
 
-    local ok, result = pcall(function()
-        return HttpService:RequestAsync({
-            Url = url,
-            Method = "POST",
-            Headers = { ["Content-Type"] = "application/json" },
-            Body = payload,
-        })
-    end)
+    if #batches > 1 then
+        print("[RbxSync] Chunking flush into " .. #batches .. " batches to stay under 1MB limit")
+    end
 
-    if ok and result.Success then
+    -- Send each batch
+    local allSuccess = true
+    local totalFilesWritten = 0
+
+    for batchIndex, batch in batches do
+        local success, filesWritten, _ = sendOperationBatch(batch)
+
+        if success then
+            totalFilesWritten = totalFilesWritten + filesWritten
+        else
+            warn("[RbxSync] Flush batch " .. batchIndex .. "/" .. #batches .. " failed")
+            allSuccess = false
+        end
+    end
+
+    if allSuccess then
         print("[RbxSync] Synced " .. count .. " queued change(s)")
         return true
     else
-        warn("[RbxSync] Failed to sync queued changes")
+        warn("[RbxSync] Some flush batches failed")
         return false
     end
 end
