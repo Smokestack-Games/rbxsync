@@ -11,6 +11,7 @@ local CollectionService = game:GetService("CollectionService")
 
 local Reflection = require(script.Parent.Reflection)
 local CSGHandler = require(script.Parent.CSGHandler)
+local ChangeTracker = require(script.Parent.ChangeTracker)
 
 local Sync = {}
 
@@ -722,6 +723,8 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     -- Track instance by path for CSG reconstruction
     if data.path then
         instancesByPath[data.path] = instance
+        -- Mark path as recently applied for 50ms deduplication (prevents echo)
+        ChangeTracker.markPathApplied(data.path)
     end
 
     return instance
@@ -1007,6 +1010,11 @@ function Sync.updateInstance(instance: Instance, data: any): (boolean, Instance?
         print(string.format("[RbxSync] Queued %d material overrides for later application", #pendingMaterialOverrides))
     end
 
+    -- Mark path as recently applied for 50ms deduplication (prevents echo)
+    if data.path then
+        ChangeTracker.markPathApplied(data.path)
+    end
+
     return true, nil
 end
 
@@ -1018,6 +1026,8 @@ function Sync.deleteInstance(path: string): boolean
     local instance = Sync.findInstanceAtPath(path)
     if instance then
         instance.Parent = nil
+        -- Mark path as recently applied for 50ms deduplication (prevents echo)
+        ChangeTracker.markPathApplied(path)
         return true
     end
     return false
@@ -1511,6 +1521,9 @@ function Sync.reconstructPendingCSG(): number
 
             -- Track by path
             instancesByPath[data.path] = union
+
+            -- Mark path as recently applied for 50ms deduplication (prevents echo)
+            ChangeTracker.markPathApplied(data.path)
 
             -- Clean up the component parts (they're now part of the union)
             basePart:Destroy()
