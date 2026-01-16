@@ -1,0 +1,33 @@
+[package]
+name = "rbxsync-benchmarks"
+version.workspace = true
+edition.workspace = true
+publish = false
+
+[dependencies]
+rbxsync-core = { path = "../rbxsync-core" }
+serde = { workspace = true }
+serde_json = { workspace = true }
+anyhow = { workspace = true }
+tempfile = "3.10"
+rand = "0.8"
+chrono = "0.4"
+
+[dev-dependencies]
+criterion = { version = "0.5", features = ["async_tokio", "html_reports"] }
+
+[[bench]]
+name = "extraction"
+harness = false
+
+[[bench]]
+name = "sync"
+harness = false
+
+[[bench]]
+name = "file_io"
+harness = false
+
+[[bin]]
+name = "run-benchmarks"
+path = "src/main.rs"

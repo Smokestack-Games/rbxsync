@@ -5,6 +5,7 @@ members = [
     "rbxsync-server",
     "rbxsync-cli",
     "rbxsync-mcp",
+    "benchmarks",
 ]
 
 [workspace.package]
