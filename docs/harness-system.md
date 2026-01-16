@@ -403,6 +403,6 @@ planned → in_progress → completed
 
 ## Related
 
-- [MCP Integration](/docs/mcp) - AI tool integration
-- [Bot Testing](/docs/bot-testing) - Automated game testing
-- [Getting Started](/docs/getting-started) - RbxSync basics
+- [MCP Integration](/mcp/) - AI tool integration
+- [Bot Testing](/bot-testing) - Automated game testing
+- [Getting Started](/getting-started/) - RbxSync basics
