@@ -11,7 +11,7 @@ members = [
 [workspace.package]
 version = "1.2.1"
 edition = "2021"
-license = "MIT"
+license = "LicenseRef-Proprietary"
 authors = ["RbxSync Team"]
 repository = "https://github.com/devmarissa/rbxsync"
 
