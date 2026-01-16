@@ -49,54 +49,59 @@ export async function syncCommand(
       data: inst
     }));
 
-  // Delete orphaned instances (only if they have a parent that exists in files)
-  // Skip special instances that shouldn't be deleted
-  const skipClasses = new Set([
-    'Terrain', 'Camera', 'Workspace', 'ReplicatedStorage', 'ReplicatedFirst',
-    'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack',
-    'StarterPlayer', 'Lighting', 'SoundService', 'Teams', 'Chat',
-    'LocalizationService', 'TestService', 'Players', 'RunService'
-  ]);
-  const skipNames = new Set(['SpawnLocation', 'Camera']);
+  // Delete orphaned instances (only if setting is enabled)
+  const config = vscode.workspace.getConfiguration('rbxsync');
+  const deleteOrphans = config.get<boolean>('deleteOrphans') ?? false;
 
-  try {
-    const studioPaths = await client.getStudioPaths();
-    console.log('[RbxSync] Studio paths:', studioPaths?.length || 0);
-    if (studioPaths && studioPaths.length > 0) {
-      let deleteCount = 0;
-      for (const studioPath of studioPaths) {
-        // Skip if path is in file tree
-        if (filePaths.has(studioPath)) continue;
+  if (deleteOrphans) {
+    // Skip special instances that shouldn't be deleted
+    const skipClasses = new Set([
+      'Terrain', 'Camera', 'Workspace', 'ReplicatedStorage', 'ReplicatedFirst',
+      'ServerScriptService', 'ServerStorage', 'StarterGui', 'StarterPack',
+      'StarterPlayer', 'Lighting', 'SoundService', 'Teams', 'Chat',
+      'LocalizationService', 'TestService', 'Players', 'RunService'
+    ]);
+    const skipNames = new Set(['SpawnLocation', 'Camera']);
 
-        // Get the instance name (last part of path)
-        const pathParts = studioPath.split('/');
-        const instanceName = pathParts[pathParts.length - 1];
+    try {
+      const studioPaths = await client.getStudioPaths();
+      console.log('[RbxSync] Studio paths:', studioPaths?.length || 0);
+      if (studioPaths && studioPaths.length > 0) {
+        let deleteCount = 0;
+        for (const studioPath of studioPaths) {
+          // Skip if path is in file tree
+          if (filePaths.has(studioPath)) continue;
 
-        // Skip services and special instances
-        if (skipClasses.has(instanceName) || skipNames.has(instanceName)) continue;
+          // Get the instance name (last part of path)
+          const pathParts = studioPath.split('/');
+          const instanceName = pathParts[pathParts.length - 1];
 
-        // Skip the service itself (top level)
-        if (pathParts.length === 1) continue;
+          // Skip services and special instances
+          if (skipClasses.has(instanceName) || skipNames.has(instanceName)) continue;
 
-        // For direct service children (like Workspace/Baseplate), delete if service is in files
-        // For deeper paths, only delete if parent exists in files
-        const parentPath = studioPath.substring(0, studioPath.lastIndexOf('/'));
-        const parentInFiles = parentPath && filePaths.has(parentPath);
-        const isDirectServiceChild = pathParts.length === 2 && skipClasses.has(pathParts[0]);
+          // Skip the service itself (top level)
+          if (pathParts.length === 1) continue;
 
-        if (parentInFiles || isDirectServiceChild) {
-          operations.push({
-            type: 'delete',
-            path: studioPath
-          });
-          deleteCount++;
-          console.log('[RbxSync] Will delete orphan:', studioPath);
+          // For direct service children (like Workspace/Baseplate), delete if service is in files
+          // For deeper paths, only delete if parent exists in files
+          const parentPath = studioPath.substring(0, studioPath.lastIndexOf('/'));
+          const parentInFiles = parentPath && filePaths.has(parentPath);
+          const isDirectServiceChild = pathParts.length === 2 && skipClasses.has(pathParts[0]);
+
+          if (parentInFiles || isDirectServiceChild) {
+            operations.push({
+              type: 'delete',
+              path: studioPath
+            });
+            deleteCount++;
+            console.log('[RbxSync] Will delete orphan:', studioPath);
+          }
         }
+        console.log('[RbxSync] Delete operations:', deleteCount);
       }
-      console.log('[RbxSync] Delete operations:', deleteCount);
+    } catch (err) {
+      console.error('[RbxSync] Failed to get studio paths:', err);
     }
-  } catch (err) {
-    console.error('[RbxSync] Failed to get studio paths:', err);
   }
 
   // Sync terrain if it exists
