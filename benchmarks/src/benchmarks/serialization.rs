@@ -15,12 +15,12 @@ struct SyncPayload {
 }
 
 pub fn run_all() -> Vec<BenchmarkResult> {
-    let mut results = Vec::new();
-    results.push(bench_serialize_single_instance());
-    results.push(bench_deserialize_single_instance());
-    results.push(bench_serialize_small_batch());
-    results.push(bench_serialize_large_batch());
-    results
+    vec![
+        bench_serialize_single_instance(),
+        bench_deserialize_single_instance(),
+        bench_serialize_small_batch(),
+        bench_serialize_large_batch(),
+    ]
 }
 
 fn create_test_instance(name: &str) -> Instance {
