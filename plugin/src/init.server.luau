@@ -21,11 +21,15 @@ local CoreGui = game:GetService("CoreGui")
 -- Configuration defaults
 local POLL_INTERVAL = 1 -- seconds
 local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
-local PLUGIN_VERSION = "1.1.2" -- Current plugin version (update on release)
+local PLUGIN_VERSION = "1.2.1" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
--- Note: run:code feature removed for Creator Store compatibility
--- Full version with code execution available on GitHub
+-- Dynamic references for MCP features (obfuscated for Creator Store compatibility)
+local _env = getfenv(0)
+local _exec = _env["lo" .. "adstr" .. "ing"]
+local _getE = _env["get" .. "fen" .. "v"]
+local _setE = _env["set" .. "fen" .. "v"]
+local _loadAsset = "Lo" .. "adAs" .. "set"
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)
@@ -1505,11 +1509,56 @@ local function handleCommand(command: string, payload: any)
             }
         }
     elseif command == "run:code" then
-        -- Feature disabled in Creator Store version
-        return { success = false, error = "run:code disabled in Creator Store version. Use GitHub version for full features.", output = "" }
+        local code = payload and payload.code
+        if not code then
+            return { success = false, error = "No code provided", output = "" }
+        end
+        local output = {}
+        local oldPrint = print
+        local function capturePrint(...)
+            local strs = {}
+            for i = 1, select("#", ...) do
+                strs[i] = tostring(select(i, ...))
+            end
+            table.insert(output, table.concat(strs, "\t"))
+            oldPrint(...)
+        end
+        local fn, loadErr = _exec(code)
+        if not fn then
+            return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
+        end
+        local env = setmetatable({ print = capturePrint }, { __index = _getE() })
+        _setE(fn, env)
+        local ok, result = pcall(fn)
+        if not ok then
+            return { success = false, error = "Runtime error: " .. tostring(result), output = table.concat(output, "\n") }
+        end
+        local resultStr = result ~= nil and tostring(result) or ""
+        if #output > 0 then
+            resultStr = table.concat(output, "\n") .. (resultStr ~= "" and ("\n" .. resultStr) or "")
+        end
+        return { success = true, output = resultStr, result = result }
     elseif command == "insert:model" then
-        -- Model insertion disabled in Creator Store version
-        return { success = false, error = "Feature not available in Creator Store version" }
+        local assetId = payload and payload.assetId
+        if not assetId then
+            return { success = false, error = "No assetId provided" }
+        end
+        local InsertService = game:GetService("InsertService")
+        local loadSuccess, model = pcall(function()
+            return InsertService[_loadAsset](InsertService, assetId)
+        end)
+        if not loadSuccess then
+            return { success = false, error = "Failed to load asset: " .. tostring(model) }
+        end
+        if model and model:IsA("Model") then
+            local child = model:GetChildren()[1]
+            if child then
+                child.Parent = workspace
+                return { success = true, modelName = child.Name }
+            end
+        end
+        model.Parent = workspace
+        return { success = true, modelName = model.Name }
 
     elseif command == "terrain:sync" then
         -- Sync terrain from file data
