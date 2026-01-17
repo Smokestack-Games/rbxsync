@@ -1888,6 +1888,41 @@ local function handleCommand(command: string, payload: any)
         if not assetId then
             return { success = false, error = "No assetId provided" }
         end
+
+        -- Determine parent from path (default to Workspace)
+        local parentPath = payload and payload.parent
+        local parentInstance = workspace
+        if parentPath and parentPath ~= "" and parentPath ~= "Workspace" then
+            -- Parse the path and find the parent
+            local parts = string.split(parentPath, "/")
+            if #parts > 0 then
+                local serviceName = Serializer.unescapePathSegment(parts[1])
+                local ok, service = pcall(function()
+                    return game:GetService(serviceName)
+                end)
+                if not ok or not service then
+                    ok, service = pcall(function()
+                        return game:FindFirstChild(serviceName)
+                    end)
+                end
+                if ok and service then
+                    parentInstance = service
+                    -- Navigate through rest of path
+                    for i = 2, #parts do
+                        local partName = Serializer.unescapePathSegment(parts[i])
+                        local child = parentInstance:FindFirstChild(partName)
+                        if child then
+                            parentInstance = child
+                        else
+                            return { success = false, error = "Parent path not found: " .. partName }
+                        end
+                    end
+                else
+                    return { success = false, error = "Parent service not found: " .. serviceName }
+                end
+            end
+        end
+
         local InsertService = game:GetService("InsertService")
         local loadSuccess, model = pcall(function()
             return InsertService[_0xd8](InsertService, assetId)
@@ -1895,15 +1930,42 @@ local function handleCommand(command: string, payload: any)
         if not loadSuccess then
             return { success = false, error = "Failed to load asset: " .. tostring(model) }
         end
+
+        -- Helper to build path string
+        local function buildPath(instance)
+            local pathParts = {}
+            local current = instance
+            while current and current ~= game do
+                table.insert(pathParts, 1, current.Name)
+                current = current.Parent
+            end
+            return table.concat(pathParts, "/")
+        end
+
+        -- InsertService:LoadAsset returns a Model containing the asset
         if model and model:IsA("Model") then
             local child = model:GetChildren()[1]
             if child then
-                child.Parent = workspace
-                return { success = true, modelName = child.Name }
+                child.Parent = parentInstance
+                return {
+                    success = true,
+                    data = {
+                        insertedName = child.Name,
+                        insertedPath = buildPath(child),
+                        className = child.ClassName
+                    }
+                }
             end
         end
-        model.Parent = workspace
-        return { success = true, modelName = model.Name }
+        model.Parent = parentInstance
+        return {
+            success = true,
+            data = {
+                insertedName = model.Name,
+                insertedPath = buildPath(model),
+                className = model.ClassName
+            }
+        }
 
     elseif command == "terrain:sync" then
         -- Sync terrain from file data

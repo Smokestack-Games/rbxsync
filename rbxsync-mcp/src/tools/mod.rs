@@ -193,10 +193,12 @@ pub struct CommandResponse<T> {
 }
 
 #[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
 pub struct InsertModelResponse {
     pub success: bool,
-    pub model_name: Option<String>,
-    pub asset_id: Option<u64>,
+    pub inserted_name: Option<String>,
+    pub inserted_path: Option<String>,
+    pub class_name: Option<String>,
     pub error: Option<String>,
 }
 
@@ -765,6 +767,28 @@ impl RbxSyncClient {
                 "name": name,
                 "parent": parent,
                 "limit": limit.unwrap_or(100).min(1000)
+            }))
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Insert a model from the Roblox marketplace by asset ID
+    pub async fn insert_model(
+        &self,
+        asset_id: u64,
+        parent: Option<&str>,
+    ) -> anyhow::Result<InsertModelResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/insert-model", self.base_url))
+            .json(&serde_json::json!({
+                "assetId": asset_id,
+                "parent": parent
             }))
             .timeout(std::time::Duration::from_secs(60))
             .send()

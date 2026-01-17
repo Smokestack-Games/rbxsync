@@ -384,6 +384,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/explore-hierarchy", post(handle_explore_hierarchy))
         // Find instances by criteria (for MCP)
         .route("/find-instances", post(handle_find_instances))
+        // Insert model from marketplace (for MCP)
+        .route("/insert-model", post(handle_insert_model))
         // Health check
         .route("/health", get(handle_health))
         // Shutdown endpoint
@@ -4221,6 +4223,101 @@ async fn handle_find_instances(
                 Json(serde_json::json!({
                     "success": false,
                     "data": null,
+                    "error": "Plugin response timeout"
+                })),
+            )
+        }
+    }
+}
+
+// ============================================================================
+// Insert Model Endpoint
+// ============================================================================
+
+/// Request structure for inserting a model from the marketplace
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct InsertModelRequest {
+    asset_id: u64,
+    parent: Option<String>,
+}
+
+/// Insert a model from the Roblox marketplace (for MCP integration)
+async fn handle_insert_model(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<InsertModelRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+    tracing::info!(
+        "insert-model request {} - assetId: {}, parent: {:?}",
+        request_id,
+        req.asset_id,
+        req.parent
+    );
+    let request = PluginRequest {
+        id: request_id,
+        command: "insert:model".to_string(),
+        payload: serde_json::json!({
+            "assetId": req.asset_id,
+            "parent": req.parent
+        }),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    let queue_len = {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(request);
+        queue.len()
+    };
+    tracing::info!(
+        "insert-model request {} - queued (queue length: {})",
+        request_id,
+        queue_len
+    );
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout (marketplace fetch may take time)
+    let timeout = tokio::time::Duration::from_secs(60);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": response.success,
+                    "insertedName": response.data.get("insertedName"),
+                    "insertedPath": response.data.get("insertedPath"),
+                    "className": response.data.get("className"),
+                    "error": response.error
+                })),
+            )
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "insertedName": null,
+                    "insertedPath": null,
+                    "className": null,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "insertedName": null,
+                    "insertedPath": null,
+                    "className": null,
                     "error": "Plugin response timeout"
                 })),
             )

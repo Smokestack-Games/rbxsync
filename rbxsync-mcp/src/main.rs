@@ -93,9 +93,13 @@ pub struct RunTestParams {
 /// Parameters for insert_model tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct InsertModelParams {
-    /// Search query for the model (e.g., "car", "sword", "zombie")
-    #[schemars(description = "Search query for the model to insert from the Roblox marketplace")]
-    pub query: String,
+    /// Roblox asset ID to insert
+    #[schemars(description = "Roblox asset ID (number) of the model to insert")]
+    #[serde(rename = "assetId")]
+    pub asset_id: u64,
+    /// Parent path to insert the model into (e.g., "Workspace", "ServerStorage/Items")
+    #[schemars(description = "Parent path to insert into (default: Workspace)")]
+    pub parent: Option<String>,
 }
 
 // ============================================================================
@@ -1195,6 +1199,36 @@ impl RbxSyncServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(output.join("\n"))]))
+    }
+
+    /// Insert a model from the Roblox marketplace into the game.
+    /// Uses InsertService:LoadAsset to fetch the model by asset ID.
+    /// Returns the inserted model's name, path, and className.
+    #[tool(description = "Insert a Roblox marketplace model by asset ID into Studio")]
+    async fn insert_model(
+        &self,
+        Parameters(params): Parameters<InsertModelParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .insert_model(params.asset_id, params.parent.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to insert model: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        let inserted_name = result.inserted_name.unwrap_or_else(|| "Unknown".to_string());
+        let inserted_path = result.inserted_path.unwrap_or_else(|| "Unknown".to_string());
+        let class_name = result.class_name.unwrap_or_else(|| "Unknown".to_string());
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Successfully inserted model:\n  Name: {}\n  Path: {}\n  ClassName: {}",
+            inserted_name, inserted_path, class_name
+        ))]))
     }
 
     /// Get current harness state for a project.
