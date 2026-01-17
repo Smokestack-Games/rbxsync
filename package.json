@@ -1,0 +1,9 @@
+{
+  "name": "rbxsync",
+  "version": "1.1.2",
+  "private": true,
+  "scripts": {
+    "build": "cd docs && npm install && npm run build",
+    "dev": "cd docs && npm run dev"
+  }
+}
