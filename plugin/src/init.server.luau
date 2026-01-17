@@ -1742,6 +1742,147 @@ local function handleCommand(command: string, payload: any)
             return { success = true, data = buildNode(instance, 0, depth) }
         end
 
+    elseif command == "find-instances:search" then
+        local className = payload and payload.className
+        local namePattern = payload and payload.name
+        local parentPath = payload and payload.parent
+        local limit = (payload and payload.limit) or 100
+        limit = math.min(limit, 1000) -- Cap at 1000
+
+        -- Validate at least one filter is provided
+        if not className and not namePattern and not parentPath then
+            return { success = false, error = "At least one filter (className, name, or parent) is required" }
+        end
+
+        -- Determine the root to search from
+        local searchRoot = nil
+        if parentPath and parentPath ~= "" then
+            -- Navigate to the parent path
+            local parts = string.split(parentPath, "/")
+            if #parts > 0 then
+                local serviceName = Serializer.unescapePathSegment(parts[1])
+                local ok, service = pcall(function()
+                    return game:GetService(serviceName)
+                end)
+                if not ok or not service then
+                    ok, service = pcall(function()
+                        return game:FindFirstChild(serviceName)
+                    end)
+                    if not ok or not service then
+                        return { success = false, error = "Service or root not found: " .. serviceName }
+                    end
+                end
+
+                searchRoot = service
+
+                for i = 2, #parts do
+                    local partName = Serializer.unescapePathSegment(parts[i])
+                    -- Handle disambiguated names
+                    local baseName, debugIdSuffix = string.match(partName, "^(.+)~([^~]+)$")
+                    if baseName then
+                        local found = false
+                        for _, child in searchRoot:GetChildren() do
+                            if child.Name == baseName then
+                                local debugId = child:GetDebugId(0)
+                                if string.sub(debugId, 1, #debugIdSuffix) == debugIdSuffix then
+                                    searchRoot = child
+                                    found = true
+                                    break
+                                end
+                            end
+                        end
+                        if not found then
+                            return { success = false, error = "Path not found: " .. partName }
+                        end
+                    else
+                        local child = searchRoot:FindFirstChild(partName)
+                        if not child then
+                            return { success = false, error = "Path not found: " .. partName }
+                        end
+                        searchRoot = child
+                    end
+                end
+            end
+        end
+
+        -- Convert name pattern to Lua pattern (support * wildcard)
+        local luaPattern = nil
+        if namePattern then
+            -- Escape special Lua pattern characters except *
+            local escaped = namePattern:gsub("([%.%+%-%?%^%$%(%)%[%]%%])", "%%%1")
+            -- Convert * to .*
+            escaped = escaped:gsub("%*", ".*")
+            luaPattern = "^" .. escaped .. "$"
+        end
+
+        -- Collect matching instances
+        local results = {}
+        local totalFound = 0
+
+        local function searchInstances(root)
+            if totalFound >= limit then return end
+
+            local children = root:GetChildren()
+            for _, child in children do
+                if totalFound >= limit then return end
+
+                -- Check if matches criteria
+                local matches = true
+
+                if className and child.ClassName ~= className then
+                    matches = false
+                end
+
+                if matches and luaPattern then
+                    if not string.match(child.Name, luaPattern) then
+                        matches = false
+                    end
+                end
+
+                if matches then
+                    totalFound = totalFound + 1
+                    -- Build path
+                    local path = Serializer.getPath(child)
+                    table.insert(results, {
+                        className = child.ClassName,
+                        name = child.Name,
+                        path = path,
+                    })
+                end
+
+                -- Recurse into children
+                searchInstances(child)
+            end
+        end
+
+        -- Search from appropriate root(s)
+        if searchRoot then
+            searchInstances(searchRoot)
+        else
+            -- Search all tracked services
+            local trackedServices = {
+                "Workspace", "ReplicatedStorage", "ReplicatedFirst",
+                "ServerScriptService", "ServerStorage", "StarterGui",
+                "StarterPack", "StarterPlayer", "Lighting", "SoundService"
+            }
+            for _, serviceName in trackedServices do
+                if totalFound >= limit then break end
+                local service = game:FindFirstChild(serviceName)
+                if service then
+                    searchInstances(service)
+                end
+            end
+        end
+
+        return {
+            success = true,
+            data = {
+                instances = results,
+                total = totalFound,
+                limited = totalFound >= limit
+            }
+        }
+
     elseif command == "insert:model" then
         local assetId = payload and payload.assetId
         if not assetId then
