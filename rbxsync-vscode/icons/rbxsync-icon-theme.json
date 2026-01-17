@@ -1077,7 +1077,7 @@
       "iconPath": "../media/icons/classes/InsertService.png"
     },
     "_instance": {
-      "iconPath": "../media/icons/classes/Instance.png"
+      "iconPath": "../media/icons/classes/_meta.svg"
     },
     "_instanceadornment": {
       "iconPath": "../media/icons/classes/InstanceAdornment.png"
@@ -2560,7 +2560,7 @@
     "server.lua": "_script",
     "client.lua": "_localscript",
     "lua": "_modulescript",
-    "rbxjson": "_instance",
+    "rbxjson": "_meta",
     "Accessory.rbxjson": "_accessory",
     "AccessoryDescription.rbxjson": "_accessorydescription",
     "AccountService.rbxjson": "_accountservice",
@@ -2946,7 +2946,6 @@
     "LiveScriptingService.rbxjson": "_livescriptingservice",
     "LiveSyncService.rbxjson": "_livesyncservice",
     "LocalDebuggerConnection.rbxjson": "_localdebuggerconnection",
-    "LocalScript.rbxjson": "_localscript",
     "LocalStorageService.rbxjson": "_localstorageservice",
     "LocalizationService.rbxjson": "_localizationservice",
     "LocalizationTable.rbxjson": "_localizationtable",
@@ -2993,7 +2992,6 @@
     "MicroProfilerService.rbxjson": "_microprofilerservice",
     "Model.rbxjson": "_model",
     "ModerationService.rbxjson": "_moderationservice",
-    "ModuleScript.rbxjson": "_modulescript",
     "Motor.rbxjson": "_motor",
     "Motor6D.rbxjson": "_motor6d",
     "MotorFeature.rbxjson": "_motorfeature",
@@ -3153,7 +3151,6 @@
     "ScreenGui.rbxjson": "_screengui",
     "ScreenshotCapture.rbxjson": "_screenshotcapture",
     "ScreenshotHud.rbxjson": "_screenshothud",
-    "Script.rbxjson": "_script",
     "ScriptBuilder.rbxjson": "_scriptbuilder",
     "ScriptChangeService.rbxjson": "_scriptchangeservice",
     "ScriptCloneWatcher.rbxjson": "_scriptclonewatcher",
@@ -3413,7 +3410,8 @@
   },
   "fileNames": {
     "init.rbxjson": "_meta",
-    "_meta.rbxjson": "_meta"
+    "_meta.rbxjson": "_meta",
+    "terrain.rbxjson": "_terrain"
   },
   "file": null,
   "folder": "_folder",
@@ -3471,7 +3469,7 @@
       "server.lua": "_script",
       "client.lua": "_localscript",
       "lua": "_modulescript",
-      "rbxjson": "_instance"
+      "rbxjson": "_meta"
     }
   }
 }

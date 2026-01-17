@@ -1536,34 +1536,11 @@ async fn handle_extract_finalize(
     // Track which services we've seen to create folders for them
     let mut service_folders: std::collections::HashSet<String> = std::collections::HashSet::new();
 
-    // CLEAN FILE STRUCTURE (RBXSYNC-54):
-    //
-    // Design principles:
-    // 1. Folder names stay CLEAN - no class suffix (VS Code can't match folder patterns anyway)
-    // 2. Leaf instance files use Name.ClassName.rbxjson - VS Code matches ClassName.rbxjson extension
-    // 3. Container metadata uses init.rbxjson - clean, matches Rojo convention
-    // 4. Service folders have exact name mappings in icon theme
-    //
-    // Example structure:
-    //   Workspace/                    <- Service folder (has icon via exact match)
-    //   ├── Terrain/                  <- Container folder (default folder icon)
-    //   │   ├── init.rbxjson         <- Terrain's metadata (config icon)
-    //   │   └── Clouds.Clouds.rbxjson <- Leaf instance (Clouds icon)
-    //   └── Camera.Camera.rbxjson    <- Leaf instance (Camera icon)
-
     // First pass: build a map from referenceId to disambiguated path
     // This handles duplicate sibling names by appending a suffix
     let mut path_to_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
     let mut ref_to_path: std::collections::HashMap<String, String> = std::collections::HashMap::new();
     let mut duplicate_count = 0;
-
-    // Debug: log first few instances to see what paths are coming in
-    for (i, inst) in all_instances.iter().take(20).enumerate() {
-        let path = inst.get("path").and_then(|v| v.as_str()).unwrap_or("");
-        let class = inst.get("className").and_then(|v| v.as_str()).unwrap_or("");
-        let name = inst.get("name").and_then(|v| v.as_str()).unwrap_or("");
-        tracing::info!("DEBUG Instance {}: path='{}', class='{}', name='{}'", i, path, class, name);
-    }
 
     for inst in &all_instances {
         if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
@@ -1572,8 +1549,7 @@ async fn handle_extract_finalize(
                 let count = path_to_count.entry(path.to_string()).or_insert(0);
                 *count += 1;
 
-                // Store ORIGINAL paths in ref_to_path (class suffix applied later in main loop)
-                // This ensures has_children works correctly with original paths
+                // If this is a duplicate path, append a suffix
                 let disambiguated_path = if *count > 1 {
                     // Use referenceId suffix for disambiguation (first 8 chars)
                     let suffix = if ref_id.len() >= 8 { &ref_id[..8] } else { ref_id };
@@ -1670,16 +1646,6 @@ async fn handle_extract_finalize(
         // Normalize path to fix package folder duplication
         let inst_path = normalize_path(inst_path);
 
-        // Check if this is a top-level service (e.g., "Workspace", "ReplicatedFirst")
-        // Services should ALWAYS be folders, even if empty
-        let is_top_level_service = !inst_path.contains('/');
-
-        // Check if this instance has children (is a container that becomes a folder)
-        // Services are always containers; other instances need children to be containers
-        let is_container = is_top_level_service || has_children(&inst_path);
-
-        // SIMPLE: Use the path directly - NO class suffix on folders
-        // Folder names stay clean: "Terrain/" not "Terrain.Terrain/"
         // Apply tree mapping to convert DataModel path to filesystem path
         let fs_path = apply_tree_mapping(&inst_path, &tree_mapping);
 
@@ -1695,6 +1661,9 @@ async fn handle_extract_finalize(
         if let Some(parent) = full_path.parent() {
             directories_needed.insert(parent.to_path_buf());
         }
+
+        // Check if this instance has children (use normalized path)
+        let is_container = has_children(&inst_path);
 
         // Check if this is a script with source
         let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
@@ -1718,21 +1687,13 @@ async fn handle_extract_finalize(
         }
 
         // Prepare .rbxjson file write operation
-        // CLEAN FILE NAMING (RBXSYNC-54):
-        // - Containers: init.rbxjson inside the folder (matches Rojo convention)
-        // - Leaf instances: Name.ClassName.rbxjson OR Name.rbxjson if name == className
-        let instance_name = inst.get("name").and_then(|v| v.as_str()).unwrap_or("");
         let json_path = if is_container {
-            // Container becomes a folder with init.rbxjson inside
+            // Container: folder will be created, put _meta.rbxjson inside
             directories_needed.insert(full_path.clone());
-            full_path.join("init.rbxjson")
-        } else if instance_name.eq_ignore_ascii_case(class_name) {
-            // Name matches class (e.g., Clouds named "Clouds") - just Name.rbxjson
-            rbxsync_core::pathbuf_with_suffix(&full_path, ".rbxjson")
+            full_path.join("_meta.rbxjson")
         } else {
-            // Name differs from class (e.g., Part named "MyPart") - Name.ClassName.rbxjson
-            // VS Code extension matching treats "Part.rbxjson" as the extension
-            rbxsync_core::pathbuf_with_suffix(&full_path, &format!(".{}.rbxjson", class_name))
+            // Leaf: write as sibling .rbxjson
+            rbxsync_core::pathbuf_with_suffix(&full_path, ".rbxjson")
         };
 
         // Create a clean instance object without source (for scripts)
@@ -2444,29 +2405,6 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     let mut instances: Vec<serde_json::Value> = Vec::new();
     let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
 
-    // Helper to strip class suffix from a folder segment (e.g., "MyModel.Model" -> "MyModel")
-    fn strip_class_suffix_segment(segment: &str) -> String {
-        if let Some(dot_idx) = segment.rfind('.') {
-            let potential_class = &segment[dot_idx + 1..];
-            // Check if it looks like a class name (starts with uppercase, alphanumeric)
-            if !potential_class.is_empty()
-                && potential_class.chars().next().unwrap().is_uppercase()
-                && potential_class.chars().all(|c| c.is_alphanumeric())
-            {
-                return segment[..dot_idx].to_string();
-            }
-        }
-        segment.to_string()
-    }
-
-    // Helper to strip class suffixes from all segments in a path
-    fn strip_class_suffixes(path: &str) -> String {
-        path.split('/')
-            .map(strip_class_suffix_segment)
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-
     fn walk_dir(
         dir: &std::path::Path,
         base: &std::path::Path,
@@ -2494,46 +2432,14 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
                                 let path_str = rbxsync_core::path_to_string(rel_path);
                                 // Convert file path to instance path:
-                                // e.g., "Workspace/MyPart.Part.rbxjson" -> "Workspace/MyPart"
-                                // e.g., "Workspace/MyFolder/init.rbxjson" -> "Workspace/MyFolder"
-                                // Also support legacy format without class name
-                                let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-                                let is_init = filename == "init.rbxjson";
-                                let is_legacy_meta = filename.starts_with("_meta.");
-                                let rel_inst_path = if is_init {
-                                    // init.rbxjson represents the parent folder (container metadata)
-                                    if let Some(idx) = path_str.rfind("/init.rbxjson") {
-                                        path_str[..idx].to_string()
-                                    } else if let Some(idx) = path_str.rfind("\\init.rbxjson") {
-                                        path_str[..idx].to_string()
-                                    } else {
-                                        path_str.replace("/init.rbxjson", "").replace("\\init.rbxjson", "")
-                                    }
-                                } else if is_legacy_meta {
-                                    // Legacy: _meta.{ClassName}.rbxjson represents the parent folder
-                                    if let Some(idx) = path_str.rfind("/_meta.") {
-                                        path_str[..idx].to_string()
-                                    } else if let Some(idx) = path_str.rfind("\\_meta.") {
-                                        path_str[..idx].to_string()
-                                    } else {
-                                        path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                    }
+                                // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
+                                // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
+                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
+                                let rel_inst_path = if is_meta {
+                                    // _meta.rbxjson represents the parent folder
+                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
                                 } else {
-                                    // Strip .{ClassName}.rbxjson or legacy .rbxjson
-                                    // Find the last component and remove .{anything}.rbxjson
-                                    if let Some(idx) = path_str.rfind('.') {
-                                        // Check if there's another dot before this one (for .ClassName.rbxjson)
-                                        let before_ext = &path_str[..idx];
-                                        if let Some(class_idx) = before_ext.rfind('.') {
-                                            // Has format Name.ClassName.rbxjson
-                                            before_ext[..class_idx].to_string()
-                                        } else {
-                                            // Legacy format Name.rbxjson
-                                            before_ext.to_string()
-                                        }
-                                    } else {
-                                        path_str.clone()
-                                    }
+                                    path_str.replace(".rbxjson", "")
                                 };
 
                                 // Apply path prefix (for packages mapping to DataModel paths)
@@ -2543,11 +2449,8 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                                     format!("{}/{}", path_prefix, rel_inst_path)
                                 };
 
-                                // Strip class suffixes from folder names (e.g., "MyModel.Model" -> "MyModel")
-                                let inst_path = strip_class_suffixes(&inst_path);
-
-                                if path_str.contains("init.rbxjson") || path_str.contains("_meta") {
-                                    tracing::info!("DEBUG: path_str='{}', is_init={}, is_legacy_meta={}, inst_path='{}'", path_str, is_init, is_legacy_meta, inst_path);
+                                if path_str.contains("_meta") {
+                                    tracing::info!("DEBUG: path_str='{}', is_meta={}, inst_path='{}'", path_str, is_meta, inst_path);
                                 }
 
                                 // Set path from file location (used for tracking, not naming)
@@ -2583,9 +2486,6 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                         } else {
                             format!("{}/{}", path_prefix, rel_inst_path)
                         };
-
-                        // Strip class suffixes from folder names (e.g., "MyModel.Model" -> "MyModel")
-                        let inst_path = strip_class_suffixes(&inst_path);
 
                         if let Ok(source) = std::fs::read_to_string(&path) {
                             scripts.insert(inst_path, source);
@@ -2783,28 +2683,6 @@ async fn handle_sync_incremental(
     let mut files_checked = 0usize;
     let mut files_modified = 0usize;
 
-    // Helper to strip class suffix from a folder segment (e.g., "MyModel.Model" -> "MyModel")
-    fn strip_class_suffix_incremental(segment: &str) -> String {
-        if let Some(dot_idx) = segment.rfind('.') {
-            let potential_class = &segment[dot_idx + 1..];
-            if !potential_class.is_empty()
-                && potential_class.chars().next().unwrap().is_uppercase()
-                && potential_class.chars().all(|c| c.is_alphanumeric())
-            {
-                return segment[..dot_idx].to_string();
-            }
-        }
-        segment.to_string()
-    }
-
-    // Helper to strip class suffixes from all segments in a path
-    fn strip_class_suffixes_incremental(path: &str) -> String {
-        path.split('/')
-            .map(strip_class_suffix_incremental)
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-
     fn walk_dir_incremental(
         dir: &std::path::Path,
         base: &std::path::Path,
@@ -2853,44 +2731,12 @@ async fn handle_sync_incremental(
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
                                 let path_str = rbxsync_core::path_to_string(rel_path);
-                                // Support init.rbxjson, Name.ClassName.rbxjson, and legacy formats
-                                let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-                                let is_init = filename == "init.rbxjson";
-                                let is_legacy_meta = filename.starts_with("_meta.");
-                                let inst_path = if is_init {
-                                    // init.rbxjson represents the parent folder (container metadata)
-                                    if let Some(idx) = path_str.rfind("/init.rbxjson") {
-                                        path_str[..idx].to_string()
-                                    } else if let Some(idx) = path_str.rfind("\\init.rbxjson") {
-                                        path_str[..idx].to_string()
-                                    } else {
-                                        path_str.replace("/init.rbxjson", "").replace("\\init.rbxjson", "")
-                                    }
-                                } else if is_legacy_meta {
-                                    // Legacy: _meta.{ClassName}.rbxjson represents the parent folder
-                                    if let Some(idx) = path_str.rfind("/_meta.") {
-                                        path_str[..idx].to_string()
-                                    } else if let Some(idx) = path_str.rfind("\\_meta.") {
-                                        path_str[..idx].to_string()
-                                    } else {
-                                        path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                    }
+                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
+                                let inst_path = if is_meta {
+                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
                                 } else {
-                                    // Strip .{ClassName}.rbxjson or legacy .rbxjson
-                                    if let Some(idx) = path_str.rfind('.') {
-                                        let before_ext = &path_str[..idx];
-                                        if let Some(class_idx) = before_ext.rfind('.') {
-                                            before_ext[..class_idx].to_string()
-                                        } else {
-                                            before_ext.to_string()
-                                        }
-                                    } else {
-                                        path_str.clone()
-                                    }
+                                    path_str.replace(".rbxjson", "")
                                 };
-
-                                // Strip class suffixes from folder names (e.g., "MyModel.Model" -> "MyModel")
-                                let inst_path = strip_class_suffixes_incremental(&inst_path);
 
                                 if let Some(obj) = inst.as_object_mut() {
                                     obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
@@ -2911,10 +2757,6 @@ async fn handle_sync_incremental(
                             .trim_end_matches(".client.luau")
                             .trim_end_matches(".luau")
                             .to_string();
-
-                        // Strip class suffixes from folder names (e.g., "MyModel.Model" -> "MyModel")
-                        let inst_path = strip_class_suffixes_incremental(&inst_path);
-
                         if let Ok(source) = std::fs::read_to_string(&path) {
                             scripts.insert(inst_path, source);
                         }
@@ -3126,31 +2968,6 @@ async fn handle_diff(
     let mut file_paths: HashSet<String> = HashSet::new();
     let mut file_classes: HashMap<String, String> = HashMap::new();
 
-    // Helper to strip class suffix from a folder segment (e.g., "MyModel.Model" -> "MyModel")
-    fn strip_class_suffix(segment: &str) -> String {
-        // Common Roblox class names that might appear as suffixes
-        // We check if the segment ends with ".ClassName" pattern
-        if let Some(dot_idx) = segment.rfind('.') {
-            let potential_class = &segment[dot_idx + 1..];
-            // Check if it looks like a class name (starts with uppercase, alphanumeric)
-            if !potential_class.is_empty()
-                && potential_class.chars().next().unwrap().is_uppercase()
-                && potential_class.chars().all(|c| c.is_alphanumeric())
-            {
-                return segment[..dot_idx].to_string();
-            }
-        }
-        segment.to_string()
-    }
-
-    // Helper to strip class suffixes from all segments in a path
-    fn strip_class_suffixes_from_path(path: &str) -> String {
-        path.split('/')
-            .map(strip_class_suffix)
-            .collect::<Vec<_>>()
-            .join("/")
-    }
-
     fn collect_file_paths(
         dir: &std::path::Path,
         base: &std::path::Path,
@@ -3168,44 +2985,14 @@ async fn handle_diff(
                             if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
                                 let path_str = rbxsync_core::path_to_string(rel_path);
-                                // Support init.rbxjson, Name.ClassName.rbxjson, and legacy formats
-                                let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-                                let is_init = filename == "init.rbxjson";
-                                let is_legacy_meta = filename.starts_with("_meta.");
-                                let inst_path = if is_init {
-                                    // init.rbxjson represents the parent folder (container metadata)
-                                    if let Some(idx) = path_str.rfind("/init.rbxjson") {
-                                        path_str[..idx].to_string()
-                                    } else if let Some(idx) = path_str.rfind("\\init.rbxjson") {
-                                        path_str[..idx].to_string()
-                                    } else {
-                                        path_str.replace("/init.rbxjson", "").replace("\\init.rbxjson", "")
-                                    }
-                                } else if is_legacy_meta {
-                                    // Legacy: _meta.{ClassName}.rbxjson represents the parent folder
-                                    if let Some(idx) = path_str.rfind("/_meta.") {
-                                        path_str[..idx].to_string()
-                                    } else if let Some(idx) = path_str.rfind("\\_meta.") {
-                                        path_str[..idx].to_string()
-                                    } else {
-                                        path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                    }
+                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
+                                let inst_path = if is_meta {
+                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
                                 } else {
-                                    // Strip .{ClassName}.rbxjson or legacy .rbxjson
-                                    if let Some(idx) = path_str.rfind('.') {
-                                        let before_ext = &path_str[..idx];
-                                        if let Some(class_idx) = before_ext.rfind('.') {
-                                            before_ext[..class_idx].to_string()
-                                        } else {
-                                            before_ext.to_string()
-                                        }
-                                    } else {
-                                        path_str.clone()
-                                    }
+                                    path_str.replace(".rbxjson", "")
                                 };
-                                // Normalize path separators and strip class suffixes from folder names
+                                // Normalize path separators
                                 let inst_path = inst_path.replace('\\', "/");
-                                let inst_path = strip_class_suffixes_from_path(&inst_path);
                                 paths.insert(inst_path.clone());
                                 if let Some(class) = inst.get("className").and_then(|v| v.as_str()) {
                                     classes.insert(inst_path, class.to_string());
