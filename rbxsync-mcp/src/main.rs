@@ -276,6 +276,14 @@ pub struct HarnessStatusParams {
     pub project_dir: String,
 }
 
+/// Parameters for read_properties tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ReadPropertiesParams {
+    /// Instance path in the hierarchy (e.g., "Workspace/SpawnLocation" or "ServerScriptService/MyScript")
+    #[schemars(description = "Instance path (e.g., 'Workspace/SpawnLocation')")]
+    pub path: String,
+}
+
 fn mcp_error(msg: impl Into<String>) -> McpError {
     McpError {
         code: ErrorCode(-32603),
@@ -951,6 +959,73 @@ impl RbxSyncServer {
                 result.message
             ))]))
         }
+    }
+
+    /// Read all properties of an instance at the given path.
+    /// Returns className, name, and all serialized properties.
+    /// Useful for inspecting instance state without running code.
+    #[tool(description = "Read properties of an instance at a path (e.g., 'Workspace/SpawnLocation')")]
+    async fn read_properties(
+        &self,
+        Parameters(params): Parameters<ReadPropertiesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .read_properties(&params.path)
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to read properties: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        // Format the properties nicely
+        let mut output = vec![];
+
+        if let Some(data) = &result.data {
+            if let Some(class_name) = data.get("className").and_then(|v| v.as_str()) {
+                output.push(format!("ClassName: {}", class_name));
+            }
+            if let Some(name) = data.get("name").and_then(|v| v.as_str()) {
+                output.push(format!("Name: {}", name));
+            }
+            if let Some(path) = data.get("path").and_then(|v| v.as_str()) {
+                output.push(format!("Path: {}", path));
+            }
+
+            output.push(String::new());
+
+            // Show properties
+            if let Some(props) = data.get("properties") {
+                output.push("Properties:".to_string());
+                let props_json = serde_json::to_string_pretty(props)
+                    .unwrap_or_else(|_| "{}".to_string());
+                output.push(props_json);
+            }
+
+            // Show attributes if present
+            if let Some(attrs) = data.get("attributes") {
+                if !attrs.as_object().map(|o| o.is_empty()).unwrap_or(true) {
+                    output.push(String::new());
+                    output.push("Attributes:".to_string());
+                    let attrs_json = serde_json::to_string_pretty(attrs)
+                        .unwrap_or_else(|_| "{}".to_string());
+                    output.push(attrs_json);
+                }
+            }
+
+            // Show tags if present
+            if let Some(tags) = data.get("tags") {
+                if !tags.as_array().map(|a| a.is_empty()).unwrap_or(true) {
+                    output.push(String::new());
+                    output.push(format!("Tags: {:?}", tags));
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output.join("\n"))]))
     }
 
     /// Get current harness state for a project.
