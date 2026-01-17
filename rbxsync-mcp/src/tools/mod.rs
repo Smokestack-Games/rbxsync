@@ -748,6 +748,32 @@ impl RbxSyncClient {
 
         Ok(resp)
     }
+
+    /// Find instances matching search criteria
+    pub async fn find_instances(
+        &self,
+        class_name: Option<&str>,
+        name: Option<&str>,
+        parent: Option<&str>,
+        limit: Option<u32>,
+    ) -> anyhow::Result<FindInstancesResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/find-instances", self.base_url))
+            .json(&serde_json::json!({
+                "className": class_name,
+                "name": name,
+                "parent": parent,
+                "limit": limit.unwrap_or(100).min(1000)
+            }))
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
 }
 
 // ============================================================================
@@ -853,6 +879,16 @@ pub struct ReadPropertiesResponse {
 /// Response from explore_hierarchy
 #[derive(Debug, Deserialize)]
 pub struct ExploreHierarchyResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+/// Response from find_instances
+#[derive(Debug, Deserialize)]
+pub struct FindInstancesResponse {
     pub success: bool,
     #[serde(default)]
     pub error: Option<String>,

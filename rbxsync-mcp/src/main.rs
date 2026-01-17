@@ -297,6 +297,24 @@ pub struct ExploreHierarchyParams {
     pub depth: Option<u32>,
 }
 
+/// Parameters for find_instances tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct FindInstancesParams {
+    /// Filter by ClassName (e.g., "Part", "Script", "Model")
+    #[schemars(description = "Filter by ClassName (e.g., 'Part', 'Script', 'Model')")]
+    #[serde(rename = "className")]
+    pub class_name: Option<String>,
+    /// Filter by instance Name (supports pattern matching with *)
+    #[schemars(description = "Filter by Name (supports * wildcard, e.g., 'Enemy*')")]
+    pub name: Option<String>,
+    /// Search within a specific path (e.g., "Workspace/Enemies")
+    #[schemars(description = "Search within path (e.g., 'Workspace/Enemies'). Omit for entire game.")]
+    pub parent: Option<String>,
+    /// Maximum number of results to return (default: 100, max: 1000)
+    #[schemars(description = "Max results (default: 100, max: 1000)")]
+    pub limit: Option<u32>,
+}
+
 fn mcp_error(msg: impl Into<String>) -> McpError {
     McpError {
         code: ErrorCode(-32603),
@@ -1108,6 +1126,72 @@ impl RbxSyncServer {
 
         if output.is_empty() {
             output.push("No instances found.".to_string());
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output.join("\n"))]))
+    }
+
+    /// Find instances matching search criteria.
+    /// Searches by className, name pattern, and/or within a specific parent path.
+    /// Returns a list of matching instances with their paths.
+    #[tool(description = "Find instances by className, name pattern, or parent path")]
+    async fn find_instances(
+        &self,
+        Parameters(params): Parameters<FindInstancesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Require at least one filter
+        if params.class_name.is_none() && params.name.is_none() && params.parent.is_none() {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Error: At least one filter (className, name, or parent) is required."
+            )]));
+        }
+
+        let result = self.client
+            .find_instances(
+                params.class_name.as_deref(),
+                params.name.as_deref(),
+                params.parent.as_deref(),
+                params.limit,
+            )
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to find instances: {}",
+                result.error.unwrap_or_default()
+            ))]));
+        }
+
+        // Format results
+        let mut output = vec![];
+
+        if let Some(data) = &result.data {
+            if let Some(instances) = data.get("instances").and_then(|v| v.as_array()) {
+                let total = data.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                let limited = data.get("limited").and_then(|v| v.as_bool()).unwrap_or(false);
+
+                if instances.is_empty() {
+                    output.push("No instances found matching criteria.".to_string());
+                } else {
+                    if limited {
+                        output.push(format!("Found {} instances (showing first {}):", total, instances.len()));
+                    } else {
+                        output.push(format!("Found {} instances:", instances.len()));
+                    }
+                    output.push(String::new());
+
+                    for inst in instances {
+                        let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("?");
+                        let path = inst.get("path").and_then(|v| v.as_str()).unwrap_or("?");
+                        output.push(format!("  {} [{}]", path, class_name));
+                    }
+                }
+            } else {
+                output.push("No results returned.".to_string());
+            }
+        } else {
+            output.push("No data returned.".to_string());
         }
 
         Ok(CallToolResult::success(vec![Content::text(output.join("\n"))]))
