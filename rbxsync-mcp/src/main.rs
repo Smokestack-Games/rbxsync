@@ -187,6 +187,95 @@ pub struct BotWaitForParams {
     pub context: Option<String>,
 }
 
+// ============================================================================
+// Harness Parameters (Multi-session AI game development tracking)
+// ============================================================================
+
+/// Parameters for harness_init tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HarnessInitParams {
+    /// The project directory where harness will be initialized
+    #[schemars(description = "Project directory path")]
+    pub project_dir: String,
+    /// Name of the game being developed
+    #[schemars(description = "Game name")]
+    pub game_name: String,
+    /// Optional game description
+    #[schemars(description = "Optional game description")]
+    pub description: Option<String>,
+    /// Optional game genre (e.g., "Obby", "Tycoon", "Simulator")
+    #[schemars(description = "Optional game genre")]
+    pub genre: Option<String>,
+}
+
+/// Parameters for harness_session_start tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HarnessSessionStartParams {
+    /// The project directory
+    #[schemars(description = "Project directory path")]
+    pub project_dir: String,
+    /// Optional initial goals for this development session
+    #[schemars(description = "Initial goals/focus for this session")]
+    pub initial_goals: Option<String>,
+}
+
+/// Parameters for harness_session_end tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HarnessSessionEndParams {
+    /// The project directory
+    #[schemars(description = "Project directory path")]
+    pub project_dir: String,
+    /// Session ID to end
+    #[schemars(description = "Session ID to end")]
+    pub session_id: String,
+    /// Summary of what was accomplished
+    #[schemars(description = "Summary of accomplishments")]
+    pub summary: Option<String>,
+    /// Notes for the next session/developer
+    #[schemars(description = "Handoff notes for future sessions")]
+    pub handoff_notes: Option<Vec<String>>,
+}
+
+/// Parameters for harness_feature_update tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HarnessFeatureUpdateParams {
+    /// The project directory
+    #[schemars(description = "Project directory path")]
+    pub project_dir: String,
+    /// Feature ID (if updating existing feature)
+    #[schemars(description = "Feature ID for updates (omit for new features)")]
+    pub feature_id: Option<String>,
+    /// Feature name (required for new features)
+    #[schemars(description = "Feature name (required for new features)")]
+    pub name: Option<String>,
+    /// Feature description
+    #[schemars(description = "Feature description")]
+    pub description: Option<String>,
+    /// Feature status: planned, in_progress, completed, blocked, cancelled
+    #[schemars(description = "Status: planned, in_progress, completed, blocked, cancelled")]
+    pub status: Option<String>,
+    /// Priority: low, medium, high, critical
+    #[schemars(description = "Priority: low, medium, high, critical")]
+    pub priority: Option<String>,
+    /// Tags to categorize the feature
+    #[schemars(description = "Tags for categorization")]
+    pub tags: Option<Vec<String>>,
+    /// Note to add to the feature
+    #[schemars(description = "Note to add")]
+    pub add_note: Option<String>,
+    /// Session ID working on this feature
+    #[schemars(description = "Session ID working on feature")]
+    pub session_id: Option<String>,
+}
+
+/// Parameters for harness_status tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct HarnessStatusParams {
+    /// The project directory
+    #[schemars(description = "Project directory path")]
+    pub project_dir: String,
+}
+
 fn mcp_error(msg: impl Into<String>) -> McpError {
     McpError {
         code: ErrorCode(-32603),
@@ -733,6 +822,202 @@ impl RbxSyncServer {
                 result.data
             ))]))
         }
+    }
+
+    // ========================================================================
+    // Harness Tools (Multi-session AI game development tracking)
+    // ========================================================================
+
+    /// Initialize harness for a project.
+    /// Creates the .rbxsync/harness directory structure with game.yaml and features.yaml.
+    /// Call this once at the start of a new game project.
+    #[tool(description = "Initialize harness for a project")]
+    async fn harness_init(
+        &self,
+        Parameters(params): Parameters<HarnessInitParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .harness_init(
+                &params.project_dir,
+                &params.game_name,
+                params.description.as_deref(),
+                params.genre.as_deref(),
+            )
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if result.success {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Harness initialized at {}. Game ID: {}",
+                result.harness_dir,
+                result.game_id.unwrap_or_default()
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to initialize harness: {}",
+                result.message
+            ))]))
+        }
+    }
+
+    /// Start a new development session.
+    /// Creates a session log to track work done across this conversation.
+    /// Returns a session ID that can be used to end the session later.
+    #[tool(description = "Start dev session, get context")]
+    async fn harness_session_start(
+        &self,
+        Parameters(params): Parameters<HarnessSessionStartParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .harness_session_start(&params.project_dir, params.initial_goals.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if result.success {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Session started. ID: {}\nPath: {}",
+                result.session_id.unwrap_or_default(),
+                result.session_path.unwrap_or_default()
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to start session: {}",
+                result.message
+            ))]))
+        }
+    }
+
+    /// End a development session.
+    /// Updates the session log with summary and handoff notes for future sessions.
+    #[tool(description = "End session with handoff notes")]
+    async fn harness_session_end(
+        &self,
+        Parameters(params): Parameters<HarnessSessionEndParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .harness_session_end(
+                &params.project_dir,
+                &params.session_id,
+                params.summary.as_deref(),
+                params.handoff_notes.as_deref(),
+            )
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if result.success {
+            Ok(CallToolResult::success(vec![Content::text(
+                "Session ended successfully."
+            )]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to end session: {}",
+                result.message
+            ))]))
+        }
+    }
+
+    /// Create or update a feature in the project.
+    /// Features track game functionality being developed across sessions.
+    /// Provide feature_id to update an existing feature, or name to create a new one.
+    #[tool(description = "Create/update feature status")]
+    async fn harness_feature_update(
+        &self,
+        Parameters(params): Parameters<HarnessFeatureUpdateParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .harness_feature_update(
+                &params.project_dir,
+                params.feature_id.as_deref(),
+                params.name.as_deref(),
+                params.description.as_deref(),
+                params.status.as_deref(),
+                params.priority.as_deref(),
+                params.tags.as_deref(),
+                params.add_note.as_deref(),
+                params.session_id.as_deref(),
+            )
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if result.success {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Feature {}: {}",
+                result.feature_id.unwrap_or_default(),
+                result.message
+            ))]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to update feature: {}",
+                result.message
+            ))]))
+        }
+    }
+
+    /// Get current harness state for a project.
+    /// Returns game info, features list with status summary, and recent sessions.
+    #[tool(description = "Get current harness state")]
+    async fn harness_status(
+        &self,
+        Parameters(params): Parameters<HarnessStatusParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .harness_status(&params.project_dir)
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.initialized {
+            return Ok(CallToolResult::success(vec![Content::text(
+                "Harness not initialized. Use harness_init to set up the project."
+            )]));
+        }
+
+        let mut output = vec!["=== Harness Status ===".to_string()];
+
+        // Game info
+        if let Some(game) = &result.game {
+            let name = game.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown");
+            output.push(format!("\nGame: {}", name));
+            if let Some(desc) = game.get("description").and_then(|v| v.as_str()) {
+                if !desc.is_empty() {
+                    output.push(format!("Description: {}", desc));
+                }
+            }
+        }
+
+        // Feature summary
+        let summary = &result.feature_summary;
+        output.push(format!(
+            "\nFeatures: {} total ({} planned, {} in progress, {} completed, {} blocked)",
+            summary.total, summary.planned, summary.in_progress, summary.completed, summary.blocked
+        ));
+
+        // List features
+        if !result.features.is_empty() {
+            output.push("\nFeature List:".to_string());
+            for feature in &result.features {
+                let id = feature.get("id").and_then(|v| v.as_str()).unwrap_or("?");
+                let name = feature.get("name").and_then(|v| v.as_str()).unwrap_or("Unnamed");
+                let status = feature.get("status").and_then(|v| v.as_str()).unwrap_or("unknown");
+                output.push(format!("  - [{}] {} ({})", id, name, status));
+            }
+        }
+
+        // Recent sessions
+        if !result.recent_sessions.is_empty() {
+            output.push("\nRecent Sessions:".to_string());
+            for session in &result.recent_sessions {
+                let status = if session.ended_at.is_some() { "ended" } else { "active" };
+                output.push(format!(
+                    "  - {} ({}, {} features)",
+                    session.id, status, session.features_count
+                ));
+                if !session.summary.is_empty() {
+                    output.push(format!("    Summary: {}", session.summary));
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output.join("\n"))]))
     }
 }
 

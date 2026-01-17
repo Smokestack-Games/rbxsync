@@ -247,6 +247,12 @@ enum Commands {
         #[arg(long)]
         set_api_key: Option<String>,
     },
+
+    /// Manage AI development harness (multi-session tracking)
+    Harness {
+        #[command(subcommand)]
+        action: HarnessAction,
+    },
 }
 
 #[derive(Subcommand)]
@@ -283,6 +289,110 @@ enum DebugAction {
     Stop,
     /// Show playtest status
     Status,
+}
+
+#[derive(Subcommand)]
+enum HarnessAction {
+    /// Initialize harness for a project
+    Init {
+        /// Game name
+        #[arg(short, long)]
+        name: String,
+
+        /// Game genre (e.g., RPG, Simulator, Obby)
+        #[arg(short, long)]
+        genre: Option<String>,
+
+        /// Game description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
+    /// Show harness status for the project
+    Status {
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
+    /// List features
+    Features {
+        /// Filter by status (planned, in_progress, completed, blocked, cancelled)
+        #[arg(short, long)]
+        status: Option<String>,
+
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
+    /// Create or update a feature
+    Feature {
+        /// Feature name (creates new feature if no --id is provided)
+        name: String,
+
+        /// Feature ID (for updating existing feature)
+        #[arg(long)]
+        id: Option<String>,
+
+        /// Feature status (planned, in_progress, completed, blocked, cancelled)
+        #[arg(short, long)]
+        status: Option<String>,
+
+        /// Feature description
+        #[arg(short, long)]
+        description: Option<String>,
+
+        /// Feature priority (low, medium, high, critical)
+        #[arg(long)]
+        priority: Option<String>,
+
+        /// Add a note to the feature
+        #[arg(long)]
+        note: Option<String>,
+
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
+    /// Manage development sessions
+    Session {
+        #[command(subcommand)]
+        action: SessionAction,
+    },
+}
+
+#[derive(Subcommand)]
+enum SessionAction {
+    /// Start a new development session
+    Start {
+        /// Initial goals for the session
+        #[arg(short, long)]
+        goals: Option<String>,
+
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
+    /// End the current session
+    End {
+        /// Session ID to end
+        #[arg(short, long)]
+        id: String,
+
+        /// Summary of what was accomplished
+        #[arg(short, long)]
+        summary: Option<String>,
+
+        /// Handoff notes for future sessions
+        #[arg(long)]
+        handoff: Option<Vec<String>>,
+
+        /// Project directory (default: current directory)
+        #[arg(short, long)]
+        path: Option<PathBuf>,
+    },
 }
 
 /// Check for duplicate rbxsync installations that might cause version confusion
@@ -450,6 +560,9 @@ async fn main() -> Result<()> {
         }
         Commands::Migrate { from, path, force } => {
             cmd_migrate(from, path, force)?;
+        }
+        Commands::Harness { action } => {
+            cmd_harness(action).await?;
         }
     }
 
@@ -2988,6 +3101,392 @@ fn cmd_migrate(from: String, path: Option<PathBuf>, force: bool) -> Result<()> {
                 other
             );
         }
+    }
+
+    Ok(())
+}
+
+/// Manage AI development harness
+async fn cmd_harness(action: HarnessAction) -> Result<()> {
+    let client = reqwest::Client::new();
+
+    // Check server is running
+    if client.get("http://localhost:44755/health").send().await.is_err() {
+        println!("RbxSync server is not running. Start it with: rbxsync serve");
+        return Ok(());
+    }
+
+    match action {
+        HarnessAction::Init {
+            name,
+            genre,
+            description,
+            path,
+        } => {
+            let project_dir = path
+                .unwrap_or_else(|| std::env::current_dir().unwrap())
+                .to_string_lossy()
+                .to_string();
+
+            println!("Initializing harness for project: {}", project_dir);
+
+            let mut body = serde_json::json!({
+                "projectDir": project_dir,
+                "gameName": name,
+            });
+
+            if let Some(g) = genre {
+                body["genre"] = serde_json::Value::String(g);
+            }
+            if let Some(d) = description {
+                body["description"] = serde_json::Value::String(d);
+            }
+
+            let response = client
+                .post("http://localhost:44755/harness/init")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to initialize harness")?;
+
+            let result: serde_json::Value = response.json().await?;
+            if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let harness_dir = result
+                    .get("harnessDir")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let game_id = result
+                    .get("gameId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+
+                println!("Harness initialized successfully!");
+                println!("  Directory: {}", harness_dir);
+                println!("  Game ID: {}", game_id);
+            } else {
+                let error = result
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error");
+                println!("Failed to initialize harness: {}", error);
+            }
+        }
+
+        HarnessAction::Status { path } => {
+            let project_dir = path
+                .unwrap_or_else(|| std::env::current_dir().unwrap())
+                .to_string_lossy()
+                .to_string();
+
+            let response = client
+                .post("http://localhost:44755/harness/status")
+                .json(&serde_json::json!({
+                    "projectDir": project_dir,
+                }))
+                .send()
+                .await
+                .context("Failed to get harness status")?;
+
+            let result: serde_json::Value = response.json().await?;
+
+            if !result.get("initialized").and_then(|v| v.as_bool()).unwrap_or(false) {
+                println!("Harness not initialized for this project.");
+                println!("Run: rbxsync harness init --name 'Your Game'");
+                return Ok(());
+            }
+
+            // Print game info
+            if let Some(game) = result.get("game") {
+                println!("Game: {}", game.get("name").and_then(|v| v.as_str()).unwrap_or("Unknown"));
+                if let Some(genre) = game.get("genre").and_then(|v| v.as_str()) {
+                    println!("Genre: {}", genre);
+                }
+                if let Some(desc) = game.get("description").and_then(|v| v.as_str()) {
+                    if !desc.is_empty() {
+                        println!("Description: {}", desc);
+                    }
+                }
+                println!();
+            }
+
+            // Print feature summary
+            if let Some(summary) = result.get("featureSummary") {
+                println!("Features:");
+                let total = summary.get("total").and_then(|v| v.as_u64()).unwrap_or(0);
+                let planned = summary.get("planned").and_then(|v| v.as_u64()).unwrap_or(0);
+                let in_progress = summary.get("inProgress").and_then(|v| v.as_u64()).unwrap_or(0);
+                let completed = summary.get("completed").and_then(|v| v.as_u64()).unwrap_or(0);
+                let blocked = summary.get("blocked").and_then(|v| v.as_u64()).unwrap_or(0);
+
+                println!("  Total: {}", total);
+                if planned > 0 {
+                    println!("  Planned: {}", planned);
+                }
+                if in_progress > 0 {
+                    println!("  In Progress: {}", in_progress);
+                }
+                if completed > 0 {
+                    println!("  Completed: {}", completed);
+                }
+                if blocked > 0 {
+                    println!("  Blocked: {}", blocked);
+                }
+                println!();
+            }
+
+            // Print recent sessions
+            if let Some(sessions) = result.get("recentSessions").and_then(|v| v.as_array()) {
+                if !sessions.is_empty() {
+                    println!("Recent Sessions:");
+                    for session in sessions.iter().take(3) {
+                        let id = session.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let started = session.get("startedAt").and_then(|v| v.as_str()).unwrap_or("unknown");
+                        let ended = session.get("endedAt").and_then(|v| v.as_str());
+                        let status = if ended.is_some() { "completed" } else { "active" };
+                        println!("  {} ({}) - {}", &id[..8.min(id.len())], status, started);
+                    }
+                }
+            }
+        }
+
+        HarnessAction::Features { status, path } => {
+            let project_dir = path
+                .unwrap_or_else(|| std::env::current_dir().unwrap())
+                .to_string_lossy()
+                .to_string();
+
+            let response = client
+                .post("http://localhost:44755/harness/status")
+                .json(&serde_json::json!({
+                    "projectDir": project_dir,
+                }))
+                .send()
+                .await
+                .context("Failed to get features")?;
+
+            let result: serde_json::Value = response.json().await?;
+
+            if !result.get("initialized").and_then(|v| v.as_bool()).unwrap_or(false) {
+                println!("Harness not initialized for this project.");
+                return Ok(());
+            }
+
+            let features = result.get("features").and_then(|v| v.as_array());
+            if let Some(features) = features {
+                if features.is_empty() {
+                    println!("No features found.");
+                    println!("Add one with: rbxsync harness feature 'Feature Name'");
+                    return Ok(());
+                }
+
+                // Filter by status if provided
+                let status_filter = status.as_ref().map(|s| s.to_lowercase());
+
+                println!("Features:");
+                println!("{:<36} {:<12} {:<8} {}", "ID", "Status", "Priority", "Name");
+                println!("{}", "-".repeat(80));
+
+                for feature in features {
+                    let feature_status = feature
+                        .get("status")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown")
+                        .to_lowercase();
+
+                    // Skip if doesn't match filter
+                    if let Some(ref filter) = status_filter {
+                        // Handle snake_case vs camelCase
+                        let normalized_filter = filter.replace("_", "").replace("-", "");
+                        let normalized_status = feature_status.replace("_", "").replace("-", "");
+                        if !normalized_status.contains(&normalized_filter) {
+                            continue;
+                        }
+                    }
+
+                    let id = feature.get("id").and_then(|v| v.as_str()).unwrap_or("unknown");
+                    let name = feature.get("name").and_then(|v| v.as_str()).unwrap_or("Unnamed");
+                    let priority = feature
+                        .get("priority")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("medium");
+
+                    println!("{:<36} {:<12} {:<8} {}", id, feature_status, priority, name);
+                }
+            } else {
+                println!("No features found.");
+            }
+        }
+
+        HarnessAction::Feature {
+            name,
+            id,
+            status,
+            description,
+            priority,
+            note,
+            path,
+        } => {
+            let project_dir = path
+                .unwrap_or_else(|| std::env::current_dir().unwrap())
+                .to_string_lossy()
+                .to_string();
+
+            let mut body = serde_json::json!({
+                "projectDir": project_dir,
+            });
+
+            if let Some(feature_id) = id {
+                // Updating existing feature
+                body["featureId"] = serde_json::Value::String(feature_id);
+                body["name"] = serde_json::Value::String(name);
+            } else {
+                // Creating new feature
+                body["name"] = serde_json::Value::String(name.clone());
+            }
+
+            if let Some(s) = status {
+                // Convert CLI status format to API format
+                let lower = s.to_lowercase();
+                let api_status = match lower.as_str() {
+                    "planned" => "planned",
+                    "in_progress" | "inprogress" | "in-progress" => "in_progress",
+                    "completed" | "done" => "completed",
+                    "blocked" => "blocked",
+                    "cancelled" | "canceled" => "cancelled",
+                    _ => lower.as_str(),
+                };
+                body["status"] = serde_json::Value::String(api_status.to_string());
+            }
+
+            if let Some(d) = description {
+                body["description"] = serde_json::Value::String(d);
+            }
+
+            if let Some(p) = priority {
+                body["priority"] = serde_json::Value::String(p);
+            }
+
+            if let Some(n) = note {
+                body["addNote"] = serde_json::Value::String(n);
+            }
+
+            let response = client
+                .post("http://localhost:44755/harness/feature/update")
+                .json(&body)
+                .send()
+                .await
+                .context("Failed to update feature")?;
+
+            let result: serde_json::Value = response.json().await?;
+            if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                let feature_id = result
+                    .get("featureId")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("unknown");
+                let message = result
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Feature updated");
+
+                println!("{}", message);
+                println!("Feature ID: {}", feature_id);
+            } else {
+                let error = result
+                    .get("message")
+                    .and_then(|v| v.as_str())
+                    .unwrap_or("Unknown error");
+                println!("Failed to update feature: {}", error);
+            }
+        }
+
+        HarnessAction::Session { action } => match action {
+            SessionAction::Start { goals, path } => {
+                let project_dir = path
+                    .unwrap_or_else(|| std::env::current_dir().unwrap())
+                    .to_string_lossy()
+                    .to_string();
+
+                let mut body = serde_json::json!({
+                    "projectDir": project_dir,
+                });
+
+                if let Some(g) = goals {
+                    body["initialGoals"] = serde_json::Value::String(g);
+                }
+
+                let response = client
+                    .post("http://localhost:44755/harness/session/start")
+                    .json(&body)
+                    .send()
+                    .await
+                    .context("Failed to start session")?;
+
+                let result: serde_json::Value = response.json().await?;
+                if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    let session_id = result
+                        .get("sessionId")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("unknown");
+
+                    println!("Session started successfully!");
+                    println!("Session ID: {}", session_id);
+                    println!();
+                    println!("When finished, end with:");
+                    println!("  rbxsync harness session end --id {}", session_id);
+                } else {
+                    let error = result
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error");
+                    println!("Failed to start session: {}", error);
+                }
+            }
+
+            SessionAction::End {
+                id,
+                summary,
+                handoff,
+                path,
+            } => {
+                let project_dir = path
+                    .unwrap_or_else(|| std::env::current_dir().unwrap())
+                    .to_string_lossy()
+                    .to_string();
+
+                let mut body = serde_json::json!({
+                    "projectDir": project_dir,
+                    "sessionId": id,
+                });
+
+                if let Some(s) = summary {
+                    body["summary"] = serde_json::Value::String(s);
+                }
+
+                if let Some(h) = handoff {
+                    body["handoffNotes"] = serde_json::Value::Array(
+                        h.into_iter().map(serde_json::Value::String).collect(),
+                    );
+                }
+
+                let response = client
+                    .post("http://localhost:44755/harness/session/end")
+                    .json(&body)
+                    .send()
+                    .await
+                    .context("Failed to end session")?;
+
+                let result: serde_json::Value = response.json().await?;
+                if result.get("success").and_then(|v| v.as_bool()).unwrap_or(false) {
+                    println!("Session ended successfully!");
+                } else {
+                    let error = result
+                        .get("message")
+                        .and_then(|v| v.as_str())
+                        .unwrap_or("Unknown error");
+                    println!("Failed to end session: {}", error);
+                }
+            }
+        },
     }
 
     Ok(())

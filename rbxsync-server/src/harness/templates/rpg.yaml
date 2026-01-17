@@ -1,0 +1,199 @@
+# RPG Game Template
+# Pre-defined features for role-playing games
+
+genre: RPG
+description: Adventure, combat, and character progression in an immersive world
+
+features:
+  - name: Combat System
+    description: Core combat mechanics with attacks, skills, and damage
+    priority: critical
+    tags:
+      - core
+      - gameplay
+    acceptanceCriteria:
+      - Basic attack functionality
+      - Damage calculation system
+      - Combat feedback (animations, sounds)
+      - Enemy AI responds to attacks
+    complexity: 5
+
+  - name: Inventory System
+    description: Store, equip, and manage items and equipment
+    priority: critical
+    tags:
+      - core
+      - ui
+    acceptanceCriteria:
+      - Items can be picked up
+      - Inventory UI with slots
+      - Items can be equipped/unequipped
+      - Item tooltips with stats
+    complexity: 4
+
+  - name: Quest System
+    description: Accept, track, and complete quests for rewards
+    priority: critical
+    tags:
+      - core
+      - progression
+    acceptanceCriteria:
+      - NPCs offer quests
+      - Quest log tracks active quests
+      - Quest objectives update in real-time
+      - Rewards given on completion
+    complexity: 5
+
+  - name: Leveling System
+    description: Gain experience and level up for stat increases
+    priority: critical
+    tags:
+      - core
+      - progression
+    dependencies:
+      - Combat System
+    acceptanceCriteria:
+      - XP earned from combat/quests
+      - Level up with clear feedback
+      - Stats increase on level up
+      - Level displayed in UI
+    complexity: 3
+
+  - name: Skill Tree
+    description: Unlock and upgrade abilities as you level
+    priority: high
+    tags:
+      - progression
+      - customization
+    dependencies:
+      - Leveling System
+    acceptanceCriteria:
+      - Skill points earned on level
+      - Multiple skill paths
+      - Skills have prerequisites
+      - Respec option available
+    complexity: 4
+
+  - name: Equipment System
+    description: Weapons and armor that modify character stats
+    priority: critical
+    tags:
+      - core
+      - items
+    dependencies:
+      - Inventory System
+    acceptanceCriteria:
+      - Equipment slots (weapon, armor, etc.)
+      - Equipment modifies stats
+      - Visual appearance changes
+      - Rarity tiers for equipment
+    complexity: 4
+
+  - name: NPC Dialogue
+    description: Interactive dialogue with NPCs
+    priority: high
+    tags:
+      - story
+      - ui
+    acceptanceCriteria:
+      - Dialogue UI when interacting
+      - Multiple dialogue options
+      - Dialogue progresses story/quests
+      - NPC names and portraits
+    complexity: 3
+
+  - name: Enemy Spawning
+    description: Enemies spawn in designated areas
+    priority: critical
+    tags:
+      - core
+      - gameplay
+    acceptanceCriteria:
+      - Enemies spawn in zones
+      - Respawn after death
+      - Difficulty scales by zone
+      - Variety of enemy types
+    complexity: 3
+
+  - name: Dungeon System
+    description: Instanced dungeons with bosses and loot
+    priority: high
+    tags:
+      - endgame
+      - gameplay
+    dependencies:
+      - Combat System
+      - Enemy Spawning
+    acceptanceCriteria:
+      - Enter dungeon instances
+      - Boss fights with mechanics
+      - Dungeon-exclusive loot
+      - Party support
+    complexity: 5
+
+  - name: Crafting System
+    description: Combine materials to create items
+    priority: medium
+    tags:
+      - gameplay
+      - economy
+    dependencies:
+      - Inventory System
+    acceptanceCriteria:
+      - Crafting recipes
+      - Material requirements clear
+      - Crafting stations in world
+      - Recipe discovery
+    complexity: 4
+
+  - name: Party System
+    description: Form parties with other players
+    priority: medium
+    tags:
+      - social
+      - multiplayer
+    acceptanceCriteria:
+      - Invite players to party
+      - Party UI shows members
+      - Shared XP option
+      - Party chat
+    complexity: 4
+
+  - name: Health/Mana System
+    description: Resource management for combat
+    priority: critical
+    tags:
+      - core
+      - combat
+    acceptanceCriteria:
+      - Health bar in UI
+      - Mana/energy for skills
+      - Regeneration mechanics
+      - Death and respawn
+    complexity: 2
+
+  - name: Minimap
+    description: Map showing player location and points of interest
+    priority: medium
+    tags:
+      - ui
+      - navigation
+    acceptanceCriteria:
+      - Minimap in corner of screen
+      - Player position shown
+      - Quest markers on map
+      - Zoom controls
+    complexity: 3
+
+  - name: Fast Travel
+    description: Teleport between discovered locations
+    priority: medium
+    tags:
+      - quality-of-life
+      - navigation
+    acceptanceCriteria:
+      - Discover waypoints in world
+      - Travel menu UI
+      - Cost or cooldown for travel
+      - Loading transition
+    complexity: 3
