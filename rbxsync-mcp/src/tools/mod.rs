@@ -580,6 +580,135 @@ impl RbxSyncClient {
 
         Ok(resp)
     }
+
+    // ========================================================================
+    // Harness Methods (Multi-session AI game development tracking)
+    // ========================================================================
+
+    /// Initialize harness for a project
+    pub async fn harness_init(
+        &self,
+        project_dir: &str,
+        game_name: &str,
+        description: Option<&str>,
+        genre: Option<&str>,
+    ) -> anyhow::Result<HarnessInitResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/harness/init", self.base_url))
+            .json(&serde_json::json!({
+                "projectDir": project_dir,
+                "gameName": game_name,
+                "description": description,
+                "genre": genre
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Start a new development session
+    pub async fn harness_session_start(
+        &self,
+        project_dir: &str,
+        initial_goals: Option<&str>,
+    ) -> anyhow::Result<SessionStartResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/harness/session/start", self.base_url))
+            .json(&serde_json::json!({
+                "projectDir": project_dir,
+                "initialGoals": initial_goals
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// End a development session
+    pub async fn harness_session_end(
+        &self,
+        project_dir: &str,
+        session_id: &str,
+        summary: Option<&str>,
+        handoff_notes: Option<&[String]>,
+    ) -> anyhow::Result<SessionEndResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/harness/session/end", self.base_url))
+            .json(&serde_json::json!({
+                "projectDir": project_dir,
+                "sessionId": session_id,
+                "summary": summary,
+                "handoffNotes": handoff_notes
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Update or create a feature
+    pub async fn harness_feature_update(
+        &self,
+        project_dir: &str,
+        feature_id: Option<&str>,
+        name: Option<&str>,
+        description: Option<&str>,
+        status: Option<&str>,
+        priority: Option<&str>,
+        tags: Option<&[String]>,
+        add_note: Option<&str>,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<FeatureUpdateResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/harness/feature/update", self.base_url))
+            .json(&serde_json::json!({
+                "projectDir": project_dir,
+                "featureId": feature_id,
+                "name": name,
+                "description": description,
+                "status": status,
+                "priority": priority,
+                "tags": tags,
+                "addNote": add_note,
+                "sessionId": session_id
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
+    /// Get harness status for a project
+    pub async fn harness_status(
+        &self,
+        project_dir: &str,
+    ) -> anyhow::Result<HarnessStatusResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/harness/status", self.base_url))
+            .json(&serde_json::json!({
+                "projectDir": project_dir
+            }))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
 }
 
 // ============================================================================
@@ -594,4 +723,80 @@ pub struct BotCommandResponse {
     pub error: Option<String>,
     #[serde(default)]
     pub data: Option<serde_json::Value>,
+}
+
+// ============================================================================
+// Harness Response Types
+// ============================================================================
+
+/// Response from harness init
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessInitResponse {
+    pub success: bool,
+    pub message: String,
+    pub harness_dir: String,
+    pub game_id: Option<String>,
+}
+
+/// Response from session start
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionStartResponse {
+    pub success: bool,
+    pub message: String,
+    pub session_id: Option<String>,
+    pub session_path: Option<String>,
+}
+
+/// Response from session end
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionEndResponse {
+    pub success: bool,
+    pub message: String,
+}
+
+/// Response from feature update
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureUpdateResponse {
+    pub success: bool,
+    pub message: String,
+    pub feature_id: Option<String>,
+}
+
+/// Summary of feature statuses
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct FeatureSummary {
+    pub total: usize,
+    pub planned: usize,
+    pub in_progress: usize,
+    pub completed: usize,
+    pub blocked: usize,
+    pub cancelled: usize,
+}
+
+/// Brief session summary
+#[derive(Debug, Deserialize, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SessionSummary {
+    pub id: String,
+    pub started_at: String,
+    pub ended_at: Option<String>,
+    pub summary: String,
+    pub features_count: usize,
+}
+
+/// Response with harness status
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct HarnessStatusResponse {
+    pub success: bool,
+    pub initialized: bool,
+    pub game: Option<serde_json::Value>,
+    pub features: Vec<serde_json::Value>,
+    pub feature_summary: FeatureSummary,
+    pub recent_sessions: Vec<SessionSummary>,
 }
