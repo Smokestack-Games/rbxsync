@@ -332,7 +332,7 @@ Changes not appearing in Studio.
 
 ## Version
 
-This documentation applies to RbxSync v1.1.2 and later.
+This documentation applies to RbxSync v1.3.0 and later.
 
 ## Links
 

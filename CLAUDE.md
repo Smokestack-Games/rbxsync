@@ -17,7 +17,7 @@ RbxSync is a bidirectional sync tool between Roblox Studio and local filesystem.
 - External editor support (VS Code)
 - AI-assisted development via MCP
 
-**Current Version:** v1.1.2
+**Current Version:** v1.3.0
 **Status:** Active development, some critical bugs
 
 ---

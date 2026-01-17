@@ -113,7 +113,7 @@ Each report includes:
   "title": "Sync fails on large projects",
   "description": "When syncing a project with 500+ scripts...",
   "stepsToReproduce": "1. Open large project\n2. Run sync",
-  "version": "v1.1.2",
+  "version": "v1.3.0",
   "reporter": {
     "id": "123456789",
     "tag": "user#1234"

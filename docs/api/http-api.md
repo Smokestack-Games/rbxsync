@@ -30,7 +30,7 @@ GET /health
 ```json
 {
   "status": "ok",
-  "version": "1.1.2"
+  "version": "1.3.0"
 }
 ```
 
@@ -245,7 +245,7 @@ GET /rbxsync/server-info
 ```json
 {
   "cwd": "/current/working/directory",
-  "version": "1.1.2",
+  "version": "1.3.0",
   "vscode_workspaces": ["/path/to/workspace"]
 }
 ```
