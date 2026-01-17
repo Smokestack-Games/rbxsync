@@ -1195,13 +1195,15 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         return { success = false, error = "No operations to apply" }
     end
 
-    -- Set waypoint BEFORE making changes for undo support
+    -- Build operation summary for undo name
     local opSummary = #operations .. " operations"
     if #operations == 1 then
         local op = operations[1]
         opSummary = (op.type or "sync") .. " " .. (op.path or "")
     end
-    ChangeHistoryService:SetWaypoint("Before RbxSync: " .. opSummary)
+
+    -- Begin recording to group all operations as a single atomic undo (RBXSYNC-57)
+    local recordingId = ChangeHistoryService:TryBeginRecording("RbxSync: " .. opSummary)
 
     -- Mark specific paths as file watcher sync to prevent echo back
     if source == "file_watcher" then
@@ -1369,10 +1371,13 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     isSyncing = false
     ChangeTracker.setSyncingFromServer(false)
 
-    -- If sync errored out, report it
+    -- If sync errored out, report it and cancel the recording
     if not syncOk then
         warn("[RbxSync] Sync error: " .. tostring(syncErr))
         setStatus("Sync error occurred", Colors.error, 10)
+        if recordingId then
+            ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Cancel)
+        end
         return { success = false, results = results, applied = appliedCount, skipped = skippedCount }
     end
 
@@ -1406,9 +1411,14 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         setStatus(msg, Colors.success, 10)
     end
 
-    -- Set waypoint AFTER changes for undo support
-    if appliedCount > 0 then
-        ChangeHistoryService:SetWaypoint("RbxSync: " .. opSummary)
+    -- Finish recording to commit as single undo group (RBXSYNC-57)
+    if recordingId then
+        if appliedCount > 0 then
+            ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Commit)
+        else
+            -- No changes made, cancel the recording
+            ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Cancel)
+        end
     end
 
     return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount }
@@ -1419,20 +1429,38 @@ local function handleCommand(command: string, payload: any)
     if command == "extract:start" then
         extractGame(payload or {})
     elseif command == "sync:create" then
-        -- Suppress outbound for individual sync operations
+        -- Group operation for proper undo (RBXSYNC-57)
+        local path = (payload or {}).path or "instance"
+        local recordingId = ChangeHistoryService:TryBeginRecording("RbxSync: create " .. path)
         ChangeTracker.setSyncingFromServer(true)
         local result = syncCreate(payload or {})
         ChangeTracker.setSyncingFromServer(false)
+        if recordingId then
+            local op = result.success and not result.skipped and Enum.FinishRecordingOperation.Commit or Enum.FinishRecordingOperation.Cancel
+            ChangeHistoryService:FinishRecording(recordingId, op)
+        end
         return result
     elseif command == "sync:update" then
+        local path = (payload or {}).path or "instance"
+        local recordingId = ChangeHistoryService:TryBeginRecording("RbxSync: update " .. path)
         ChangeTracker.setSyncingFromServer(true)
         local result = syncUpdate(payload or {})
         ChangeTracker.setSyncingFromServer(false)
+        if recordingId then
+            local op = result.success and not result.skipped and Enum.FinishRecordingOperation.Commit or Enum.FinishRecordingOperation.Cancel
+            ChangeHistoryService:FinishRecording(recordingId, op)
+        end
         return result
     elseif command == "sync:delete" then
+        local path = (payload or {}).path or "instance"
+        local recordingId = ChangeHistoryService:TryBeginRecording("RbxSync: delete " .. path)
         ChangeTracker.setSyncingFromServer(true)
         local result = syncDelete(payload or {})
         ChangeTracker.setSyncingFromServer(false)
+        if recordingId then
+            local op = result.success and not result.skipped and Enum.FinishRecordingOperation.Commit or Enum.FinishRecordingOperation.Cancel
+            ChangeHistoryService:FinishRecording(recordingId, op)
+        end
         return result
     elseif command == "sync:batch" then
         -- syncBatch handles its own flag management
