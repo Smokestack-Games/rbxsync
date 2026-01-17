@@ -587,22 +587,36 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .studio-btn:hover { background: var(--bg-hover); border-color: var(--border-light); }
     .studio-btn .icon { width: 12px; height: 12px; }
 
-    /* Sync = Primary button (solid green) */
-    .studio-btn.sync {
+    /* Sync, Extract, Test = Secondary buttons (gray) when not linked */
+    .studio-btn.sync:hover,
+    .studio-btn.extract:hover,
+    .studio-btn.test:hover { border-color: var(--border-light); color: var(--text-primary); }
+
+    /* Sync = Primary button (solid green) when linked */
+    .studio-card.linked .studio-btn.sync {
       background: var(--accent);
       border-color: var(--accent);
       color: var(--bg-base);
     }
-    .studio-btn.sync:hover {
+    .studio-card.linked .studio-btn.sync:hover {
       background: var(--accent-hover);
       border-color: var(--accent-hover);
       color: var(--bg-base);
     }
-    .studio-btn.sync .icon { opacity: 1; }
+    .studio-card.linked .studio-btn.sync .icon { opacity: 1; }
 
-    /* Extract, Test = Secondary buttons (outlined) */
-    .studio-btn.extract:hover { border-color: var(--border-light); color: var(--text-primary); }
-    .studio-btn.test:hover { border-color: var(--border-light); color: var(--text-primary); }
+    /* Extract = Blue primary button when linked */
+    .studio-card.linked .studio-btn.extract {
+      background: var(--blue);
+      border-color: var(--blue);
+      color: var(--bg-base);
+    }
+    .studio-card.linked .studio-btn.extract:hover {
+      background: #7BB8FC;
+      border-color: #7BB8FC;
+      color: var(--bg-base);
+    }
+    .studio-card.linked .studio-btn.extract .icon { opacity: 1; }
 
     /* Link/Unlink buttons */
     .studio-btn.link { background: var(--success-soft); border-color: var(--success); color: var(--success); }
