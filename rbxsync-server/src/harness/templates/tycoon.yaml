@@ -1,0 +1,115 @@
+# Tycoon Game Template
+# Pre-defined features for tycoon-style games
+
+genre: Tycoon
+description: Build and manage your own business empire
+
+features:
+  - name: Currency System
+    description: Core currency management with earning, spending, and display
+    priority: critical
+    tags: [core, economy]
+    acceptanceCriteria:
+      - Player can earn currency from production
+      - Currency persists between sessions
+      - Currency displayed in UI
+    complexity: 3
+
+  - name: Upgrade System
+    description: Purchase upgrades to improve production and unlock new content
+    priority: critical
+    tags: [core, progression]
+    dependencies: [Currency System]
+    acceptanceCriteria:
+      - Players can view available upgrades
+      - Upgrades have clear costs and effects
+      - Purchased upgrades persist between sessions
+    complexity: 4
+
+  - name: Production System
+    description: Automated resource generation based on owned buildings/machines
+    priority: critical
+    tags: [core, gameplay]
+    dependencies: [Currency System]
+    acceptanceCriteria:
+      - Production generates currency over time
+      - Production rate scales with upgrades
+      - Visual feedback for production
+    complexity: 3
+
+  - name: Rebirth System
+    description: Prestige mechanic to reset progress for permanent bonuses
+    priority: high
+    tags: [progression, endgame]
+    dependencies: [Currency System, Upgrade System]
+    acceptanceCriteria:
+      - Players can rebirth when requirements met
+      - Rebirth grants permanent multiplier
+      - Rebirth counter persists
+    complexity: 4
+
+  - name: Leaderboards
+    description: Global and friend leaderboards for competition
+    priority: medium
+    tags: [social, competitive]
+    dependencies: [Currency System]
+    acceptanceCriteria:
+      - Players can view global rankings
+      - Leaderboard updates periodically
+      - Shows player rank and score
+    complexity: 3
+
+  - name: Tycoon Buttons
+    description: Physical buttons in world to purchase and unlock content
+    priority: high
+    tags: [ui, gameplay]
+    dependencies: [Currency System]
+    acceptanceCriteria:
+      - Buttons show cost and what they unlock
+      - Buttons become available in sequence
+      - Visual/audio feedback on purchase
+    complexity: 2
+
+  - name: Building Placement
+    description: Place buildings/machines in designated areas
+    priority: high
+    tags: [gameplay, construction]
+    dependencies: [Tycoon Buttons]
+    acceptanceCriteria:
+      - Buildings appear when purchased
+      - Buildings have correct position and orientation
+      - Buildings animate/function when placed
+    complexity: 3
+
+  - name: Conveyor System
+    description: Move resources between production stages
+    priority: medium
+    tags: [gameplay, automation]
+    dependencies: [Production System]
+    acceptanceCriteria:
+      - Items move along conveyors
+      - Items reach destinations correctly
+      - Visual clarity of item flow
+    complexity: 4
+
+  - name: Workers/NPCs
+    description: NPC workers that automate tasks
+    priority: low
+    tags: [automation, visual]
+    dependencies: [Production System]
+    acceptanceCriteria:
+      - Workers can be purchased
+      - Workers perform tasks automatically
+      - Workers have idle and working animations
+    complexity: 3
+
+  - name: Offline Progress
+    description: Earn resources while offline
+    priority: medium
+    tags: [progression, quality-of-life]
+    dependencies: [Production System]
+    acceptanceCriteria:
+      - Calculate earnings based on time away
+      - Show summary on return
+      - Cap maximum offline earnings
+    complexity: 3

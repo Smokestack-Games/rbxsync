@@ -19,6 +19,82 @@ use serde::{Deserialize, Serialize};
 
 use crate::AppState;
 
+// Embed game templates at compile time
+mod templates {
+    pub const TYCOON: &str = include_str!("harness/templates/tycoon.yaml");
+    pub const OBBY: &str = include_str!("harness/templates/obby.yaml");
+    pub const SIMULATOR: &str = include_str!("harness/templates/simulator.yaml");
+    pub const RPG: &str = include_str!("harness/templates/rpg.yaml");
+    pub const HORROR: &str = include_str!("harness/templates/horror.yaml");
+}
+
+/// Template definition structure matching the YAML format
+#[derive(Debug, Deserialize)]
+#[allow(dead_code)]
+struct GameTemplate {
+    genre: String,
+    description: String,
+    features: Vec<TemplateFeature>,
+}
+
+/// Feature definition within a template
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+struct TemplateFeature {
+    name: String,
+    #[serde(default)]
+    description: String,
+    #[serde(default)]
+    priority: TemplatePriority,
+    #[serde(default)]
+    tags: Vec<String>,
+    #[serde(default)]
+    dependencies: Vec<String>,
+    #[serde(default)]
+    acceptance_criteria: Vec<String>,
+    #[serde(default)]
+    complexity: Option<u8>,
+}
+
+/// Priority level in template
+#[derive(Debug, Default, Deserialize)]
+#[serde(rename_all = "snake_case")]
+enum TemplatePriority {
+    Critical,
+    High,
+    #[default]
+    Medium,
+    Low,
+}
+
+impl From<TemplatePriority> for FeaturePriority {
+    fn from(p: TemplatePriority) -> Self {
+        match p {
+            TemplatePriority::Critical => FeaturePriority::Critical,
+            TemplatePriority::High => FeaturePriority::High,
+            TemplatePriority::Medium => FeaturePriority::Medium,
+            TemplatePriority::Low => FeaturePriority::Low,
+        }
+    }
+}
+
+/// Get template content by name
+fn get_template(name: &str) -> Option<&'static str> {
+    match name.to_lowercase().as_str() {
+        "tycoon" => Some(templates::TYCOON),
+        "obby" => Some(templates::OBBY),
+        "simulator" => Some(templates::SIMULATOR),
+        "rpg" => Some(templates::RPG),
+        "horror" => Some(templates::HORROR),
+        _ => None,
+    }
+}
+
+/// List available template names
+pub fn available_templates() -> Vec<&'static str> {
+    vec!["tycoon", "obby", "simulator", "rpg", "horror"]
+}
+
 /// Default harness directory name
 const HARNESS_DIR: &str = ".rbxsync/harness";
 
@@ -44,6 +120,10 @@ pub struct HarnessInitRequest {
     /// Optional game genre
     #[serde(default)]
     pub genre: Option<String>,
+
+    /// Optional template to initialize with (tycoon, obby, simulator, rpg, horror)
+    #[serde(default)]
+    pub template: Option<String>,
 }
 
 /// Response from harness init
@@ -54,6 +134,12 @@ pub struct HarnessInitResponse {
     pub message: String,
     pub harness_dir: String,
     pub game_id: Option<String>,
+    /// Template that was applied (if any)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub template_applied: Option<String>,
+    /// Number of features added from template
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub features_added: Option<usize>,
 }
 
 /// Initialize harness directory structure for a project
@@ -75,6 +161,8 @@ pub async fn handle_harness_init(
                 message: format!("Failed to create harness directories: {}", e),
                 harness_dir: harness_dir.to_string_lossy().to_string(),
                 game_id: None,
+                template_applied: None,
+                features_added: None,
             }),
         );
     }
@@ -107,6 +195,8 @@ pub async fn handle_harness_init(
                         message: format!("Failed to write game.yaml: {}", e),
                         harness_dir: harness_dir.to_string_lossy().to_string(),
                         game_id: None,
+                        template_applied: None,
+                        features_added: None,
                     }),
                 );
             }
@@ -119,13 +209,78 @@ pub async fn handle_harness_init(
                     message: format!("Failed to serialize game definition: {}", e),
                     harness_dir: harness_dir.to_string_lossy().to_string(),
                     game_id: None,
+                    template_applied: None,
+                    features_added: None,
                 }),
             );
         }
     }
 
-    // Write empty features.yaml
-    let features = FeaturesFile { features: vec![] };
+    // Load template features if specified
+    let (features, template_applied, features_count) = if let Some(ref template_name) = req.template {
+        match get_template(template_name) {
+            Some(template_content) => {
+                match serde_yaml::from_str::<GameTemplate>(template_content) {
+                    Ok(template) => {
+                        let timestamp = current_timestamp();
+                        let features: Vec<Feature> = template.features.into_iter().map(|tf| {
+                            Feature {
+                                name: tf.name,
+                                description: tf.description,
+                                priority: tf.priority.into(),
+                                tags: tf.tags,
+                                acceptance_criteria: tf.acceptance_criteria,
+                                complexity: tf.complexity,
+                                created_at: Some(timestamp.clone()),
+                                notes: if tf.dependencies.is_empty() {
+                                    vec![]
+                                } else {
+                                    vec![format!("Depends on: {}", tf.dependencies.join(", "))]
+                                },
+                                ..Default::default()
+                            }
+                        }).collect();
+                        let count = features.len();
+                        (FeaturesFile { features }, Some(template_name.clone()), Some(count))
+                    }
+                    Err(e) => {
+                        return (
+                            StatusCode::BAD_REQUEST,
+                            Json(HarnessInitResponse {
+                                success: false,
+                                message: format!("Failed to parse template '{}': {}", template_name, e),
+                                harness_dir: harness_dir.to_string_lossy().to_string(),
+                                game_id: Some(game_id),
+                                template_applied: None,
+                                features_added: None,
+                            }),
+                        );
+                    }
+                }
+            }
+            None => {
+                return (
+                    StatusCode::BAD_REQUEST,
+                    Json(HarnessInitResponse {
+                        success: false,
+                        message: format!(
+                            "Unknown template '{}'. Available: {}",
+                            template_name,
+                            available_templates().join(", ")
+                        ),
+                        harness_dir: harness_dir.to_string_lossy().to_string(),
+                        game_id: Some(game_id),
+                        template_applied: None,
+                        features_added: None,
+                    }),
+                );
+            }
+        }
+    } else {
+        (FeaturesFile { features: vec![] }, None, None)
+    };
+
+    // Write features.yaml
     let features_path = harness_dir.join("features.yaml");
     match serde_yaml::to_string(&features) {
         Ok(yaml) => {
@@ -137,6 +292,8 @@ pub async fn handle_harness_init(
                         message: format!("Failed to write features.yaml: {}", e),
                         harness_dir: harness_dir.to_string_lossy().to_string(),
                         game_id: Some(game_id),
+                        template_applied: None,
+                        features_added: None,
                     }),
                 );
             }
@@ -149,20 +306,37 @@ pub async fn handle_harness_init(
                     message: format!("Failed to serialize features: {}", e),
                     harness_dir: harness_dir.to_string_lossy().to_string(),
                     game_id: Some(game_id),
+                    template_applied: None,
+                    features_added: None,
                 }),
             );
         }
     }
 
-    tracing::info!("Harness initialized at: {}", harness_dir.display());
+    let message = match &template_applied {
+        Some(t) => format!(
+            "Harness initialized with '{}' template ({} features)",
+            t,
+            features_count.unwrap_or(0)
+        ),
+        None => "Harness initialized successfully".to_string(),
+    };
+
+    tracing::info!(
+        "Harness initialized at: {} (template: {:?})",
+        harness_dir.display(),
+        template_applied
+    );
 
     (
         StatusCode::OK,
         Json(HarnessInitResponse {
             success: true,
-            message: "Harness initialized successfully".to_string(),
+            message,
             harness_dir: harness_dir.to_string_lossy().to_string(),
             game_id: Some(game_id),
+            template_applied,
+            features_added: features_count,
         }),
     )
 }

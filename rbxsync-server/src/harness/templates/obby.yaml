@@ -1,0 +1,133 @@
+# Obby Game Template
+# Pre-defined features for obstacle course games
+
+genre: Obby
+description: Navigate challenging obstacle courses with precision platforming
+
+features:
+  - name: Checkpoint System
+    description: Save player progress at checkpoints throughout the obby
+    priority: critical
+    tags: [core, progression]
+    acceptanceCriteria:
+      - Checkpoints save on touch
+      - Players respawn at last checkpoint
+      - Checkpoint progress persists between sessions
+    complexity: 3
+
+  - name: Stage System
+    description: Organize obby into distinct numbered stages
+    priority: critical
+    tags: [core, structure]
+    acceptanceCriteria:
+      - Stages are clearly numbered
+      - Stage boundaries are defined
+      - Stage completion is tracked
+    complexity: 2
+
+  - name: Timer System
+    description: Track completion time for speedrunning
+    priority: high
+    tags: [competitive, ui]
+    dependencies: [Stage System]
+    acceptanceCriteria:
+      - Timer starts at obby beginning
+      - Timer displays in UI
+      - Best times are saved
+    complexity: 2
+
+  - name: Skip Stage
+    description: Allow players to skip difficult stages with currency/passes
+    priority: medium
+    tags: [monetization, accessibility]
+    dependencies: [Stage System]
+    acceptanceCriteria:
+      - Skip button available per stage
+      - Skips cost currency or gamepass
+      - Skipped stages marked differently
+    complexity: 2
+
+  - name: Kill Bricks
+    description: Hazard parts that reset player to checkpoint
+    priority: critical
+    tags: [core, hazards]
+    dependencies: [Checkpoint System]
+    acceptanceCriteria:
+      - Kill bricks reset on touch
+      - Clear visual indicator (red/lava)
+      - Death count tracking
+    complexity: 1
+
+  - name: Moving Platforms
+    description: Platforms that move in patterns
+    priority: high
+    tags: [obstacles, gameplay]
+    acceptanceCriteria:
+      - Platforms move smoothly
+      - Player stays on moving platforms
+      - Multiple movement patterns
+    complexity: 3
+
+  - name: Difficulty Zones
+    description: Visual indication of difficulty (easy/medium/hard sections)
+    priority: medium
+    tags: [ui, visual]
+    dependencies: [Stage System]
+    acceptanceCriteria:
+      - Color coding for difficulty
+      - Difficulty indicated at zone start
+      - UI shows current difficulty
+    complexity: 2
+
+  - name: Stage Leaderboard
+    description: Fastest times per stage and overall
+    priority: medium
+    tags: [competitive, social]
+    dependencies: [Timer System]
+    acceptanceCriteria:
+      - Top times displayed
+      - Personal best tracking
+      - Global and friend filters
+    complexity: 3
+
+  - name: Death Counter
+    description: Track and display total deaths
+    priority: low
+    tags: [stats, ui]
+    dependencies: [Kill Bricks]
+    acceptanceCriteria:
+      - Deaths counted per session
+      - Total deaths saved
+      - Display in stats UI
+    complexity: 1
+
+  - name: Gravity Zones
+    description: Areas with modified gravity for unique challenges
+    priority: medium
+    tags: [obstacles, mechanics]
+    acceptanceCriteria:
+      - Gravity changes in designated areas
+      - Visual indicator of gravity zones
+      - Smooth transitions
+    complexity: 3
+
+  - name: Invisible Obby Mode
+    description: Challenge mode where platforms become invisible
+    priority: low
+    tags: [challenge, endgame]
+    dependencies: [Stage System]
+    acceptanceCriteria:
+      - Toggle for invisible mode
+      - Platforms fade based on setting
+      - Special rewards for completion
+    complexity: 2
+
+  - name: Spectate Mode
+    description: Watch other players attempt the obby
+    priority: low
+    tags: [social, ui]
+    acceptanceCriteria:
+      - Spectate button in UI
+      - Camera follows selected player
+      - Easy to exit spectate
+    complexity: 3

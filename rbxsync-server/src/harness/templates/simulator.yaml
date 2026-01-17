@@ -1,0 +1,147 @@
+# Simulator Game Template
+# Pre-defined features for simulator-style games
+
+genre: Simulator
+description: Collect resources, unlock zones, and grow your collection
+
+features:
+  - name: Collection System
+    description: Core loop of collecting resources/items through actions
+    priority: critical
+    tags: [core, gameplay]
+    acceptanceCriteria:
+      - Click/tool to collect items
+      - Items go to inventory
+      - Collection has visual/audio feedback
+    complexity: 3
+
+  - name: Pet System
+    description: Collectible pets that provide bonuses and can be equipped
+    priority: critical
+    tags: [core, collection]
+    acceptanceCriteria:
+      - Pets can be obtained from eggs
+      - Pets have rarity tiers
+      - Pets provide stat bonuses
+      - Multiple pets can be equipped
+    complexity: 5
+
+  - name: Egg Hatching
+    description: Purchase and hatch eggs to obtain pets
+    priority: high
+    tags: [collection, economy]
+    dependencies: [Pet System]
+    acceptanceCriteria:
+      - Eggs available for purchase
+      - Hatching animation
+      - Rarity odds displayed
+      - Duplicate pet handling
+    complexity: 4
+
+  - name: Zone Unlocking
+    description: Progress through zones with increasing difficulty and rewards
+    priority: critical
+    tags: [progression, world]
+    dependencies: [Collection System]
+    acceptanceCriteria:
+      - Zones have requirements to unlock
+      - Later zones have better rewards
+      - Zone progress saves
+    complexity: 3
+
+  - name: Rebirth System
+    description: Prestige mechanic to reset progress for permanent bonuses
+    priority: high
+    tags: [progression, endgame]
+    dependencies: [Zone Unlocking]
+    acceptanceCriteria:
+      - Rebirth requirements clear
+      - Permanent multipliers granted
+      - Rebirth counter displayed
+    complexity: 4
+
+  - name: Backpack/Capacity
+    description: Limited inventory that can be upgraded
+    priority: high
+    tags: [core, progression]
+    dependencies: [Collection System]
+    acceptanceCriteria:
+      - Capacity limits collection
+      - Can upgrade capacity
+      - Visual indicator of fullness
+    complexity: 2
+
+  - name: Sell Area
+    description: Location to sell collected items for currency
+    priority: critical
+    tags: [core, economy]
+    dependencies: [Collection System]
+    acceptanceCriteria:
+      - Clear sell zone location
+      - Items converted to currency
+      - Auto-sell option available
+    complexity: 2
+
+  - name: Tool Upgrades
+    description: Upgrade collection tools for better efficiency
+    priority: high
+    tags: [progression, economy]
+    dependencies: [Collection System]
+    acceptanceCriteria:
+      - Multiple tool tiers
+      - Clear upgrade costs
+      - Tools persist between sessions
+    complexity: 3
+
+  - name: Lucky/Enchant System
+    description: Random bonuses that multiply collection value
+    priority: medium
+    tags: [gameplay, rng]
+    dependencies: [Collection System]
+    acceptanceCriteria:
+      - Random chance for luck bonus
+      - Visual indicator of luck
+      - Luck can be improved
+    complexity: 3
+
+  - name: Trading System
+    description: Trade pets and items with other players
+    priority: medium
+    tags: [social, economy]
+    dependencies: [Pet System]
+    acceptanceCriteria:
+      - Secure trade window
+      - Both players confirm
+      - Trade history logged
+    complexity: 4
+
+  - name: Codes System
+    description: Redeemable codes for free rewards
+    priority: medium
+    tags: [marketing, rewards]
+    acceptanceCriteria:
+      - Code input UI
+      - One-time redemption per code
+      - Clear feedback on redemption
+    complexity: 2
+
+  - name: Daily Rewards
+    description: Login rewards that scale with streak
+    priority: medium
+    tags: [retention, rewards]
+    acceptanceCriteria:
+      - Daily claim button
+      - Streak tracking
+      - Escalating rewards
+    complexity: 2
+
+  - name: Index/Collection Book
+    description: View all discovered pets and items
+    priority: low
+    tags: [collection, ui]
+    dependencies: [Pet System]
+    acceptanceCriteria:
+      - Shows all possible pets
+      - Tracks discovered vs undiscovered
+      - Completion percentage
+    complexity: 2

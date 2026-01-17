@@ -1,0 +1,166 @@
+# Horror Game Template
+# Pre-defined features for horror games
+
+genre: Horror
+description: Atmospheric horror with tension, scares, and survival elements
+
+features:
+  - name: Atmosphere System
+    description: Dynamic lighting, fog, and ambient audio for tension
+    priority: critical
+    tags: [core, visuals]
+    acceptanceCriteria:
+      - Dark, moody lighting
+      - Fog and particle effects
+      - Ambient sounds and music
+      - Dynamic atmosphere changes
+    complexity: 4
+
+  - name: Flashlight/Light Sources
+    description: Limited light sources the player controls
+    priority: critical
+    tags: [core, gameplay]
+    acceptanceCriteria:
+      - Flashlight can be toggled
+      - Limited battery/fuel
+      - Light affects visibility
+      - Can find batteries/refills
+    complexity: 3
+
+  - name: Objective System
+    description: Tasks players must complete to progress or escape
+    priority: critical
+    tags: [core, progression]
+    acceptanceCriteria:
+      - Clear objectives displayed
+      - Objectives tracked in UI
+      - Completion advances story
+      - Multiple objectives possible
+    complexity: 3
+
+  - name: Chase Mechanics
+    description: Monster/enemy that pursues players
+    priority: critical
+    tags: [core, gameplay]
+    acceptanceCriteria:
+      - Enemy patrols or hunts
+      - Detection triggers chase
+      - Chase music/sounds
+      - Escape mechanics work
+    complexity: 5
+
+  - name: Hiding System
+    description: Spots where players can hide from enemies
+    priority: high
+    tags: [gameplay, survival]
+    dependencies: [Chase Mechanics]
+    acceptanceCriteria:
+      - Hiding spots in environment
+      - Enter/exit hiding animation
+      - Enemies can detect in hiding (skill-based)
+      - Visual indicator of hidden state
+    complexity: 3
+
+  - name: Stamina System
+    description: Limited sprinting with recovery
+    priority: high
+    tags: [gameplay, balance]
+    acceptanceCriteria:
+      - Stamina bar in UI
+      - Sprinting depletes stamina
+      - Stamina regenerates when walking
+      - Exhaustion effects
+    complexity: 2
+
+  - name: Jump Scares
+    description: Scripted and dynamic scare events
+    priority: high
+    tags: [horror, events]
+    acceptanceCriteria:
+      - Scripted scare moments
+      - Audio stingers
+      - Visual effects
+      - Triggered by player location/action
+    complexity: 3
+
+  - name: Item Collection
+    description: Find keys, notes, and items to progress
+    priority: high
+    tags: [gameplay, puzzles]
+    dependencies: [Objective System]
+    acceptanceCriteria:
+      - Items can be picked up
+      - Inventory for key items
+      - Items unlock doors/areas
+      - Notes provide story/clues
+    complexity: 3
+
+  - name: Locked Doors
+    description: Doors that require keys or codes to open
+    priority: high
+    tags: [puzzles, progression]
+    dependencies: [Item Collection]
+    acceptanceCriteria:
+      - Doors show locked status
+      - Keys unlock specific doors
+      - Codes can be entered
+      - Feedback on wrong key/code
+    complexity: 2
+
+  - name: Sound Cues
+    description: Audio indicating enemy proximity or events
+    priority: high
+    tags: [audio, gameplay]
+    dependencies: [Chase Mechanics]
+    acceptanceCriteria:
+      - Footsteps indicate enemy nearby
+      - Heartbeat when in danger
+      - 3D audio positioning
+      - Music intensity scales
+    complexity: 3
+
+  - name: Sanity/Fear Meter
+    description: Player mental state that affects gameplay
+    priority: medium
+    tags: [gameplay, horror]
+    acceptanceCriteria:
+      - Fear increases in darkness/danger
+      - Visual effects at high fear
+      - Gameplay impacts (speed, vision)
+      - Ways to reduce fear
+    complexity: 4
+
+  - name: Death/Game Over
+    description: What happens when the player is caught
+    priority: critical
+    tags: [core, gameplay]
+    dependencies: [Chase Mechanics]
+    acceptanceCriteria:
+      - Death animation/effect
+      - Game over screen
+      - Respawn at checkpoint
+      - Death count tracking
+    complexity: 2
+
+  - name: Multiple Endings
+    description: Different endings based on player choices
+    priority: medium
+    tags: [story, replayability]
+    dependencies: [Objective System]
+    acceptanceCriteria:
+      - Choices tracked during game
+      - Different ending scenes
+      - Ending unlockables
+      - Replay incentive
+    complexity: 4
+
+  - name: Co-op Support
+    description: Multiple players surviving together
+    priority: medium
+    tags: [multiplayer, social]
+    acceptanceCriteria:
+      - Multiple players in game
+      - Shared objectives
+      - Revive mechanics
+      - Voice chat proximity
+    complexity: 5
