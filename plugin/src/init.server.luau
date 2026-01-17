@@ -597,6 +597,9 @@ local function extractGame(config: {any})
     local startTime = os.clock()
     operationState.extractStartTime = startTime
 
+    -- IMPORTANT: Clear serializer cache from previous extractions to avoid false duplicates
+    Serializer.clearCache()
+
     -- Update button state to show extracting with timer
     updateExtractButtonState(ExtractButtonState.EXTRACTING)
 

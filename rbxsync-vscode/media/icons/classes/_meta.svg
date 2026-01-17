@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16">
+  <!-- Simple metadata/config icon - subtle gray document with a gear -->
+  <rect x="2" y="1" width="12" height="14" rx="1.5" fill="#4a4a4a"/>
+  <rect x="3.5" y="3" width="9" height="1" rx="0.5" fill="#6a6a6a"/>
+  <rect x="3.5" y="5.5" width="7" height="1" rx="0.5" fill="#6a6a6a"/>
+  <rect x="3.5" y="8" width="8" height="1" rx="0.5" fill="#6a6a6a"/>
+  <rect x="3.5" y="10.5" width="5" height="1" rx="0.5" fill="#6a6a6a"/>
+</svg>

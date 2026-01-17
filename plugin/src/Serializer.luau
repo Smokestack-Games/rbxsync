@@ -65,17 +65,17 @@ function Serializer.buildDisambiguatedPaths(root: Instance, rootPath: string?)
             local childPath: string
 
             if nameCount[name] > 1 then
-                -- Duplicate name - append index suffix
+                -- Duplicate name - use short ID suffix for disambiguation
                 nameSeen[name] = (nameSeen[name] or 0) + 1
                 local index = nameSeen[name]
                 if index == 1 then
                     -- First occurrence keeps original name
                     childPath = parentPath .. "/" .. escapedName
                 else
-                    -- Subsequent occurrences get suffix using ~N~ format
-                    -- We use ~N~ instead of _N to distinguish from natural underscores
-                    local disambiguatedName = escapedName .. "~" .. tostring(index) .. "~"
-                    childPath = parentPath .. "/" .. disambiguatedName
+                    -- Subsequent occurrences get short debugId suffix (8 chars)
+                    local debugId = child:GetDebugId(0)
+                    local shortId = string.sub(debugId, 1, 8)
+                    childPath = parentPath .. "/" .. escapedName .. "~" .. shortId
                 end
             else
                 -- Unique name - use as is

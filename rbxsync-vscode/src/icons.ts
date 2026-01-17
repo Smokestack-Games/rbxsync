@@ -15,12 +15,13 @@ const classColors: Record<string, vscode.ThemeColor> = {
   LocalScript: new vscode.ThemeColor('charts.blue'),
   ModuleScript: new vscode.ThemeColor('charts.purple'),
 
-  // Instances
+  // Parts & Objects
   Part: new vscode.ThemeColor('charts.gray'),
   MeshPart: new vscode.ThemeColor('charts.green'),
   UnionOperation: new vscode.ThemeColor('charts.blue'),
   Model: new vscode.ThemeColor('charts.gray'),
   Folder: new vscode.ThemeColor('charts.yellow'),
+  Tool: new vscode.ThemeColor('charts.blue'),
 
   // Events
   RemoteEvent: new vscode.ThemeColor('charts.red'),
@@ -34,6 +35,34 @@ const classColors: Record<string, vscode.ThemeColor> = {
   BoolValue: new vscode.ThemeColor('charts.purple'),
   IntValue: new vscode.ThemeColor('charts.orange'),
   ObjectValue: new vscode.ThemeColor('charts.gray'),
+
+  // UI
+  ScreenGui: new vscode.ThemeColor('charts.green'),
+  Frame: new vscode.ThemeColor('charts.gray'),
+  TextLabel: new vscode.ThemeColor('charts.gray'),
+  TextButton: new vscode.ThemeColor('charts.blue'),
+  ImageLabel: new vscode.ThemeColor('charts.gray'),
+
+  // Effects
+  Fire: new vscode.ThemeColor('charts.orange'),
+  Smoke: new vscode.ThemeColor('charts.gray'),
+  ParticleEmitter: new vscode.ThemeColor('charts.purple'),
+  PointLight: new vscode.ThemeColor('charts.yellow'),
+  SpotLight: new vscode.ThemeColor('charts.yellow'),
+  SurfaceLight: new vscode.ThemeColor('charts.yellow'),
+  Decal: new vscode.ThemeColor('charts.green'),
+  Texture: new vscode.ThemeColor('charts.green'),
+
+  // Constraints & Joints
+  Attachment: new vscode.ThemeColor('charts.orange'),
+  Weld: new vscode.ThemeColor('charts.gray'),
+  WeldConstraint: new vscode.ThemeColor('charts.gray'),
+  Motor6D: new vscode.ThemeColor('charts.blue'),
+
+  // Character
+  Humanoid: new vscode.ThemeColor('charts.green'),
+  Animator: new vscode.ThemeColor('charts.purple'),
+  Animation: new vscode.ThemeColor('charts.purple'),
 
   // Other
   Configuration: new vscode.ThemeColor('charts.yellow'),
@@ -57,6 +86,7 @@ function getClassBadge(className: string): string {
     UnionOperation: 'U',
     Model: 'M',
     Folder: 'F',
+    Tool: 'T',
     RemoteEvent: 'RE',
     RemoteFunction: 'RF',
     BindableEvent: 'BE',
@@ -66,6 +96,26 @@ function getClassBadge(className: string): string {
     BoolValue: 'Bool',
     IntValue: 'Int',
     ObjectValue: 'Obj',
+    ScreenGui: 'SG',
+    Frame: 'Fr',
+    TextLabel: 'TL',
+    TextButton: 'TB',
+    ImageLabel: 'IL',
+    Fire: 'Fi',
+    Smoke: 'Sm',
+    ParticleEmitter: 'PE',
+    PointLight: 'PL',
+    SpotLight: 'SL',
+    SurfaceLight: 'SuL',
+    Decal: 'D',
+    Texture: 'Tx',
+    Attachment: 'At',
+    Weld: 'W',
+    WeldConstraint: 'WC',
+    Motor6D: 'M6',
+    Humanoid: 'H',
+    Animator: 'An',
+    Animation: 'Anim',
     Configuration: 'Cfg',
     Sound: 'Snd',
     SpawnLocation: 'SP',

@@ -2,68 +2,2555 @@
   "$schema": "vscode://schemas/icon-theme",
   "hidesExplorerArrows": false,
   "iconDefinitions": {
-    "_script": {
-      "iconPath": "../media/icons/classes/Script.svg"
+    "_meta": {
+      "iconPath": "../media/icons/classes/_meta.svg"
     },
-    "_localscript": {
-      "iconPath": "../media/icons/classes/LocalScript.svg"
+    "_accessory": {
+      "iconPath": "../media/icons/classes/Accessory.png"
     },
-    "_modulescript": {
-      "iconPath": "../media/icons/classes/ModuleScript.svg"
+    "_accessorydescription": {
+      "iconPath": "../media/icons/classes/AccessoryDescription.png"
     },
-    "_folder": {
-      "iconPath": "../media/icons/classes/Folder.svg"
+    "_accountservice": {
+      "iconPath": "../media/icons/classes/AccountService.png"
     },
-    "_part": {
-      "iconPath": "../media/icons/classes/Part.svg"
+    "_accoutrement": {
+      "iconPath": "../media/icons/classes/Accoutrement.png"
     },
-    "_meshpart": {
-      "iconPath": "../media/icons/classes/MeshPart.svg"
+    "_achievementservice": {
+      "iconPath": "../media/icons/classes/AchievementService.png"
     },
-    "_model": {
-      "iconPath": "../media/icons/classes/Model.svg"
+    "_activityhistoryeventservice": {
+      "iconPath": "../media/icons/classes/ActivityHistoryEventService.png"
     },
-    "_sound": {
-      "iconPath": "../media/icons/classes/Sound.svg"
+    "_actor": {
+      "iconPath": "../media/icons/classes/Actor.png"
     },
-    "_spawnlocation": {
-      "iconPath": "../media/icons/classes/SpawnLocation.svg"
+    "_adgui": {
+      "iconPath": "../media/icons/classes/AdGui.png"
     },
-    "_remoteevent": {
-      "iconPath": "../media/icons/classes/RemoteEvent.svg"
+    "_adportal": {
+      "iconPath": "../media/icons/classes/AdPortal.png"
     },
-    "_remotefunction": {
-      "iconPath": "../media/icons/classes/RemoteFunction.svg"
+    "_adservice": {
+      "iconPath": "../media/icons/classes/AdService.png"
+    },
+    "_advanceddragger": {
+      "iconPath": "../media/icons/classes/AdvancedDragger.png"
+    },
+    "_aircontroller": {
+      "iconPath": "../media/icons/classes/AirController.png"
+    },
+    "_alignorientation": {
+      "iconPath": "../media/icons/classes/AlignOrientation.png"
+    },
+    "_alignposition": {
+      "iconPath": "../media/icons/classes/AlignPosition.png"
+    },
+    "_analyticsservice": {
+      "iconPath": "../media/icons/classes/AnalyticsService.png"
+    },
+    "_angularvelocity": {
+      "iconPath": "../media/icons/classes/AngularVelocity.png"
+    },
+    "_animation": {
+      "iconPath": "../media/icons/classes/Animation.png"
+    },
+    "_animationclip": {
+      "iconPath": "../media/icons/classes/AnimationClip.png"
+    },
+    "_animationclipprovider": {
+      "iconPath": "../media/icons/classes/AnimationClipProvider.png"
+    },
+    "_animationconstraint": {
+      "iconPath": "../media/icons/classes/AnimationConstraint.png"
+    },
+    "_animationcontroller": {
+      "iconPath": "../media/icons/classes/AnimationController.png"
+    },
+    "_animationfromvideocreatorservice": {
+      "iconPath": "../media/icons/classes/AnimationFromVideoCreatorService.png"
+    },
+    "_animationfromvideocreatorstudioservice": {
+      "iconPath": "../media/icons/classes/AnimationFromVideoCreatorStudioService.png"
+    },
+    "_animationgraphdefinition": {
+      "iconPath": "../media/icons/classes/AnimationGraphDefinition.png"
+    },
+    "_animationimportdata": {
+      "iconPath": "../media/icons/classes/AnimationImportData.png"
+    },
+    "_animationnode": {
+      "iconPath": "../media/icons/classes/AnimationNode.png"
+    },
+    "_animationnodedefinition": {
+      "iconPath": "../media/icons/classes/AnimationNodeDefinition.png"
+    },
+    "_animationrigdata": {
+      "iconPath": "../media/icons/classes/AnimationRigData.png"
+    },
+    "_animationstreamtrack": {
+      "iconPath": "../media/icons/classes/AnimationStreamTrack.png"
+    },
+    "_animationtrack": {
+      "iconPath": "../media/icons/classes/AnimationTrack.png"
+    },
+    "_animator": {
+      "iconPath": "../media/icons/classes/Animator.png"
+    },
+    "_annotation": {
+      "iconPath": "../media/icons/classes/Annotation.png"
+    },
+    "_annotationsservice": {
+      "iconPath": "../media/icons/classes/AnnotationsService.png"
+    },
+    "_applifecycleobserverservice": {
+      "iconPath": "../media/icons/classes/AppLifecycleObserverService.png"
+    },
+    "_appratingpromptservice": {
+      "iconPath": "../media/icons/classes/AppRatingPromptService.png"
+    },
+    "_appstorageservice": {
+      "iconPath": "../media/icons/classes/AppStorageService.png"
+    },
+    "_appupdateservice": {
+      "iconPath": "../media/icons/classes/AppUpdateService.png"
+    },
+    "_archandles": {
+      "iconPath": "../media/icons/classes/ArcHandles.png"
+    },
+    "_assetcounterservice": {
+      "iconPath": "../media/icons/classes/AssetCounterService.png"
+    },
+    "_assetdeliveryproxy": {
+      "iconPath": "../media/icons/classes/AssetDeliveryProxy.png"
+    },
+    "_assetimportservice": {
+      "iconPath": "../media/icons/classes/AssetImportService.png"
+    },
+    "_assetimportsession": {
+      "iconPath": "../media/icons/classes/AssetImportSession.png"
+    },
+    "_assetmanagerservice": {
+      "iconPath": "../media/icons/classes/AssetManagerService.png"
+    },
+    "_assetpatchsettings": {
+      "iconPath": "../media/icons/classes/AssetPatchSettings.png"
+    },
+    "_assetqualityservice": {
+      "iconPath": "../media/icons/classes/AssetQualityService.png"
+    },
+    "_assetservice": {
+      "iconPath": "../media/icons/classes/AssetService.png"
+    },
+    "_assetsoundeffect": {
+      "iconPath": "../media/icons/classes/AssetSoundEffect.png"
+    },
+    "_atmosphere": {
+      "iconPath": "../media/icons/classes/Atmosphere.png"
+    },
+    "_atmospheresensor": {
+      "iconPath": "../media/icons/classes/AtmosphereSensor.png"
+    },
+    "_attachment": {
+      "iconPath": "../media/icons/classes/Attachment.png"
+    },
+    "_audioanalyzer": {
+      "iconPath": "../media/icons/classes/AudioAnalyzer.png"
+    },
+    "_audiochannelmixer": {
+      "iconPath": "../media/icons/classes/AudioChannelMixer.png"
+    },
+    "_audiochannelsplitter": {
+      "iconPath": "../media/icons/classes/AudioChannelSplitter.png"
+    },
+    "_audiochorus": {
+      "iconPath": "../media/icons/classes/AudioChorus.png"
+    },
+    "_audiocompressor": {
+      "iconPath": "../media/icons/classes/AudioCompressor.png"
+    },
+    "_audiodeviceinput": {
+      "iconPath": "../media/icons/classes/AudioDeviceInput.png"
+    },
+    "_audiodeviceoutput": {
+      "iconPath": "../media/icons/classes/AudioDeviceOutput.png"
+    },
+    "_audiodistortion": {
+      "iconPath": "../media/icons/classes/AudioDistortion.png"
+    },
+    "_audioecho": {
+      "iconPath": "../media/icons/classes/AudioEcho.png"
+    },
+    "_audioemitter": {
+      "iconPath": "../media/icons/classes/AudioEmitter.png"
+    },
+    "_audioequalizer": {
+      "iconPath": "../media/icons/classes/AudioEqualizer.png"
+    },
+    "_audiofader": {
+      "iconPath": "../media/icons/classes/AudioFader.png"
+    },
+    "_audiofilter": {
+      "iconPath": "../media/icons/classes/AudioFilter.png"
+    },
+    "_audioflanger": {
+      "iconPath": "../media/icons/classes/AudioFlanger.png"
+    },
+    "_audiofocusservice": {
+      "iconPath": "../media/icons/classes/AudioFocusService.png"
+    },
+    "_audiogate": {
+      "iconPath": "../media/icons/classes/AudioGate.png"
+    },
+    "_audiolimiter": {
+      "iconPath": "../media/icons/classes/AudioLimiter.png"
+    },
+    "_audiolistener": {
+      "iconPath": "../media/icons/classes/AudioListener.png"
+    },
+    "_audiopages": {
+      "iconPath": "../media/icons/classes/AudioPages.png"
+    },
+    "_audiopitchshifter": {
+      "iconPath": "../media/icons/classes/AudioPitchShifter.png"
+    },
+    "_audioplayer": {
+      "iconPath": "../media/icons/classes/AudioPlayer.png"
+    },
+    "_audiorecorder": {
+      "iconPath": "../media/icons/classes/AudioRecorder.png"
+    },
+    "_audioreverb": {
+      "iconPath": "../media/icons/classes/AudioReverb.png"
+    },
+    "_audiosearchparams": {
+      "iconPath": "../media/icons/classes/AudioSearchParams.png"
+    },
+    "_audiospeechtotext": {
+      "iconPath": "../media/icons/classes/AudioSpeechToText.png"
+    },
+    "_audiotexttospeech": {
+      "iconPath": "../media/icons/classes/AudioTextToSpeech.png"
+    },
+    "_audiotremolo": {
+      "iconPath": "../media/icons/classes/AudioTremolo.png"
+    },
+    "_aurorascriptobject": {
+      "iconPath": "../media/icons/classes/AuroraScriptObject.png"
+    },
+    "_avataraccessoryrules": {
+      "iconPath": "../media/icons/classes/AvatarAccessoryRules.png"
+    },
+    "_avataranimationrules": {
+      "iconPath": "../media/icons/classes/AvatarAnimationRules.png"
+    },
+    "_avatarbodyrules": {
+      "iconPath": "../media/icons/classes/AvatarBodyRules.png"
+    },
+    "_avatarchatservice": {
+      "iconPath": "../media/icons/classes/AvatarChatService.png"
+    },
+    "_avatarclothingrules": {
+      "iconPath": "../media/icons/classes/AvatarClothingRules.png"
+    },
+    "_avatarcollisionrules": {
+      "iconPath": "../media/icons/classes/AvatarCollisionRules.png"
+    },
+    "_avatarcreationservice": {
+      "iconPath": "../media/icons/classes/AvatarCreationService.png"
+    },
+    "_avatareditorservice": {
+      "iconPath": "../media/icons/classes/AvatarEditorService.png"
+    },
+    "_avatarimportservice": {
+      "iconPath": "../media/icons/classes/AvatarImportService.png"
+    },
+    "_avatarrules": {
+      "iconPath": "../media/icons/classes/AvatarRules.png"
+    },
+    "_avatarsettings": {
+      "iconPath": "../media/icons/classes/AvatarSettings.png"
+    },
+    "_backpack": {
+      "iconPath": "../media/icons/classes/Backpack.png"
+    },
+    "_backpackitem": {
+      "iconPath": "../media/icons/classes/BackpackItem.png"
+    },
+    "_badgeservice": {
+      "iconPath": "../media/icons/classes/BadgeService.png"
+    },
+    "_ballsocketconstraint": {
+      "iconPath": "../media/icons/classes/BallSocketConstraint.png"
+    },
+    "_banhistorypages": {
+      "iconPath": "../media/icons/classes/BanHistoryPages.png"
+    },
+    "_baseimportdata": {
+      "iconPath": "../media/icons/classes/BaseImportData.png"
+    },
+    "_basepart": {
+      "iconPath": "../media/icons/classes/BasePart.png"
+    },
+    "_baseplayergui": {
+      "iconPath": "../media/icons/classes/BasePlayerGui.png"
+    },
+    "_baseremoteevent": {
+      "iconPath": "../media/icons/classes/BaseRemoteEvent.png"
+    },
+    "_basescript": {
+      "iconPath": "../media/icons/classes/BaseScript.png"
+    },
+    "_basewrap": {
+      "iconPath": "../media/icons/classes/BaseWrap.png"
+    },
+    "_beam": {
+      "iconPath": "../media/icons/classes/Beam.png"
+    },
+    "_bevelmesh": {
+      "iconPath": "../media/icons/classes/BevelMesh.png"
+    },
+    "_billboardgui": {
+      "iconPath": "../media/icons/classes/BillboardGui.png"
+    },
+    "_binarystringvalue": {
+      "iconPath": "../media/icons/classes/BinaryStringValue.png"
     },
     "_bindableevent": {
-      "iconPath": "../media/icons/classes/BindableEvent.svg"
+      "iconPath": "../media/icons/classes/BindableEvent.png"
     },
     "_bindablefunction": {
-      "iconPath": "../media/icons/classes/BindableFunction.svg"
+      "iconPath": "../media/icons/classes/BindableFunction.png"
     },
-    "_configuration": {
-      "iconPath": "../media/icons/classes/Configuration.svg"
+    "_blockmesh": {
+      "iconPath": "../media/icons/classes/BlockMesh.png"
     },
-    "_unionoperation": {
-      "iconPath": "../media/icons/classes/UnionOperation.svg"
+    "_bloomeffect": {
+      "iconPath": "../media/icons/classes/BloomEffect.png"
     },
-    "_instance": {
-      "iconPath": "../media/icons/classes/Instance.svg"
+    "_blureffect": {
+      "iconPath": "../media/icons/classes/BlurEffect.png"
     },
-    "_workspace": {
-      "iconPath": "../media/icons/classes/Workspace.svg"
+    "_bodyangularvelocity": {
+      "iconPath": "../media/icons/classes/BodyAngularVelocity.png"
     },
-    "_camera": {
-      "iconPath": "../media/icons/classes/Camera.svg"
+    "_bodycolors": {
+      "iconPath": "../media/icons/classes/BodyColors.png"
     },
-    "_stringvalue": {
-      "iconPath": "../media/icons/classes/StringValue.svg"
+    "_bodyforce": {
+      "iconPath": "../media/icons/classes/BodyForce.png"
     },
-    "_numbervalue": {
-      "iconPath": "../media/icons/classes/NumberValue.svg"
+    "_bodygyro": {
+      "iconPath": "../media/icons/classes/BodyGyro.png"
+    },
+    "_bodymover": {
+      "iconPath": "../media/icons/classes/BodyMover.png"
+    },
+    "_bodypartdescription": {
+      "iconPath": "../media/icons/classes/BodyPartDescription.png"
+    },
+    "_bodyposition": {
+      "iconPath": "../media/icons/classes/BodyPosition.png"
+    },
+    "_bodythrust": {
+      "iconPath": "../media/icons/classes/BodyThrust.png"
+    },
+    "_bodyvelocity": {
+      "iconPath": "../media/icons/classes/BodyVelocity.png"
+    },
+    "_bone": {
+      "iconPath": "../media/icons/classes/Bone.png"
     },
     "_boolvalue": {
-      "iconPath": "../media/icons/classes/BoolValue.svg"
+      "iconPath": "../media/icons/classes/BoolValue.png"
+    },
+    "_boxhandleadornment": {
+      "iconPath": "../media/icons/classes/BoxHandleAdornment.png"
+    },
+    "_breakpoint": {
+      "iconPath": "../media/icons/classes/Breakpoint.png"
+    },
+    "_brickcolorvalue": {
+      "iconPath": "../media/icons/classes/BrickColorValue.png"
+    },
+    "_browserservice": {
+      "iconPath": "../media/icons/classes/BrowserService.png"
+    },
+    "_bubblechatconfiguration": {
+      "iconPath": "../media/icons/classes/BubbleChatConfiguration.png"
+    },
+    "_bubblechatmessageproperties": {
+      "iconPath": "../media/icons/classes/BubbleChatMessageProperties.png"
+    },
+    "_bugreporterservice": {
+      "iconPath": "../media/icons/classes/BugReporterService.png"
+    },
+    "_bulkimportservice": {
+      "iconPath": "../media/icons/classes/BulkImportService.png"
+    },
+    "_buoyancysensor": {
+      "iconPath": "../media/icons/classes/BuoyancySensor.png"
+    },
+    "_cframevalue": {
+      "iconPath": "../media/icons/classes/CFrameValue.png"
+    },
+    "_csgdictionaryservice": {
+      "iconPath": "../media/icons/classes/CSGDictionaryService.png"
+    },
+    "_cacheablecontentprovider": {
+      "iconPath": "../media/icons/classes/CacheableContentProvider.png"
+    },
+    "_calloutservice": {
+      "iconPath": "../media/icons/classes/CalloutService.png"
+    },
+    "_camera": {
+      "iconPath": "../media/icons/classes/Camera.png"
+    },
+    "_canvasgroup": {
+      "iconPath": "../media/icons/classes/CanvasGroup.png"
+    },
+    "_capture": {
+      "iconPath": "../media/icons/classes/Capture.png"
+    },
+    "_captureservice": {
+      "iconPath": "../media/icons/classes/CaptureService.png"
+    },
+    "_capturespages": {
+      "iconPath": "../media/icons/classes/CapturesPages.png"
+    },
+    "_catalogpages": {
+      "iconPath": "../media/icons/classes/CatalogPages.png"
+    },
+    "_changehistoryservice": {
+      "iconPath": "../media/icons/classes/ChangeHistoryService.png"
+    },
+    "_changehistorystreamingservice": {
+      "iconPath": "../media/icons/classes/ChangeHistoryStreamingService.png"
+    },
+    "_channelselectorsoundeffect": {
+      "iconPath": "../media/icons/classes/ChannelSelectorSoundEffect.png"
+    },
+    "_channeltabsconfiguration": {
+      "iconPath": "../media/icons/classes/ChannelTabsConfiguration.png"
+    },
+    "_characterappearance": {
+      "iconPath": "../media/icons/classes/CharacterAppearance.png"
+    },
+    "_charactermesh": {
+      "iconPath": "../media/icons/classes/CharacterMesh.png"
+    },
+    "_chat": {
+      "iconPath": "../media/icons/classes/Chat.png"
+    },
+    "_chatinputbarconfiguration": {
+      "iconPath": "../media/icons/classes/ChatInputBarConfiguration.png"
+    },
+    "_chatwindowconfiguration": {
+      "iconPath": "../media/icons/classes/ChatWindowConfiguration.png"
+    },
+    "_chatwindowmessageproperties": {
+      "iconPath": "../media/icons/classes/ChatWindowMessageProperties.png"
+    },
+    "_chatbotuiservice": {
+      "iconPath": "../media/icons/classes/ChatbotUIService.png"
+    },
+    "_chorussoundeffect": {
+      "iconPath": "../media/icons/classes/ChorusSoundEffect.png"
+    },
+    "_clickdetector": {
+      "iconPath": "../media/icons/classes/ClickDetector.png"
+    },
+    "_clientreplicator": {
+      "iconPath": "../media/icons/classes/ClientReplicator.png"
+    },
+    "_climbcontroller": {
+      "iconPath": "../media/icons/classes/ClimbController.png"
+    },
+    "_clothing": {
+      "iconPath": "../media/icons/classes/Clothing.png"
+    },
+    "_cloudcrudservice": {
+      "iconPath": "../media/icons/classes/CloudCRUDService.png"
+    },
+    "_cloudlocalizationtable": {
+      "iconPath": "../media/icons/classes/CloudLocalizationTable.png"
+    },
+    "_clouds": {
+      "iconPath": "../media/icons/classes/Clouds.png"
+    },
+    "_clusterpacketcache": {
+      "iconPath": "../media/icons/classes/ClusterPacketCache.png"
+    },
+    "_collaborator": {
+      "iconPath": "../media/icons/classes/Collaborator.png"
+    },
+    "_collaboratorsservice": {
+      "iconPath": "../media/icons/classes/CollaboratorsService.png"
+    },
+    "_collectionservice": {
+      "iconPath": "../media/icons/classes/CollectionService.png"
+    },
+    "_color3value": {
+      "iconPath": "../media/icons/classes/Color3Value.png"
+    },
+    "_colorcorrectioneffect": {
+      "iconPath": "../media/icons/classes/ColorCorrectionEffect.png"
+    },
+    "_colorgradingeffect": {
+      "iconPath": "../media/icons/classes/ColorGradingEffect.png"
+    },
+    "_commerceservice": {
+      "iconPath": "../media/icons/classes/CommerceService.png"
+    },
+    "_compositevaluecurve": {
+      "iconPath": "../media/icons/classes/CompositeValueCurve.png"
+    },
+    "_compressorsoundeffect": {
+      "iconPath": "../media/icons/classes/CompressorSoundEffect.png"
+    },
+    "_conehandleadornment": {
+      "iconPath": "../media/icons/classes/ConeHandleAdornment.png"
+    },
+    "_configservice": {
+      "iconPath": "../media/icons/classes/ConfigService.png"
+    },
+    "_configsnapshot": {
+      "iconPath": "../media/icons/classes/ConfigSnapshot.png"
+    },
+    "_configuration": {
+      "iconPath": "../media/icons/classes/Configuration.png"
+    },
+    "_configureserverservice": {
+      "iconPath": "../media/icons/classes/ConfigureServerService.png"
+    },
+    "_connectivityservice": {
+      "iconPath": "../media/icons/classes/ConnectivityService.png"
+    },
+    "_constraint": {
+      "iconPath": "../media/icons/classes/Constraint.png"
+    },
+    "_contentprovider": {
+      "iconPath": "../media/icons/classes/ContentProvider.png"
+    },
+    "_contextactionservice": {
+      "iconPath": "../media/icons/classes/ContextActionService.png"
+    },
+    "_controller": {
+      "iconPath": "../media/icons/classes/Controller.png"
+    },
+    "_controllerbase": {
+      "iconPath": "../media/icons/classes/ControllerBase.png"
+    },
+    "_controllermanager": {
+      "iconPath": "../media/icons/classes/ControllerManager.png"
+    },
+    "_controllerpartsensor": {
+      "iconPath": "../media/icons/classes/ControllerPartSensor.png"
+    },
+    "_controllersensor": {
+      "iconPath": "../media/icons/classes/ControllerSensor.png"
+    },
+    "_controllerservice": {
+      "iconPath": "../media/icons/classes/ControllerService.png"
+    },
+    "_conversationalaiacceptanceservice": {
+      "iconPath": "../media/icons/classes/ConversationalAIAcceptanceService.png"
+    },
+    "_cookiesservice": {
+      "iconPath": "../media/icons/classes/CookiesService.png"
+    },
+    "_coregui": {
+      "iconPath": "../media/icons/classes/CoreGui.png"
+    },
+    "_corepackages": {
+      "iconPath": "../media/icons/classes/CorePackages.png"
+    },
+    "_corescript": {
+      "iconPath": "../media/icons/classes/CoreScript.png"
+    },
+    "_corescriptdebuggingmanagerhelper": {
+      "iconPath": "../media/icons/classes/CoreScriptDebuggingManagerHelper.png"
+    },
+    "_corescriptsyncservice": {
+      "iconPath": "../media/icons/classes/CoreScriptSyncService.png"
+    },
+    "_cornerwedgepart": {
+      "iconPath": "../media/icons/classes/CornerWedgePart.png"
+    },
+    "_creationdbservice": {
+      "iconPath": "../media/icons/classes/CreationDBService.png"
+    },
+    "_creatorstoreservice": {
+      "iconPath": "../media/icons/classes/CreatorStoreService.png"
+    },
+    "_crossdmscriptchangelistener": {
+      "iconPath": "../media/icons/classes/CrossDMScriptChangeListener.png"
+    },
+    "_curveanimation": {
+      "iconPath": "../media/icons/classes/CurveAnimation.png"
+    },
+    "_customevent": {
+      "iconPath": "../media/icons/classes/CustomEvent.png"
+    },
+    "_customeventreceiver": {
+      "iconPath": "../media/icons/classes/CustomEventReceiver.png"
+    },
+    "_customlog": {
+      "iconPath": "../media/icons/classes/CustomLog.png"
+    },
+    "_customsoundeffect": {
+      "iconPath": "../media/icons/classes/CustomSoundEffect.png"
+    },
+    "_cylinderhandleadornment": {
+      "iconPath": "../media/icons/classes/CylinderHandleAdornment.png"
+    },
+    "_cylindermesh": {
+      "iconPath": "../media/icons/classes/CylinderMesh.png"
+    },
+    "_cylindricalconstraint": {
+      "iconPath": "../media/icons/classes/CylindricalConstraint.png"
+    },
+    "_datamodel": {
+      "iconPath": "../media/icons/classes/DataModel.png"
+    },
+    "_datamodelmesh": {
+      "iconPath": "../media/icons/classes/DataModelMesh.png"
+    },
+    "_datamodelpatchservice": {
+      "iconPath": "../media/icons/classes/DataModelPatchService.png"
+    },
+    "_datamodelsession": {
+      "iconPath": "../media/icons/classes/DataModelSession.png"
+    },
+    "_datastore": {
+      "iconPath": "../media/icons/classes/DataStore.png"
+    },
+    "_datastoregetoptions": {
+      "iconPath": "../media/icons/classes/DataStoreGetOptions.png"
+    },
+    "_datastoreincrementoptions": {
+      "iconPath": "../media/icons/classes/DataStoreIncrementOptions.png"
+    },
+    "_datastoreinfo": {
+      "iconPath": "../media/icons/classes/DataStoreInfo.png"
+    },
+    "_datastorekey": {
+      "iconPath": "../media/icons/classes/DataStoreKey.png"
+    },
+    "_datastorekeyinfo": {
+      "iconPath": "../media/icons/classes/DataStoreKeyInfo.png"
+    },
+    "_datastorekeypages": {
+      "iconPath": "../media/icons/classes/DataStoreKeyPages.png"
+    },
+    "_datastorelistingpages": {
+      "iconPath": "../media/icons/classes/DataStoreListingPages.png"
+    },
+    "_datastoreobjectversioninfo": {
+      "iconPath": "../media/icons/classes/DataStoreObjectVersionInfo.png"
+    },
+    "_datastoreoptions": {
+      "iconPath": "../media/icons/classes/DataStoreOptions.png"
+    },
+    "_datastorepages": {
+      "iconPath": "../media/icons/classes/DataStorePages.png"
+    },
+    "_datastoreservice": {
+      "iconPath": "../media/icons/classes/DataStoreService.png"
+    },
+    "_datastoresetoptions": {
+      "iconPath": "../media/icons/classes/DataStoreSetOptions.png"
+    },
+    "_datastoreversionpages": {
+      "iconPath": "../media/icons/classes/DataStoreVersionPages.png"
+    },
+    "_debris": {
+      "iconPath": "../media/icons/classes/Debris.png"
+    },
+    "_debugsettings": {
+      "iconPath": "../media/icons/classes/DebugSettings.png"
+    },
+    "_debuggablepluginwatcher": {
+      "iconPath": "../media/icons/classes/DebuggablePluginWatcher.png"
+    },
+    "_debuggerbreakpoint": {
+      "iconPath": "../media/icons/classes/DebuggerBreakpoint.png"
+    },
+    "_debuggerconnection": {
+      "iconPath": "../media/icons/classes/DebuggerConnection.png"
+    },
+    "_debuggerconnectionmanager": {
+      "iconPath": "../media/icons/classes/DebuggerConnectionManager.png"
+    },
+    "_debuggerluaresponse": {
+      "iconPath": "../media/icons/classes/DebuggerLuaResponse.png"
+    },
+    "_debuggermanager": {
+      "iconPath": "../media/icons/classes/DebuggerManager.png"
+    },
+    "_debuggeruiservice": {
+      "iconPath": "../media/icons/classes/DebuggerUIService.png"
+    },
+    "_debuggervariable": {
+      "iconPath": "../media/icons/classes/DebuggerVariable.png"
+    },
+    "_debuggerwatch": {
+      "iconPath": "../media/icons/classes/DebuggerWatch.png"
+    },
+    "_decal": {
+      "iconPath": "../media/icons/classes/Decal.png"
+    },
+    "_depthoffieldeffect": {
+      "iconPath": "../media/icons/classes/DepthOfFieldEffect.png"
+    },
+    "_deviceidservice": {
+      "iconPath": "../media/icons/classes/DeviceIdService.png"
+    },
+    "_dialog": {
+      "iconPath": "../media/icons/classes/Dialog.png"
+    },
+    "_dialogchoice": {
+      "iconPath": "../media/icons/classes/DialogChoice.png"
+    },
+    "_distortionsoundeffect": {
+      "iconPath": "../media/icons/classes/DistortionSoundEffect.png"
+    },
+    "_dockwidgetplugingui": {
+      "iconPath": "../media/icons/classes/DockWidgetPluginGui.png"
+    },
+    "_doubleconstrainedvalue": {
+      "iconPath": "../media/icons/classes/DoubleConstrainedValue.png"
+    },
+    "_draftsservice": {
+      "iconPath": "../media/icons/classes/DraftsService.png"
+    },
+    "_dragdetector": {
+      "iconPath": "../media/icons/classes/DragDetector.png"
+    },
+    "_dragger": {
+      "iconPath": "../media/icons/classes/Dragger.png"
+    },
+    "_draggerservice": {
+      "iconPath": "../media/icons/classes/DraggerService.png"
+    },
+    "_dynamicrotate": {
+      "iconPath": "../media/icons/classes/DynamicRotate.png"
+    },
+    "_echosoundeffect": {
+      "iconPath": "../media/icons/classes/EchoSoundEffect.png"
+    },
+    "_editableimage": {
+      "iconPath": "../media/icons/classes/EditableImage.png"
+    },
+    "_editablemesh": {
+      "iconPath": "../media/icons/classes/EditableMesh.png"
+    },
+    "_editableservice": {
+      "iconPath": "../media/icons/classes/EditableService.png"
+    },
+    "_emotespages": {
+      "iconPath": "../media/icons/classes/EmotesPages.png"
+    },
+    "_encodingservice": {
+      "iconPath": "../media/icons/classes/EncodingService.png"
+    },
+    "_equalizersoundeffect": {
+      "iconPath": "../media/icons/classes/EqualizerSoundEffect.png"
+    },
+    "_eulerrotationcurve": {
+      "iconPath": "../media/icons/classes/EulerRotationCurve.png"
+    },
+    "_eventingestservice": {
+      "iconPath": "../media/icons/classes/EventIngestService.png"
+    },
+    "_examplev2service": {
+      "iconPath": "../media/icons/classes/ExampleV2Service.png"
+    },
+    "_executedremotecommand": {
+      "iconPath": "../media/icons/classes/ExecutedRemoteCommand.png"
+    },
+    "_experienceauthservice": {
+      "iconPath": "../media/icons/classes/ExperienceAuthService.png"
+    },
+    "_experienceinviteoptions": {
+      "iconPath": "../media/icons/classes/ExperienceInviteOptions.png"
+    },
+    "_experiencenotificationservice": {
+      "iconPath": "../media/icons/classes/ExperienceNotificationService.png"
+    },
+    "_experienceservice": {
+      "iconPath": "../media/icons/classes/ExperienceService.png"
+    },
+    "_experiencestatecaptureservice": {
+      "iconPath": "../media/icons/classes/ExperienceStateCaptureService.png"
+    },
+    "_experiencestaterecordingservice": {
+      "iconPath": "../media/icons/classes/ExperienceStateRecordingService.png"
+    },
+    "_explorerfilter": {
+      "iconPath": "../media/icons/classes/ExplorerFilter.png"
+    },
+    "_explorerfilterautocompleter": {
+      "iconPath": "../media/icons/classes/ExplorerFilterAutocompleter.png"
+    },
+    "_explorerservicevisibilityservice": {
+      "iconPath": "../media/icons/classes/ExplorerServiceVisibilityService.png"
+    },
+    "_explosion": {
+      "iconPath": "../media/icons/classes/Explosion.png"
+    },
+    "_faceanimatorservice": {
+      "iconPath": "../media/icons/classes/FaceAnimatorService.png"
+    },
+    "_facecontrols": {
+      "iconPath": "../media/icons/classes/FaceControls.png"
+    },
+    "_faceinstance": {
+      "iconPath": "../media/icons/classes/FaceInstance.png"
+    },
+    "_facialageestimationservice": {
+      "iconPath": "../media/icons/classes/FacialAgeEstimationService.png"
+    },
+    "_facialanimationrecordingservice": {
+      "iconPath": "../media/icons/classes/FacialAnimationRecordingService.png"
+    },
+    "_facialanimationstreamingservicestats": {
+      "iconPath": "../media/icons/classes/FacialAnimationStreamingServiceStats.png"
+    },
+    "_facialanimationstreamingservicev2": {
+      "iconPath": "../media/icons/classes/FacialAnimationStreamingServiceV2.png"
+    },
+    "_facialanimationstreamingsubsessionstats": {
+      "iconPath": "../media/icons/classes/FacialAnimationStreamingSubsessionStats.png"
+    },
+    "_facsimportdata": {
+      "iconPath": "../media/icons/classes/FacsImportData.png"
+    },
+    "_feature": {
+      "iconPath": "../media/icons/classes/Feature.png"
+    },
+    "_featurerestrictionmanager": {
+      "iconPath": "../media/icons/classes/FeatureRestrictionManager.png"
+    },
+    "_file": {
+      "iconPath": "../media/icons/classes/File.png"
+    },
+    "_filemesh": {
+      "iconPath": "../media/icons/classes/FileMesh.png"
+    },
+    "_fire": {
+      "iconPath": "../media/icons/classes/Fire.png"
+    },
+    "_flag": {
+      "iconPath": "../media/icons/classes/Flag.png"
+    },
+    "_flagstand": {
+      "iconPath": "../media/icons/classes/FlagStand.png"
+    },
+    "_flagstandservice": {
+      "iconPath": "../media/icons/classes/FlagStandService.png"
+    },
+    "_flangesoundeffect": {
+      "iconPath": "../media/icons/classes/FlangeSoundEffect.png"
+    },
+    "_floatcurve": {
+      "iconPath": "../media/icons/classes/FloatCurve.png"
+    },
+    "_floorwire": {
+      "iconPath": "../media/icons/classes/FloorWire.png"
+    },
+    "_fluidforcesensor": {
+      "iconPath": "../media/icons/classes/FluidForceSensor.png"
+    },
+    "_flyweightservice": {
+      "iconPath": "../media/icons/classes/FlyweightService.png"
+    },
+    "_folder": {
+      "iconPath": "../media/icons/classes/Folder.png"
+    },
+    "_forcefield": {
+      "iconPath": "../media/icons/classes/ForceField.png"
+    },
+    "_formfactorpart": {
+      "iconPath": "../media/icons/classes/FormFactorPart.png"
+    },
+    "_frame": {
+      "iconPath": "../media/icons/classes/Frame.png"
+    },
+    "_friendpages": {
+      "iconPath": "../media/icons/classes/FriendPages.png"
+    },
+    "_friendservice": {
+      "iconPath": "../media/icons/classes/FriendService.png"
+    },
+    "_functionaltest": {
+      "iconPath": "../media/icons/classes/FunctionalTest.png"
+    },
+    "_gamepassservice": {
+      "iconPath": "../media/icons/classes/GamePassService.png"
+    },
+    "_gamesettings": {
+      "iconPath": "../media/icons/classes/GameSettings.png"
+    },
+    "_gamepadservice": {
+      "iconPath": "../media/icons/classes/GamepadService.png"
+    },
+    "_generationservice": {
+      "iconPath": "../media/icons/classes/GenerationService.png"
+    },
+    "_genericchallengeservice": {
+      "iconPath": "../media/icons/classes/GenericChallengeService.png"
+    },
+    "_genericsettings": {
+      "iconPath": "../media/icons/classes/GenericSettings.png"
+    },
+    "_geometry": {
+      "iconPath": "../media/icons/classes/Geometry.png"
+    },
+    "_geometryservice": {
+      "iconPath": "../media/icons/classes/GeometryService.png"
+    },
+    "_gettextboundsparams": {
+      "iconPath": "../media/icons/classes/GetTextBoundsParams.png"
+    },
+    "_globaldatastore": {
+      "iconPath": "../media/icons/classes/GlobalDataStore.png"
+    },
+    "_globalsettings": {
+      "iconPath": "../media/icons/classes/GlobalSettings.png"
+    },
+    "_glue": {
+      "iconPath": "../media/icons/classes/Glue.png"
+    },
+    "_groundcontroller": {
+      "iconPath": "../media/icons/classes/GroundController.png"
+    },
+    "_groupimportdata": {
+      "iconPath": "../media/icons/classes/GroupImportData.png"
+    },
+    "_groupservice": {
+      "iconPath": "../media/icons/classes/GroupService.png"
+    },
+    "_guibase": {
+      "iconPath": "../media/icons/classes/GuiBase.png"
+    },
+    "_guibase2d": {
+      "iconPath": "../media/icons/classes/GuiBase2d.png"
+    },
+    "_guibase3d": {
+      "iconPath": "../media/icons/classes/GuiBase3d.png"
+    },
+    "_guibutton": {
+      "iconPath": "../media/icons/classes/GuiButton.png"
+    },
+    "_guilabel": {
+      "iconPath": "../media/icons/classes/GuiLabel.png"
+    },
+    "_guimain": {
+      "iconPath": "../media/icons/classes/GuiMain.png"
+    },
+    "_guiobject": {
+      "iconPath": "../media/icons/classes/GuiObject.png"
+    },
+    "_guiservice": {
+      "iconPath": "../media/icons/classes/GuiService.png"
+    },
+    "_guidregistryservice": {
+      "iconPath": "../media/icons/classes/GuidRegistryService.png"
+    },
+    "_hsrdatacontentprovider": {
+      "iconPath": "../media/icons/classes/HSRDataContentProvider.png"
+    },
+    "_handrigdescription": {
+      "iconPath": "../media/icons/classes/HandRigDescription.png"
+    },
+    "_handleadornment": {
+      "iconPath": "../media/icons/classes/HandleAdornment.png"
+    },
+    "_handles": {
+      "iconPath": "../media/icons/classes/Handles.png"
+    },
+    "_handlesbase": {
+      "iconPath": "../media/icons/classes/HandlesBase.png"
+    },
+    "_hapticeffect": {
+      "iconPath": "../media/icons/classes/HapticEffect.png"
+    },
+    "_hapticservice": {
+      "iconPath": "../media/icons/classes/HapticService.png"
+    },
+    "_harmonyservice": {
+      "iconPath": "../media/icons/classes/HarmonyService.png"
+    },
+    "_hat": {
+      "iconPath": "../media/icons/classes/Hat.png"
+    },
+    "_heapprofilerservice": {
+      "iconPath": "../media/icons/classes/HeapProfilerService.png"
+    },
+    "_heatmapservice": {
+      "iconPath": "../media/icons/classes/HeatmapService.png"
+    },
+    "_heightmapimporterservice": {
+      "iconPath": "../media/icons/classes/HeightmapImporterService.png"
+    },
+    "_hiddensurfaceremovalasset": {
+      "iconPath": "../media/icons/classes/HiddenSurfaceRemovalAsset.png"
+    },
+    "_highlight": {
+      "iconPath": "../media/icons/classes/Highlight.png"
+    },
+    "_hingeconstraint": {
+      "iconPath": "../media/icons/classes/HingeConstraint.png"
+    },
+    "_hint": {
+      "iconPath": "../media/icons/classes/Hint.png"
+    },
+    "_hole": {
+      "iconPath": "../media/icons/classes/Hole.png"
+    },
+    "_hopper": {
+      "iconPath": "../media/icons/classes/Hopper.png"
+    },
+    "_hopperbin": {
+      "iconPath": "../media/icons/classes/HopperBin.png"
+    },
+    "_httprbxapiservice": {
+      "iconPath": "../media/icons/classes/HttpRbxApiService.png"
+    },
+    "_httprequest": {
+      "iconPath": "../media/icons/classes/HttpRequest.png"
+    },
+    "_httpservice": {
+      "iconPath": "../media/icons/classes/HttpService.png"
+    },
+    "_humanoid": {
+      "iconPath": "../media/icons/classes/Humanoid.png"
+    },
+    "_humanoidcontroller": {
+      "iconPath": "../media/icons/classes/HumanoidController.png"
+    },
+    "_humanoiddescription": {
+      "iconPath": "../media/icons/classes/HumanoidDescription.png"
+    },
+    "_humanoidrigdescription": {
+      "iconPath": "../media/icons/classes/HumanoidRigDescription.png"
+    },
+    "_ikcontrol": {
+      "iconPath": "../media/icons/classes/IKControl.png"
+    },
+    "_ilegacystudiobridge": {
+      "iconPath": "../media/icons/classes/ILegacyStudioBridge.png"
+    },
+    "_ixpservice": {
+      "iconPath": "../media/icons/classes/IXPService.png"
+    },
+    "_imagebutton": {
+      "iconPath": "../media/icons/classes/ImageButton.png"
+    },
+    "_imagehandleadornment": {
+      "iconPath": "../media/icons/classes/ImageHandleAdornment.png"
+    },
+    "_imagelabel": {
+      "iconPath": "../media/icons/classes/ImageLabel.png"
+    },
+    "_importsession": {
+      "iconPath": "../media/icons/classes/ImportSession.png"
+    },
+    "_incrementalpatchbuilder": {
+      "iconPath": "../media/icons/classes/IncrementalPatchBuilder.png"
+    },
+    "_inputaction": {
+      "iconPath": "../media/icons/classes/InputAction.png"
+    },
+    "_inputbinding": {
+      "iconPath": "../media/icons/classes/InputBinding.png"
+    },
+    "_inputcontext": {
+      "iconPath": "../media/icons/classes/InputContext.png"
+    },
+    "_inputobject": {
+      "iconPath": "../media/icons/classes/InputObject.png"
+    },
+    "_insertservice": {
+      "iconPath": "../media/icons/classes/InsertService.png"
+    },
+    "_instance": {
+      "iconPath": "../media/icons/classes/Instance.png"
+    },
+    "_instanceadornment": {
+      "iconPath": "../media/icons/classes/InstanceAdornment.png"
+    },
+    "_instanceextensionsservice": {
+      "iconPath": "../media/icons/classes/InstanceExtensionsService.png"
+    },
+    "_instancefilesyncservice": {
+      "iconPath": "../media/icons/classes/InstanceFileSyncService.png"
+    },
+    "_intconstrainedvalue": {
+      "iconPath": "../media/icons/classes/IntConstrainedValue.png"
+    },
+    "_intvalue": {
+      "iconPath": "../media/icons/classes/IntValue.png"
+    },
+    "_intersectoperation": {
+      "iconPath": "../media/icons/classes/IntersectOperation.png"
+    },
+    "_inventorypages": {
+      "iconPath": "../media/icons/classes/InventoryPages.png"
+    },
+    "_jointimportdata": {
+      "iconPath": "../media/icons/classes/JointImportData.png"
+    },
+    "_jointinstance": {
+      "iconPath": "../media/icons/classes/JointInstance.png"
+    },
+    "_jointsservice": {
+      "iconPath": "../media/icons/classes/JointsService.png"
+    },
+    "_keyboardservice": {
+      "iconPath": "../media/icons/classes/KeyboardService.png"
+    },
+    "_keyframe": {
+      "iconPath": "../media/icons/classes/Keyframe.png"
+    },
+    "_keyframemarker": {
+      "iconPath": "../media/icons/classes/KeyframeMarker.png"
+    },
+    "_keyframesequence": {
+      "iconPath": "../media/icons/classes/KeyframeSequence.png"
+    },
+    "_keyframesequenceprovider": {
+      "iconPath": "../media/icons/classes/KeyframeSequenceProvider.png"
+    },
+    "_lspfilesyncservice": {
+      "iconPath": "../media/icons/classes/LSPFileSyncService.png"
+    },
+    "_languageservice": {
+      "iconPath": "../media/icons/classes/LanguageService.png"
+    },
+    "_layercollector": {
+      "iconPath": "../media/icons/classes/LayerCollector.png"
+    },
+    "_legacystudiobridge": {
+      "iconPath": "../media/icons/classes/LegacyStudioBridge.png"
+    },
+    "_light": {
+      "iconPath": "../media/icons/classes/Light.png"
+    },
+    "_lineforce": {
+      "iconPath": "../media/icons/classes/LineForce.png"
+    },
+    "_linehandleadornment": {
+      "iconPath": "../media/icons/classes/LineHandleAdornment.png"
+    },
+    "_linearvelocity": {
+      "iconPath": "../media/icons/classes/LinearVelocity.png"
+    },
+    "_linkingservice": {
+      "iconPath": "../media/icons/classes/LinkingService.png"
+    },
+    "_livescriptingservice": {
+      "iconPath": "../media/icons/classes/LiveScriptingService.png"
+    },
+    "_livesyncservice": {
+      "iconPath": "../media/icons/classes/LiveSyncService.png"
+    },
+    "_localdebuggerconnection": {
+      "iconPath": "../media/icons/classes/LocalDebuggerConnection.png"
+    },
+    "_localscript": {
+      "iconPath": "../media/icons/classes/LocalScript.png"
+    },
+    "_localstorageservice": {
+      "iconPath": "../media/icons/classes/LocalStorageService.png"
+    },
+    "_localizationservice": {
+      "iconPath": "../media/icons/classes/LocalizationService.png"
+    },
+    "_localizationtable": {
+      "iconPath": "../media/icons/classes/LocalizationTable.png"
+    },
+    "_loddataentity": {
+      "iconPath": "../media/icons/classes/LodDataEntity.png"
+    },
+    "_loddataservice": {
+      "iconPath": "../media/icons/classes/LodDataService.png"
+    },
+    "_logreporterservice": {
+      "iconPath": "../media/icons/classes/LogReporterService.png"
+    },
+    "_logservice": {
+      "iconPath": "../media/icons/classes/LogService.png"
+    },
+    "_loginservice": {
+      "iconPath": "../media/icons/classes/LoginService.png"
+    },
+    "_luasettings": {
+      "iconPath": "../media/icons/classes/LuaSettings.png"
+    },
+    "_luasourcecontainer": {
+      "iconPath": "../media/icons/classes/LuaSourceContainer.png"
+    },
+    "_luawebservice": {
+      "iconPath": "../media/icons/classes/LuaWebService.png"
+    },
+    "_luauscriptanalyzerservice": {
+      "iconPath": "../media/icons/classes/LuauScriptAnalyzerService.png"
+    },
+    "_mlmodeldeliveryservice": {
+      "iconPath": "../media/icons/classes/MLModelDeliveryService.png"
+    },
+    "_mlservice": {
+      "iconPath": "../media/icons/classes/MLService.png"
+    },
+    "_mlsession": {
+      "iconPath": "../media/icons/classes/MLSession.png"
+    },
+    "_makeupdescription": {
+      "iconPath": "../media/icons/classes/MakeupDescription.png"
+    },
+    "_manualglue": {
+      "iconPath": "../media/icons/classes/ManualGlue.png"
+    },
+    "_manualsurfacejointinstance": {
+      "iconPath": "../media/icons/classes/ManualSurfaceJointInstance.png"
+    },
+    "_manualweld": {
+      "iconPath": "../media/icons/classes/ManualWeld.png"
+    },
+    "_markercurve": {
+      "iconPath": "../media/icons/classes/MarkerCurve.png"
+    },
+    "_marketplaceservice": {
+      "iconPath": "../media/icons/classes/MarketplaceService.png"
+    },
+    "_matchmakingservice": {
+      "iconPath": "../media/icons/classes/MatchmakingService.png"
+    },
+    "_materialgenerationservice": {
+      "iconPath": "../media/icons/classes/MaterialGenerationService.png"
+    },
+    "_materialimportdata": {
+      "iconPath": "../media/icons/classes/MaterialImportData.png"
+    },
+    "_materialservice": {
+      "iconPath": "../media/icons/classes/MaterialService.png"
+    },
+    "_materialvariant": {
+      "iconPath": "../media/icons/classes/MaterialVariant.png"
+    },
+    "_memstorageconnection": {
+      "iconPath": "../media/icons/classes/MemStorageConnection.png"
+    },
+    "_memstorageservice": {
+      "iconPath": "../media/icons/classes/MemStorageService.png"
+    },
+    "_memorystorehashmap": {
+      "iconPath": "../media/icons/classes/MemoryStoreHashMap.png"
+    },
+    "_memorystorehashmappages": {
+      "iconPath": "../media/icons/classes/MemoryStoreHashMapPages.png"
+    },
+    "_memorystorequeue": {
+      "iconPath": "../media/icons/classes/MemoryStoreQueue.png"
+    },
+    "_memorystoreservice": {
+      "iconPath": "../media/icons/classes/MemoryStoreService.png"
+    },
+    "_memorystoresortedmap": {
+      "iconPath": "../media/icons/classes/MemoryStoreSortedMap.png"
+    },
+    "_meshcontentprovider": {
+      "iconPath": "../media/icons/classes/MeshContentProvider.png"
+    },
+    "_meshimportdata": {
+      "iconPath": "../media/icons/classes/MeshImportData.png"
+    },
+    "_meshpart": {
+      "iconPath": "../media/icons/classes/MeshPart.png"
+    },
+    "_message": {
+      "iconPath": "../media/icons/classes/Message.png"
+    },
+    "_messagebusconnection": {
+      "iconPath": "../media/icons/classes/MessageBusConnection.png"
+    },
+    "_messagebusservice": {
+      "iconPath": "../media/icons/classes/MessageBusService.png"
+    },
+    "_messagingservice": {
+      "iconPath": "../media/icons/classes/MessagingService.png"
+    },
+    "_metabreakpoint": {
+      "iconPath": "../media/icons/classes/MetaBreakpoint.png"
+    },
+    "_metabreakpointcontext": {
+      "iconPath": "../media/icons/classes/MetaBreakpointContext.png"
+    },
+    "_metabreakpointmanager": {
+      "iconPath": "../media/icons/classes/MetaBreakpointManager.png"
+    },
+    "_microprofilerservice": {
+      "iconPath": "../media/icons/classes/MicroProfilerService.png"
+    },
+    "_model": {
+      "iconPath": "../media/icons/classes/Model.png"
+    },
+    "_moderationservice": {
+      "iconPath": "../media/icons/classes/ModerationService.png"
+    },
+    "_modulescript": {
+      "iconPath": "../media/icons/classes/ModuleScript.png"
+    },
+    "_motor": {
+      "iconPath": "../media/icons/classes/Motor.png"
+    },
+    "_motor6d": {
+      "iconPath": "../media/icons/classes/Motor6D.png"
+    },
+    "_motorfeature": {
+      "iconPath": "../media/icons/classes/MotorFeature.png"
+    },
+    "_mouse": {
+      "iconPath": "../media/icons/classes/Mouse.png"
+    },
+    "_mouseservice": {
+      "iconPath": "../media/icons/classes/MouseService.png"
+    },
+    "_multipledocumentinterfaceinstance": {
+      "iconPath": "../media/icons/classes/MultipleDocumentInterfaceInstance.png"
+    },
+    "_negateoperation": {
+      "iconPath": "../media/icons/classes/NegateOperation.png"
+    },
+    "_networkclient": {
+      "iconPath": "../media/icons/classes/NetworkClient.png"
+    },
+    "_networkmarker": {
+      "iconPath": "../media/icons/classes/NetworkMarker.png"
+    },
+    "_networkpeer": {
+      "iconPath": "../media/icons/classes/NetworkPeer.png"
+    },
+    "_networkreplicator": {
+      "iconPath": "../media/icons/classes/NetworkReplicator.png"
+    },
+    "_networkserver": {
+      "iconPath": "../media/icons/classes/NetworkServer.png"
+    },
+    "_networksettings": {
+      "iconPath": "../media/icons/classes/NetworkSettings.png"
+    },
+    "_nocollisionconstraint": {
+      "iconPath": "../media/icons/classes/NoCollisionConstraint.png"
+    },
+    "_noise": {
+      "iconPath": "../media/icons/classes/Noise.png"
+    },
+    "_nonreplicatedcsgdictionaryservice": {
+      "iconPath": "../media/icons/classes/NonReplicatedCSGDictionaryService.png"
+    },
+    "_notificationservice": {
+      "iconPath": "../media/icons/classes/NotificationService.png"
+    },
+    "_numberpose": {
+      "iconPath": "../media/icons/classes/NumberPose.png"
+    },
+    "_numbervalue": {
+      "iconPath": "../media/icons/classes/NumberValue.png"
+    },
+    "_object": {
+      "iconPath": "../media/icons/classes/Object.png"
+    },
+    "_objectvalue": {
+      "iconPath": "../media/icons/classes/ObjectValue.png"
+    },
+    "_omnirecommendationsservice": {
+      "iconPath": "../media/icons/classes/OmniRecommendationsService.png"
+    },
+    "_opencloudapiv1": {
+      "iconPath": "../media/icons/classes/OpenCloudApiV1.png"
+    },
+    "_opencloudservice": {
+      "iconPath": "../media/icons/classes/OpenCloudService.png"
+    },
+    "_operationgraph": {
+      "iconPath": "../media/icons/classes/OperationGraph.png"
+    },
+    "_ordereddatastore": {
+      "iconPath": "../media/icons/classes/OrderedDataStore.png"
+    },
+    "_outfitpages": {
+      "iconPath": "../media/icons/classes/OutfitPages.png"
+    },
+    "_pvadornment": {
+      "iconPath": "../media/icons/classes/PVAdornment.png"
+    },
+    "_pvinstance": {
+      "iconPath": "../media/icons/classes/PVInstance.png"
+    },
+    "_packagelink": {
+      "iconPath": "../media/icons/classes/PackageLink.png"
+    },
+    "_packageservice": {
+      "iconPath": "../media/icons/classes/PackageService.png"
+    },
+    "_packageuiservice": {
+      "iconPath": "../media/icons/classes/PackageUIService.png"
+    },
+    "_pages": {
+      "iconPath": "../media/icons/classes/Pages.png"
+    },
+    "_pants": {
+      "iconPath": "../media/icons/classes/Pants.png"
+    },
+    "_parabolaadornment": {
+      "iconPath": "../media/icons/classes/ParabolaAdornment.png"
+    },
+    "_part": {
+      "iconPath": "../media/icons/classes/Part.png"
+    },
+    "_partadornment": {
+      "iconPath": "../media/icons/classes/PartAdornment.png"
+    },
+    "_partoperation": {
+      "iconPath": "../media/icons/classes/PartOperation.png"
+    },
+    "_partoperationasset": {
+      "iconPath": "../media/icons/classes/PartOperationAsset.png"
+    },
+    "_particleemitter": {
+      "iconPath": "../media/icons/classes/ParticleEmitter.png"
+    },
+    "_partyemulatorservice": {
+      "iconPath": "../media/icons/classes/PartyEmulatorService.png"
+    },
+    "_patchbundlerfilewatch": {
+      "iconPath": "../media/icons/classes/PatchBundlerFileWatch.png"
+    },
+    "_patchmapping": {
+      "iconPath": "../media/icons/classes/PatchMapping.png"
+    },
+    "_path": {
+      "iconPath": "../media/icons/classes/Path.png"
+    },
+    "_path2d": {
+      "iconPath": "../media/icons/classes/Path2D.png"
+    },
+    "_pathfindinglink": {
+      "iconPath": "../media/icons/classes/PathfindingLink.png"
+    },
+    "_pathfindingmodifier": {
+      "iconPath": "../media/icons/classes/PathfindingModifier.png"
+    },
+    "_pathfindingservice": {
+      "iconPath": "../media/icons/classes/PathfindingService.png"
+    },
+    "_pausedstate": {
+      "iconPath": "../media/icons/classes/PausedState.png"
+    },
+    "_pausedstatebreakpoint": {
+      "iconPath": "../media/icons/classes/PausedStateBreakpoint.png"
+    },
+    "_pausedstateexception": {
+      "iconPath": "../media/icons/classes/PausedStateException.png"
+    },
+    "_performancecontrolservice": {
+      "iconPath": "../media/icons/classes/PerformanceControlService.png"
+    },
+    "_permissionsservice": {
+      "iconPath": "../media/icons/classes/PermissionsService.png"
+    },
+    "_physicsservice": {
+      "iconPath": "../media/icons/classes/PhysicsService.png"
+    },
+    "_physicssettings": {
+      "iconPath": "../media/icons/classes/PhysicsSettings.png"
+    },
+    "_pitchshiftsoundeffect": {
+      "iconPath": "../media/icons/classes/PitchShiftSoundEffect.png"
+    },
+    "_placeassetidsservice": {
+      "iconPath": "../media/icons/classes/PlaceAssetIdsService.png"
+    },
+    "_placestatsservice": {
+      "iconPath": "../media/icons/classes/PlaceStatsService.png"
+    },
+    "_placesservice": {
+      "iconPath": "../media/icons/classes/PlacesService.png"
+    },
+    "_plane": {
+      "iconPath": "../media/icons/classes/Plane.png"
+    },
+    "_planeconstraint": {
+      "iconPath": "../media/icons/classes/PlaneConstraint.png"
+    },
+    "_platform": {
+      "iconPath": "../media/icons/classes/Platform.png"
+    },
+    "_platformcloudstorageservice": {
+      "iconPath": "../media/icons/classes/PlatformCloudStorageService.png"
+    },
+    "_platformfriendsservice": {
+      "iconPath": "../media/icons/classes/PlatformFriendsService.png"
+    },
+    "_player": {
+      "iconPath": "../media/icons/classes/Player.png"
+    },
+    "_playerdata": {
+      "iconPath": "../media/icons/classes/PlayerData.png"
+    },
+    "_playerdatarecord": {
+      "iconPath": "../media/icons/classes/PlayerDataRecord.png"
+    },
+    "_playerdatarecordconfig": {
+      "iconPath": "../media/icons/classes/PlayerDataRecordConfig.png"
+    },
+    "_playerdataservice": {
+      "iconPath": "../media/icons/classes/PlayerDataService.png"
+    },
+    "_playeremulatorservice": {
+      "iconPath": "../media/icons/classes/PlayerEmulatorService.png"
+    },
+    "_playergui": {
+      "iconPath": "../media/icons/classes/PlayerGui.png"
+    },
+    "_playerhydrationservice": {
+      "iconPath": "../media/icons/classes/PlayerHydrationService.png"
+    },
+    "_playermouse": {
+      "iconPath": "../media/icons/classes/PlayerMouse.png"
+    },
+    "_playerscripts": {
+      "iconPath": "../media/icons/classes/PlayerScripts.png"
+    },
+    "_playerviewservice": {
+      "iconPath": "../media/icons/classes/PlayerViewService.png"
+    },
+    "_plugin": {
+      "iconPath": "../media/icons/classes/Plugin.png"
+    },
+    "_pluginaction": {
+      "iconPath": "../media/icons/classes/PluginAction.png"
+    },
+    "_plugincapabilities": {
+      "iconPath": "../media/icons/classes/PluginCapabilities.png"
+    },
+    "_plugindebugservice": {
+      "iconPath": "../media/icons/classes/PluginDebugService.png"
+    },
+    "_plugindragevent": {
+      "iconPath": "../media/icons/classes/PluginDragEvent.png"
+    },
+    "_plugingui": {
+      "iconPath": "../media/icons/classes/PluginGui.png"
+    },
+    "_pluginguiservice": {
+      "iconPath": "../media/icons/classes/PluginGuiService.png"
+    },
+    "_pluginmanagementservice": {
+      "iconPath": "../media/icons/classes/PluginManagementService.png"
+    },
+    "_pluginmanager": {
+      "iconPath": "../media/icons/classes/PluginManager.png"
+    },
+    "_pluginmanagerinterface": {
+      "iconPath": "../media/icons/classes/PluginManagerInterface.png"
+    },
+    "_pluginmenu": {
+      "iconPath": "../media/icons/classes/PluginMenu.png"
+    },
+    "_pluginmouse": {
+      "iconPath": "../media/icons/classes/PluginMouse.png"
+    },
+    "_pluginpolicyservice": {
+      "iconPath": "../media/icons/classes/PluginPolicyService.png"
+    },
+    "_plugintoolbar": {
+      "iconPath": "../media/icons/classes/PluginToolbar.png"
+    },
+    "_plugintoolbarbutton": {
+      "iconPath": "../media/icons/classes/PluginToolbarButton.png"
+    },
+    "_pointlight": {
+      "iconPath": "../media/icons/classes/PointLight.png"
+    },
+    "_pointsservice": {
+      "iconPath": "../media/icons/classes/PointsService.png"
+    },
+    "_policyservice": {
+      "iconPath": "../media/icons/classes/PolicyService.png"
+    },
+    "_pose": {
+      "iconPath": "../media/icons/classes/Pose.png"
+    },
+    "_posebase": {
+      "iconPath": "../media/icons/classes/PoseBase.png"
+    },
+    "_posteffect": {
+      "iconPath": "../media/icons/classes/PostEffect.png"
+    },
+    "_prismaticconstraint": {
+      "iconPath": "../media/icons/classes/PrismaticConstraint.png"
+    },
+    "_processinstancephysicsservice": {
+      "iconPath": "../media/icons/classes/ProcessInstancePhysicsService.png"
+    },
+    "_proximityprompt": {
+      "iconPath": "../media/icons/classes/ProximityPrompt.png"
+    },
+    "_proximitypromptservice": {
+      "iconPath": "../media/icons/classes/ProximityPromptService.png"
+    },
+    "_publishservice": {
+      "iconPath": "../media/icons/classes/PublishService.png"
+    },
+    "_pyramidhandleadornment": {
+      "iconPath": "../media/icons/classes/PyramidHandleAdornment.png"
+    },
+    "_qwidgetplugingui": {
+      "iconPath": "../media/icons/classes/QWidgetPluginGui.png"
+    },
+    "_rtanimationtracker": {
+      "iconPath": "../media/icons/classes/RTAnimationTracker.png"
+    },
+    "_rayvalue": {
+      "iconPath": "../media/icons/classes/RayValue.png"
+    },
+    "_rbxanalyticsservice": {
+      "iconPath": "../media/icons/classes/RbxAnalyticsService.png"
+    },
+    "_recommendationpages": {
+      "iconPath": "../media/icons/classes/RecommendationPages.png"
+    },
+    "_recommendationservice": {
+      "iconPath": "../media/icons/classes/RecommendationService.png"
+    },
+    "_reflectionmetadata": {
+      "iconPath": "../media/icons/classes/ReflectionMetadata.png"
+    },
+    "_reflectionmetadatacallbacks": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataCallbacks.png"
+    },
+    "_reflectionmetadataclass": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataClass.png"
+    },
+    "_reflectionmetadataclasses": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataClasses.png"
+    },
+    "_reflectionmetadataenum": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataEnum.png"
+    },
+    "_reflectionmetadataenumitem": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataEnumItem.png"
+    },
+    "_reflectionmetadataenums": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataEnums.png"
+    },
+    "_reflectionmetadataevents": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataEvents.png"
+    },
+    "_reflectionmetadatafunctions": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataFunctions.png"
+    },
+    "_reflectionmetadataitem": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataItem.png"
+    },
+    "_reflectionmetadatamember": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataMember.png"
+    },
+    "_reflectionmetadataproperties": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataProperties.png"
+    },
+    "_reflectionmetadatayieldfunctions": {
+      "iconPath": "../media/icons/classes/ReflectionMetadataYieldFunctions.png"
+    },
+    "_reflectionservice": {
+      "iconPath": "../media/icons/classes/ReflectionService.png"
+    },
+    "_relativegui": {
+      "iconPath": "../media/icons/classes/RelativeGui.png"
+    },
+    "_remotecommandservice": {
+      "iconPath": "../media/icons/classes/RemoteCommandService.png"
+    },
+    "_remotecursorservice": {
+      "iconPath": "../media/icons/classes/RemoteCursorService.png"
+    },
+    "_remotedebuggerserver": {
+      "iconPath": "../media/icons/classes/RemoteDebuggerServer.png"
+    },
+    "_remoteevent": {
+      "iconPath": "../media/icons/classes/RemoteEvent.png"
+    },
+    "_remotefunction": {
+      "iconPath": "../media/icons/classes/RemoteFunction.png"
+    },
+    "_rendersettings": {
+      "iconPath": "../media/icons/classes/RenderSettings.png"
+    },
+    "_renderingtest": {
+      "iconPath": "../media/icons/classes/RenderingTest.png"
+    },
+    "_replicatedscriptservice": {
+      "iconPath": "../media/icons/classes/ReplicatedScriptService.png"
+    },
+    "_reverbsoundeffect": {
+      "iconPath": "../media/icons/classes/ReverbSoundEffect.png"
+    },
+    "_ribbonnotificationservice": {
+      "iconPath": "../media/icons/classes/RibbonNotificationService.png"
+    },
+    "_rigidconstraint": {
+      "iconPath": "../media/icons/classes/RigidConstraint.png"
+    },
+    "_robloxpluginguiservice": {
+      "iconPath": "../media/icons/classes/RobloxPluginGuiService.png"
+    },
+    "_robloxreplicatedstorage": {
+      "iconPath": "../media/icons/classes/RobloxReplicatedStorage.png"
+    },
+    "_robloxserializableinstance": {
+      "iconPath": "../media/icons/classes/RobloxSerializableInstance.png"
+    },
+    "_robloxserverstorage": {
+      "iconPath": "../media/icons/classes/RobloxServerStorage.png"
+    },
+    "_rocketpropulsion": {
+      "iconPath": "../media/icons/classes/RocketPropulsion.png"
+    },
+    "_rodconstraint": {
+      "iconPath": "../media/icons/classes/RodConstraint.png"
+    },
+    "_romarkrbxanalyticsservice": {
+      "iconPath": "../media/icons/classes/RomarkRbxAnalyticsService.png"
+    },
+    "_romarkservice": {
+      "iconPath": "../media/icons/classes/RomarkService.png"
+    },
+    "_rootimportdata": {
+      "iconPath": "../media/icons/classes/RootImportData.png"
+    },
+    "_ropeconstraint": {
+      "iconPath": "../media/icons/classes/RopeConstraint.png"
+    },
+    "_rotate": {
+      "iconPath": "../media/icons/classes/Rotate.png"
+    },
+    "_rotatep": {
+      "iconPath": "../media/icons/classes/RotateP.png"
+    },
+    "_rotatev": {
+      "iconPath": "../media/icons/classes/RotateV.png"
+    },
+    "_rotationcurve": {
+      "iconPath": "../media/icons/classes/RotationCurve.png"
+    },
+    "_rtmessagingservice": {
+      "iconPath": "../media/icons/classes/RtMessagingService.png"
+    },
+    "_runservice": {
+      "iconPath": "../media/icons/classes/RunService.png"
+    },
+    "_runningaverageitemdouble": {
+      "iconPath": "../media/icons/classes/RunningAverageItemDouble.png"
+    },
+    "_runningaverageitemint": {
+      "iconPath": "../media/icons/classes/RunningAverageItemInt.png"
+    },
+    "_runningaveragetimeintervalitem": {
+      "iconPath": "../media/icons/classes/RunningAverageTimeIntervalItem.png"
+    },
+    "_runtimecontentservice": {
+      "iconPath": "../media/icons/classes/RuntimeContentService.png"
+    },
+    "_runtimescriptservice": {
+      "iconPath": "../media/icons/classes/RuntimeScriptService.png"
+    },
+    "_safetyservice": {
+      "iconPath": "../media/icons/classes/SafetyService.png"
+    },
+    "_screengui": {
+      "iconPath": "../media/icons/classes/ScreenGui.png"
+    },
+    "_screenshotcapture": {
+      "iconPath": "../media/icons/classes/ScreenshotCapture.png"
+    },
+    "_screenshothud": {
+      "iconPath": "../media/icons/classes/ScreenshotHud.png"
+    },
+    "_script": {
+      "iconPath": "../media/icons/classes/Script.png"
+    },
+    "_scriptbuilder": {
+      "iconPath": "../media/icons/classes/ScriptBuilder.png"
+    },
+    "_scriptchangeservice": {
+      "iconPath": "../media/icons/classes/ScriptChangeService.png"
+    },
+    "_scriptclonewatcher": {
+      "iconPath": "../media/icons/classes/ScriptCloneWatcher.png"
+    },
+    "_scriptclonewatcherhelper": {
+      "iconPath": "../media/icons/classes/ScriptCloneWatcherHelper.png"
+    },
+    "_scriptcommitservice": {
+      "iconPath": "../media/icons/classes/ScriptCommitService.png"
+    },
+    "_scriptcontext": {
+      "iconPath": "../media/icons/classes/ScriptContext.png"
+    },
+    "_scriptdebugger": {
+      "iconPath": "../media/icons/classes/ScriptDebugger.png"
+    },
+    "_scriptdocument": {
+      "iconPath": "../media/icons/classes/ScriptDocument.png"
+    },
+    "_scripteditorservice": {
+      "iconPath": "../media/icons/classes/ScriptEditorService.png"
+    },
+    "_scriptprofilerservice": {
+      "iconPath": "../media/icons/classes/ScriptProfilerService.png"
+    },
+    "_scriptregistrationservice": {
+      "iconPath": "../media/icons/classes/ScriptRegistrationService.png"
+    },
+    "_scriptruntime": {
+      "iconPath": "../media/icons/classes/ScriptRuntime.png"
+    },
+    "_scriptservice": {
+      "iconPath": "../media/icons/classes/ScriptService.png"
+    },
+    "_scrollingframe": {
+      "iconPath": "../media/icons/classes/ScrollingFrame.png"
+    },
+    "_seat": {
+      "iconPath": "../media/icons/classes/Seat.png"
+    },
+    "_selection": {
+      "iconPath": "../media/icons/classes/Selection.png"
+    },
+    "_selectionbox": {
+      "iconPath": "../media/icons/classes/SelectionBox.png"
+    },
+    "_selectionhighlightmanager": {
+      "iconPath": "../media/icons/classes/SelectionHighlightManager.png"
+    },
+    "_selectionlasso": {
+      "iconPath": "../media/icons/classes/SelectionLasso.png"
+    },
+    "_selectionpartlasso": {
+      "iconPath": "../media/icons/classes/SelectionPartLasso.png"
+    },
+    "_selectionpointlasso": {
+      "iconPath": "../media/icons/classes/SelectionPointLasso.png"
+    },
+    "_selectionsphere": {
+      "iconPath": "../media/icons/classes/SelectionSphere.png"
+    },
+    "_sensorbase": {
+      "iconPath": "../media/icons/classes/SensorBase.png"
+    },
+    "_serializationservice": {
+      "iconPath": "../media/icons/classes/SerializationService.png"
+    },
+    "_serverreplicator": {
+      "iconPath": "../media/icons/classes/ServerReplicator.png"
+    },
+    "_serviceprovider": {
+      "iconPath": "../media/icons/classes/ServiceProvider.png"
+    },
+    "_servicevisibilityservice": {
+      "iconPath": "../media/icons/classes/ServiceVisibilityService.png"
+    },
+    "_sessioncheckservice": {
+      "iconPath": "../media/icons/classes/SessionCheckService.png"
+    },
+    "_sessionservice": {
+      "iconPath": "../media/icons/classes/SessionService.png"
+    },
+    "_sharedtableregistry": {
+      "iconPath": "../media/icons/classes/SharedTableRegistry.png"
+    },
+    "_shirt": {
+      "iconPath": "../media/icons/classes/Shirt.png"
+    },
+    "_shirtgraphic": {
+      "iconPath": "../media/icons/classes/ShirtGraphic.png"
+    },
+    "_skateboardcontroller": {
+      "iconPath": "../media/icons/classes/SkateboardController.png"
+    },
+    "_skateboardplatform": {
+      "iconPath": "../media/icons/classes/SkateboardPlatform.png"
+    },
+    "_skin": {
+      "iconPath": "../media/icons/classes/Skin.png"
+    },
+    "_sky": {
+      "iconPath": "../media/icons/classes/Sky.png"
+    },
+    "_slidingballconstraint": {
+      "iconPath": "../media/icons/classes/SlidingBallConstraint.png"
+    },
+    "_slimanimationdataentity": {
+      "iconPath": "../media/icons/classes/SlimAnimationDataEntity.png"
+    },
+    "_slimanimationreplicationservice": {
+      "iconPath": "../media/icons/classes/SlimAnimationReplicationService.png"
+    },
+    "_slimcontentprovider": {
+      "iconPath": "../media/icons/classes/SlimContentProvider.png"
+    },
+    "_slimreplicationservice": {
+      "iconPath": "../media/icons/classes/SlimReplicationService.png"
+    },
+    "_slimservice": {
+      "iconPath": "../media/icons/classes/SlimService.png"
+    },
+    "_smoke": {
+      "iconPath": "../media/icons/classes/Smoke.png"
+    },
+    "_smoothvoxelsupgraderservice": {
+      "iconPath": "../media/icons/classes/SmoothVoxelsUpgraderService.png"
+    },
+    "_snap": {
+      "iconPath": "../media/icons/classes/Snap.png"
+    },
+    "_snippetservice": {
+      "iconPath": "../media/icons/classes/SnippetService.png"
+    },
+    "_socialservice": {
+      "iconPath": "../media/icons/classes/SocialService.png"
+    },
+    "_solidmodelcontentprovider": {
+      "iconPath": "../media/icons/classes/SolidModelContentProvider.png"
+    },
+    "_sound": {
+      "iconPath": "../media/icons/classes/Sound.png"
+    },
+    "_soundeffect": {
+      "iconPath": "../media/icons/classes/SoundEffect.png"
+    },
+    "_soundgroup": {
+      "iconPath": "../media/icons/classes/SoundGroup.png"
+    },
+    "_soundshimservice": {
+      "iconPath": "../media/icons/classes/SoundShimService.png"
+    },
+    "_sparkles": {
+      "iconPath": "../media/icons/classes/Sparkles.png"
+    },
+    "_spawnlocation": {
+      "iconPath": "../media/icons/classes/SpawnLocation.png"
+    },
+    "_spawnerservice": {
+      "iconPath": "../media/icons/classes/SpawnerService.png"
+    },
+    "_specialmesh": {
+      "iconPath": "../media/icons/classes/SpecialMesh.png"
+    },
+    "_spherehandleadornment": {
+      "iconPath": "../media/icons/classes/SphereHandleAdornment.png"
+    },
+    "_spotlight": {
+      "iconPath": "../media/icons/classes/SpotLight.png"
+    },
+    "_springconstraint": {
+      "iconPath": "../media/icons/classes/SpringConstraint.png"
+    },
+    "_stackframe": {
+      "iconPath": "../media/icons/classes/StackFrame.png"
+    },
+    "_standalonepluginscripts": {
+      "iconPath": "../media/icons/classes/StandalonePluginScripts.png"
+    },
+    "_standardpages": {
+      "iconPath": "../media/icons/classes/StandardPages.png"
+    },
+    "_startpageservice": {
+      "iconPath": "../media/icons/classes/StartPageService.png"
+    },
+    "_startercharacterscripts": {
+      "iconPath": "../media/icons/classes/StarterCharacterScripts.png"
+    },
+    "_startergear": {
+      "iconPath": "../media/icons/classes/StarterGear.png"
+    },
+    "_startupmessageservice": {
+      "iconPath": "../media/icons/classes/StartupMessageService.png"
+    },
+    "_stats": {
+      "iconPath": "../media/icons/classes/Stats.png"
+    },
+    "_statsitem": {
+      "iconPath": "../media/icons/classes/StatsItem.png"
+    },
+    "_status": {
+      "iconPath": "../media/icons/classes/Status.png"
+    },
+    "_stopwatchreporter": {
+      "iconPath": "../media/icons/classes/StopWatchReporter.png"
+    },
+    "_streamingservice": {
+      "iconPath": "../media/icons/classes/StreamingService.png"
+    },
+    "_stringvalue": {
+      "iconPath": "../media/icons/classes/StringValue.png"
+    },
+    "_studio": {
+      "iconPath": "../media/icons/classes/Studio.png"
+    },
+    "_studioassetservice": {
+      "iconPath": "../media/icons/classes/StudioAssetService.png"
+    },
+    "_studioattachment": {
+      "iconPath": "../media/icons/classes/StudioAttachment.png"
+    },
+    "_studiocallout": {
+      "iconPath": "../media/icons/classes/StudioCallout.png"
+    },
+    "_studiocameraservice": {
+      "iconPath": "../media/icons/classes/StudioCameraService.png"
+    },
+    "_studiodata": {
+      "iconPath": "../media/icons/classes/StudioData.png"
+    },
+    "_studiodeviceemulatorservice": {
+      "iconPath": "../media/icons/classes/StudioDeviceEmulatorService.png"
+    },
+    "_studioobjectbase": {
+      "iconPath": "../media/icons/classes/StudioObjectBase.png"
+    },
+    "_studiopublishservice": {
+      "iconPath": "../media/icons/classes/StudioPublishService.png"
+    },
+    "_studioscriptdebugeventlistener": {
+      "iconPath": "../media/icons/classes/StudioScriptDebugEventListener.png"
+    },
+    "_studiosdkservice": {
+      "iconPath": "../media/icons/classes/StudioSdkService.png"
+    },
+    "_studioservice": {
+      "iconPath": "../media/icons/classes/StudioService.png"
+    },
+    "_studiotestservice": {
+      "iconPath": "../media/icons/classes/StudioTestService.png"
+    },
+    "_studiotheme": {
+      "iconPath": "../media/icons/classes/StudioTheme.png"
+    },
+    "_studiouserservice": {
+      "iconPath": "../media/icons/classes/StudioUserService.png"
+    },
+    "_studiowidget": {
+      "iconPath": "../media/icons/classes/StudioWidget.png"
+    },
+    "_studiowidgetsservice": {
+      "iconPath": "../media/icons/classes/StudioWidgetsService.png"
+    },
+    "_stylebase": {
+      "iconPath": "../media/icons/classes/StyleBase.png"
+    },
+    "_stylederive": {
+      "iconPath": "../media/icons/classes/StyleDerive.png"
+    },
+    "_stylelink": {
+      "iconPath": "../media/icons/classes/StyleLink.png"
+    },
+    "_stylequery": {
+      "iconPath": "../media/icons/classes/StyleQuery.png"
+    },
+    "_stylerule": {
+      "iconPath": "../media/icons/classes/StyleRule.png"
+    },
+    "_stylesheet": {
+      "iconPath": "../media/icons/classes/StyleSheet.png"
+    },
+    "_stylingservice": {
+      "iconPath": "../media/icons/classes/StylingService.png"
+    },
+    "_sunrayseffect": {
+      "iconPath": "../media/icons/classes/SunRaysEffect.png"
+    },
+    "_surfaceappearance": {
+      "iconPath": "../media/icons/classes/SurfaceAppearance.png"
+    },
+    "_surfacegui": {
+      "iconPath": "../media/icons/classes/SurfaceGui.png"
+    },
+    "_surfaceguibase": {
+      "iconPath": "../media/icons/classes/SurfaceGuiBase.png"
+    },
+    "_surfacelight": {
+      "iconPath": "../media/icons/classes/SurfaceLight.png"
+    },
+    "_surfaceselection": {
+      "iconPath": "../media/icons/classes/SurfaceSelection.png"
+    },
+    "_swimcontroller": {
+      "iconPath": "../media/icons/classes/SwimController.png"
+    },
+    "_syncscriptbuilder": {
+      "iconPath": "../media/icons/classes/SyncScriptBuilder.png"
+    },
+    "_systemthemeservice": {
+      "iconPath": "../media/icons/classes/SystemThemeService.png"
+    },
+    "_taskscheduler": {
+      "iconPath": "../media/icons/classes/TaskScheduler.png"
+    },
+    "_team": {
+      "iconPath": "../media/icons/classes/Team.png"
+    },
+    "_teamcreatedata": {
+      "iconPath": "../media/icons/classes/TeamCreateData.png"
+    },
+    "_teamcreatepublishservice": {
+      "iconPath": "../media/icons/classes/TeamCreatePublishService.png"
+    },
+    "_teamcreateservice": {
+      "iconPath": "../media/icons/classes/TeamCreateService.png"
+    },
+    "_teams": {
+      "iconPath": "../media/icons/classes/Teams.png"
+    },
+    "_telemetryservice": {
+      "iconPath": "../media/icons/classes/TelemetryService.png"
+    },
+    "_teleportasyncresult": {
+      "iconPath": "../media/icons/classes/TeleportAsyncResult.png"
+    },
+    "_teleportoptions": {
+      "iconPath": "../media/icons/classes/TeleportOptions.png"
+    },
+    "_teleportservice": {
+      "iconPath": "../media/icons/classes/TeleportService.png"
+    },
+    "_temporarycagemeshprovider": {
+      "iconPath": "../media/icons/classes/TemporaryCageMeshProvider.png"
+    },
+    "_temporaryscriptservice": {
+      "iconPath": "../media/icons/classes/TemporaryScriptService.png"
+    },
+    "_terrain": {
+      "iconPath": "../media/icons/classes/Terrain.png"
+    },
+    "_terraindetail": {
+      "iconPath": "../media/icons/classes/TerrainDetail.png"
+    },
+    "_terrainiterateoperation": {
+      "iconPath": "../media/icons/classes/TerrainIterateOperation.png"
+    },
+    "_terrainmodifyoperation": {
+      "iconPath": "../media/icons/classes/TerrainModifyOperation.png"
+    },
+    "_terrainreadoperation": {
+      "iconPath": "../media/icons/classes/TerrainReadOperation.png"
+    },
+    "_terrainregion": {
+      "iconPath": "../media/icons/classes/TerrainRegion.png"
+    },
+    "_terrainwriteoperation": {
+      "iconPath": "../media/icons/classes/TerrainWriteOperation.png"
+    },
+    "_testservice": {
+      "iconPath": "../media/icons/classes/TestService.png"
+    },
+    "_textbox": {
+      "iconPath": "../media/icons/classes/TextBox.png"
+    },
+    "_textboxservice": {
+      "iconPath": "../media/icons/classes/TextBoxService.png"
+    },
+    "_textbutton": {
+      "iconPath": "../media/icons/classes/TextButton.png"
+    },
+    "_textchannel": {
+      "iconPath": "../media/icons/classes/TextChannel.png"
+    },
+    "_textchatcommand": {
+      "iconPath": "../media/icons/classes/TextChatCommand.png"
+    },
+    "_textchatconfigurations": {
+      "iconPath": "../media/icons/classes/TextChatConfigurations.png"
+    },
+    "_textchatmessage": {
+      "iconPath": "../media/icons/classes/TextChatMessage.png"
+    },
+    "_textchatmessageproperties": {
+      "iconPath": "../media/icons/classes/TextChatMessageProperties.png"
+    },
+    "_textchatservice": {
+      "iconPath": "../media/icons/classes/TextChatService.png"
+    },
+    "_textfilterresult": {
+      "iconPath": "../media/icons/classes/TextFilterResult.png"
+    },
+    "_textfiltertranslatedresult": {
+      "iconPath": "../media/icons/classes/TextFilterTranslatedResult.png"
+    },
+    "_textgenerator": {
+      "iconPath": "../media/icons/classes/TextGenerator.png"
+    },
+    "_textlabel": {
+      "iconPath": "../media/icons/classes/TextLabel.png"
+    },
+    "_textservice": {
+      "iconPath": "../media/icons/classes/TextService.png"
+    },
+    "_textsource": {
+      "iconPath": "../media/icons/classes/TextSource.png"
+    },
+    "_texture": {
+      "iconPath": "../media/icons/classes/Texture.png"
+    },
+    "_texturegenerationpartgroup": {
+      "iconPath": "../media/icons/classes/TextureGenerationPartGroup.png"
+    },
+    "_texturegenerationservice": {
+      "iconPath": "../media/icons/classes/TextureGenerationService.png"
+    },
+    "_texturegenerationunwrappingrequest": {
+      "iconPath": "../media/icons/classes/TextureGenerationUnwrappingRequest.png"
+    },
+    "_thirdpartyuserservice": {
+      "iconPath": "../media/icons/classes/ThirdPartyUserService.png"
+    },
+    "_threadstate": {
+      "iconPath": "../media/icons/classes/ThreadState.png"
+    },
+    "_timerservice": {
+      "iconPath": "../media/icons/classes/TimerService.png"
+    },
+    "_toastnotificationservice": {
+      "iconPath": "../media/icons/classes/ToastNotificationService.png"
+    },
+    "_tool": {
+      "iconPath": "../media/icons/classes/Tool.png"
+    },
+    "_torque": {
+      "iconPath": "../media/icons/classes/Torque.png"
+    },
+    "_torsionspringconstraint": {
+      "iconPath": "../media/icons/classes/TorsionSpringConstraint.png"
+    },
+    "_totalcounttimeintervalitem": {
+      "iconPath": "../media/icons/classes/TotalCountTimeIntervalItem.png"
+    },
+    "_touchinputservice": {
+      "iconPath": "../media/icons/classes/TouchInputService.png"
+    },
+    "_touchtransmitter": {
+      "iconPath": "../media/icons/classes/TouchTransmitter.png"
+    },
+    "_tracerservice": {
+      "iconPath": "../media/icons/classes/TracerService.png"
+    },
+    "_trackerlodcontroller": {
+      "iconPath": "../media/icons/classes/TrackerLodController.png"
+    },
+    "_trackerstreamanimation": {
+      "iconPath": "../media/icons/classes/TrackerStreamAnimation.png"
+    },
+    "_trail": {
+      "iconPath": "../media/icons/classes/Trail.png"
+    },
+    "_translator": {
+      "iconPath": "../media/icons/classes/Translator.png"
+    },
+    "_tremolosoundeffect": {
+      "iconPath": "../media/icons/classes/TremoloSoundEffect.png"
+    },
+    "_trianglemeshpart": {
+      "iconPath": "../media/icons/classes/TriangleMeshPart.png"
+    },
+    "_trusspart": {
+      "iconPath": "../media/icons/classes/TrussPart.png"
+    },
+    "_tutorialservice": {
+      "iconPath": "../media/icons/classes/TutorialService.png"
+    },
+    "_tween": {
+      "iconPath": "../media/icons/classes/Tween.png"
+    },
+    "_tweenbase": {
+      "iconPath": "../media/icons/classes/TweenBase.png"
+    },
+    "_tweenservice": {
+      "iconPath": "../media/icons/classes/TweenService.png"
+    },
+    "_ugcavatarservice": {
+      "iconPath": "../media/icons/classes/UGCAvatarService.png"
+    },
+    "_ugcvalidationservice": {
+      "iconPath": "../media/icons/classes/UGCValidationService.png"
+    },
+    "_uiaspectratioconstraint": {
+      "iconPath": "../media/icons/classes/UIAspectRatioConstraint.png"
+    },
+    "_uibase": {
+      "iconPath": "../media/icons/classes/UIBase.png"
+    },
+    "_uicomponent": {
+      "iconPath": "../media/icons/classes/UIComponent.png"
+    },
+    "_uiconstraint": {
+      "iconPath": "../media/icons/classes/UIConstraint.png"
+    },
+    "_uicorner": {
+      "iconPath": "../media/icons/classes/UICorner.png"
+    },
+    "_uidragdetector": {
+      "iconPath": "../media/icons/classes/UIDragDetector.png"
+    },
+    "_uidragdetectorservice": {
+      "iconPath": "../media/icons/classes/UIDragDetectorService.png"
+    },
+    "_uiflexitem": {
+      "iconPath": "../media/icons/classes/UIFlexItem.png"
+    },
+    "_uigradient": {
+      "iconPath": "../media/icons/classes/UIGradient.png"
+    },
+    "_uigridlayout": {
+      "iconPath": "../media/icons/classes/UIGridLayout.png"
+    },
+    "_uigridstylelayout": {
+      "iconPath": "../media/icons/classes/UIGridStyleLayout.png"
+    },
+    "_uilayout": {
+      "iconPath": "../media/icons/classes/UILayout.png"
+    },
+    "_uilistlayout": {
+      "iconPath": "../media/icons/classes/UIListLayout.png"
+    },
+    "_uipadding": {
+      "iconPath": "../media/icons/classes/UIPadding.png"
+    },
+    "_uipagelayout": {
+      "iconPath": "../media/icons/classes/UIPageLayout.png"
+    },
+    "_uiscale": {
+      "iconPath": "../media/icons/classes/UIScale.png"
+    },
+    "_uisizeconstraint": {
+      "iconPath": "../media/icons/classes/UISizeConstraint.png"
+    },
+    "_uistroke": {
+      "iconPath": "../media/icons/classes/UIStroke.png"
+    },
+    "_uitablelayout": {
+      "iconPath": "../media/icons/classes/UITableLayout.png"
+    },
+    "_uitextsizeconstraint": {
+      "iconPath": "../media/icons/classes/UITextSizeConstraint.png"
+    },
+    "_unionoperation": {
+      "iconPath": "../media/icons/classes/UnionOperation.png"
+    },
+    "_uniqueidlookupservice": {
+      "iconPath": "../media/icons/classes/UniqueIdLookupService.png"
+    },
+    "_universalconstraint": {
+      "iconPath": "../media/icons/classes/UniversalConstraint.png"
+    },
+    "_unreliableremoteevent": {
+      "iconPath": "../media/icons/classes/UnreliableRemoteEvent.png"
+    },
+    "_unvalidatedassetservice": {
+      "iconPath": "../media/icons/classes/UnvalidatedAssetService.png"
+    },
+    "_usergamesettings": {
+      "iconPath": "../media/icons/classes/UserGameSettings.png"
+    },
+    "_userinputservice": {
+      "iconPath": "../media/icons/classes/UserInputService.png"
+    },
+    "_userservice": {
+      "iconPath": "../media/icons/classes/UserService.png"
+    },
+    "_usersettings": {
+      "iconPath": "../media/icons/classes/UserSettings.png"
+    },
+    "_userstorageservice": {
+      "iconPath": "../media/icons/classes/UserStorageService.png"
+    },
+    "_vrservice": {
+      "iconPath": "../media/icons/classes/VRService.png"
+    },
+    "_vrstatusservice": {
+      "iconPath": "../media/icons/classes/VRStatusService.png"
+    },
+    "_valuebase": {
+      "iconPath": "../media/icons/classes/ValueBase.png"
+    },
+    "_valuecurve": {
+      "iconPath": "../media/icons/classes/ValueCurve.png"
+    },
+    "_vector3curve": {
+      "iconPath": "../media/icons/classes/Vector3Curve.png"
+    },
+    "_vector3value": {
+      "iconPath": "../media/icons/classes/Vector3Value.png"
+    },
+    "_vectorforce": {
+      "iconPath": "../media/icons/classes/VectorForce.png"
+    },
+    "_vehiclecontroller": {
+      "iconPath": "../media/icons/classes/VehicleController.png"
+    },
+    "_vehicleseat": {
+      "iconPath": "../media/icons/classes/VehicleSeat.png"
+    },
+    "_velocitymotor": {
+      "iconPath": "../media/icons/classes/VelocityMotor.png"
+    },
+    "_versioncontrolservice": {
+      "iconPath": "../media/icons/classes/VersionControlService.png"
+    },
+    "_videocapture": {
+      "iconPath": "../media/icons/classes/VideoCapture.png"
+    },
+    "_videocaptureservice": {
+      "iconPath": "../media/icons/classes/VideoCaptureService.png"
+    },
+    "_videodeviceinput": {
+      "iconPath": "../media/icons/classes/VideoDeviceInput.png"
+    },
+    "_videodisplay": {
+      "iconPath": "../media/icons/classes/VideoDisplay.png"
+    },
+    "_videoframe": {
+      "iconPath": "../media/icons/classes/VideoFrame.png"
+    },
+    "_videoplayer": {
+      "iconPath": "../media/icons/classes/VideoPlayer.png"
+    },
+    "_videosampler": {
+      "iconPath": "../media/icons/classes/VideoSampler.png"
+    },
+    "_videoscreencaptureservice": {
+      "iconPath": "../media/icons/classes/VideoScreenCaptureService.png"
+    },
+    "_videoservice": {
+      "iconPath": "../media/icons/classes/VideoService.png"
+    },
+    "_viewportframe": {
+      "iconPath": "../media/icons/classes/ViewportFrame.png"
+    },
+    "_virtualinputmanager": {
+      "iconPath": "../media/icons/classes/VirtualInputManager.png"
+    },
+    "_virtualuser": {
+      "iconPath": "../media/icons/classes/VirtualUser.png"
+    },
+    "_visibilitycheckdispatcher": {
+      "iconPath": "../media/icons/classes/VisibilityCheckDispatcher.png"
+    },
+    "_visit": {
+      "iconPath": "../media/icons/classes/Visit.png"
+    },
+    "_visualizationmode": {
+      "iconPath": "../media/icons/classes/VisualizationMode.png"
+    },
+    "_visualizationmodecategory": {
+      "iconPath": "../media/icons/classes/VisualizationModeCategory.png"
+    },
+    "_visualizationmodeservice": {
+      "iconPath": "../media/icons/classes/VisualizationModeService.png"
+    },
+    "_voicechatinternal": {
+      "iconPath": "../media/icons/classes/VoiceChatInternal.png"
+    },
+    "_voicechatservice": {
+      "iconPath": "../media/icons/classes/VoiceChatService.png"
+    },
+    "_websocketclient": {
+      "iconPath": "../media/icons/classes/WebSocketClient.png"
+    },
+    "_websocketservice": {
+      "iconPath": "../media/icons/classes/WebSocketService.png"
+    },
+    "_webstreamclient": {
+      "iconPath": "../media/icons/classes/WebStreamClient.png"
+    },
+    "_webviewservice": {
+      "iconPath": "../media/icons/classes/WebViewService.png"
+    },
+    "_wedgepart": {
+      "iconPath": "../media/icons/classes/WedgePart.png"
+    },
+    "_weld": {
+      "iconPath": "../media/icons/classes/Weld.png"
+    },
+    "_weldconstraint": {
+      "iconPath": "../media/icons/classes/WeldConstraint.png"
+    },
+    "_wire": {
+      "iconPath": "../media/icons/classes/Wire.png"
+    },
+    "_wireframehandleadornment": {
+      "iconPath": "../media/icons/classes/WireframeHandleAdornment.png"
+    },
+    "_workspace": {
+      "iconPath": "../media/icons/classes/Workspace.png"
+    },
+    "_workspaceannotation": {
+      "iconPath": "../media/icons/classes/WorkspaceAnnotation.png"
+    },
+    "_worldmodel": {
+      "iconPath": "../media/icons/classes/WorldModel.png"
+    },
+    "_worldroot": {
+      "iconPath": "../media/icons/classes/WorldRoot.png"
+    },
+    "_wrapdeformer": {
+      "iconPath": "../media/icons/classes/WrapDeformer.png"
+    },
+    "_wraplayer": {
+      "iconPath": "../media/icons/classes/WrapLayer.png"
+    },
+    "_wraptarget": {
+      "iconPath": "../media/icons/classes/WrapTarget.png"
+    },
+    "_wraptexturetransfer": {
+      "iconPath": "../media/icons/classes/WrapTextureTransfer.png"
+    },
+    "_lighting": {
+      "iconPath": "../media/icons/classes/lighting.png"
+    },
+    "_players": {
+      "iconPath": "../media/icons/classes/players.png"
+    },
+    "_replicatedfirst": {
+      "iconPath": "../media/icons/classes/replicatedfirst.png"
+    },
+    "_replicatedstorage": {
+      "iconPath": "../media/icons/classes/replicatedstorage.png"
+    },
+    "_serverscriptservice": {
+      "iconPath": "../media/icons/classes/serverscriptservice.png"
+    },
+    "_serverstorage": {
+      "iconPath": "../media/icons/classes/serverstorage.png"
+    },
+    "_soundservice": {
+      "iconPath": "../media/icons/classes/soundservice.png"
+    },
+    "_startergui": {
+      "iconPath": "../media/icons/classes/startergui.png"
+    },
+    "_starterpack": {
+      "iconPath": "../media/icons/classes/starterpack.png"
+    },
+    "_starterplayer": {
+      "iconPath": "../media/icons/classes/starterplayer.png"
+    },
+    "_starterplayerscripts": {
+      "iconPath": "../media/icons/classes/starterplayerscripts.png"
     }
   },
   "fileExtensions": {
@@ -73,12 +2560,906 @@
     "server.lua": "_script",
     "client.lua": "_localscript",
     "lua": "_modulescript",
-    "rbxjson": "_instance"
+    "rbxjson": "_instance",
+    "Accessory.rbxjson": "_accessory",
+    "AccessoryDescription.rbxjson": "_accessorydescription",
+    "AccountService.rbxjson": "_accountservice",
+    "Accoutrement.rbxjson": "_accoutrement",
+    "AchievementService.rbxjson": "_achievementservice",
+    "ActivityHistoryEventService.rbxjson": "_activityhistoryeventservice",
+    "Actor.rbxjson": "_actor",
+    "AdGui.rbxjson": "_adgui",
+    "AdPortal.rbxjson": "_adportal",
+    "AdService.rbxjson": "_adservice",
+    "AdvancedDragger.rbxjson": "_advanceddragger",
+    "AirController.rbxjson": "_aircontroller",
+    "AlignOrientation.rbxjson": "_alignorientation",
+    "AlignPosition.rbxjson": "_alignposition",
+    "AnalyticsService.rbxjson": "_analyticsservice",
+    "AngularVelocity.rbxjson": "_angularvelocity",
+    "Animation.rbxjson": "_animation",
+    "AnimationClip.rbxjson": "_animationclip",
+    "AnimationClipProvider.rbxjson": "_animationclipprovider",
+    "AnimationConstraint.rbxjson": "_animationconstraint",
+    "AnimationController.rbxjson": "_animationcontroller",
+    "AnimationFromVideoCreatorService.rbxjson": "_animationfromvideocreatorservice",
+    "AnimationFromVideoCreatorStudioService.rbxjson": "_animationfromvideocreatorstudioservice",
+    "AnimationGraphDefinition.rbxjson": "_animationgraphdefinition",
+    "AnimationImportData.rbxjson": "_animationimportdata",
+    "AnimationNode.rbxjson": "_animationnode",
+    "AnimationNodeDefinition.rbxjson": "_animationnodedefinition",
+    "AnimationRigData.rbxjson": "_animationrigdata",
+    "AnimationStreamTrack.rbxjson": "_animationstreamtrack",
+    "AnimationTrack.rbxjson": "_animationtrack",
+    "Animator.rbxjson": "_animator",
+    "Annotation.rbxjson": "_annotation",
+    "AnnotationsService.rbxjson": "_annotationsservice",
+    "AppLifecycleObserverService.rbxjson": "_applifecycleobserverservice",
+    "AppRatingPromptService.rbxjson": "_appratingpromptservice",
+    "AppStorageService.rbxjson": "_appstorageservice",
+    "AppUpdateService.rbxjson": "_appupdateservice",
+    "ArcHandles.rbxjson": "_archandles",
+    "AssetCounterService.rbxjson": "_assetcounterservice",
+    "AssetDeliveryProxy.rbxjson": "_assetdeliveryproxy",
+    "AssetImportService.rbxjson": "_assetimportservice",
+    "AssetImportSession.rbxjson": "_assetimportsession",
+    "AssetManagerService.rbxjson": "_assetmanagerservice",
+    "AssetPatchSettings.rbxjson": "_assetpatchsettings",
+    "AssetQualityService.rbxjson": "_assetqualityservice",
+    "AssetService.rbxjson": "_assetservice",
+    "AssetSoundEffect.rbxjson": "_assetsoundeffect",
+    "Atmosphere.rbxjson": "_atmosphere",
+    "AtmosphereSensor.rbxjson": "_atmospheresensor",
+    "Attachment.rbxjson": "_attachment",
+    "AudioAnalyzer.rbxjson": "_audioanalyzer",
+    "AudioChannelMixer.rbxjson": "_audiochannelmixer",
+    "AudioChannelSplitter.rbxjson": "_audiochannelsplitter",
+    "AudioChorus.rbxjson": "_audiochorus",
+    "AudioCompressor.rbxjson": "_audiocompressor",
+    "AudioDeviceInput.rbxjson": "_audiodeviceinput",
+    "AudioDeviceOutput.rbxjson": "_audiodeviceoutput",
+    "AudioDistortion.rbxjson": "_audiodistortion",
+    "AudioEcho.rbxjson": "_audioecho",
+    "AudioEmitter.rbxjson": "_audioemitter",
+    "AudioEqualizer.rbxjson": "_audioequalizer",
+    "AudioFader.rbxjson": "_audiofader",
+    "AudioFilter.rbxjson": "_audiofilter",
+    "AudioFlanger.rbxjson": "_audioflanger",
+    "AudioFocusService.rbxjson": "_audiofocusservice",
+    "AudioGate.rbxjson": "_audiogate",
+    "AudioLimiter.rbxjson": "_audiolimiter",
+    "AudioListener.rbxjson": "_audiolistener",
+    "AudioPages.rbxjson": "_audiopages",
+    "AudioPitchShifter.rbxjson": "_audiopitchshifter",
+    "AudioPlayer.rbxjson": "_audioplayer",
+    "AudioRecorder.rbxjson": "_audiorecorder",
+    "AudioReverb.rbxjson": "_audioreverb",
+    "AudioSearchParams.rbxjson": "_audiosearchparams",
+    "AudioSpeechToText.rbxjson": "_audiospeechtotext",
+    "AudioTextToSpeech.rbxjson": "_audiotexttospeech",
+    "AudioTremolo.rbxjson": "_audiotremolo",
+    "AuroraScriptObject.rbxjson": "_aurorascriptobject",
+    "AvatarAccessoryRules.rbxjson": "_avataraccessoryrules",
+    "AvatarAnimationRules.rbxjson": "_avataranimationrules",
+    "AvatarBodyRules.rbxjson": "_avatarbodyrules",
+    "AvatarChatService.rbxjson": "_avatarchatservice",
+    "AvatarClothingRules.rbxjson": "_avatarclothingrules",
+    "AvatarCollisionRules.rbxjson": "_avatarcollisionrules",
+    "AvatarCreationService.rbxjson": "_avatarcreationservice",
+    "AvatarEditorService.rbxjson": "_avatareditorservice",
+    "AvatarImportService.rbxjson": "_avatarimportservice",
+    "AvatarRules.rbxjson": "_avatarrules",
+    "AvatarSettings.rbxjson": "_avatarsettings",
+    "Backpack.rbxjson": "_backpack",
+    "BackpackItem.rbxjson": "_backpackitem",
+    "BadgeService.rbxjson": "_badgeservice",
+    "BallSocketConstraint.rbxjson": "_ballsocketconstraint",
+    "BanHistoryPages.rbxjson": "_banhistorypages",
+    "BaseImportData.rbxjson": "_baseimportdata",
+    "BasePart.rbxjson": "_basepart",
+    "BasePlayerGui.rbxjson": "_baseplayergui",
+    "BaseRemoteEvent.rbxjson": "_baseremoteevent",
+    "BaseScript.rbxjson": "_basescript",
+    "BaseWrap.rbxjson": "_basewrap",
+    "Beam.rbxjson": "_beam",
+    "BevelMesh.rbxjson": "_bevelmesh",
+    "BillboardGui.rbxjson": "_billboardgui",
+    "BinaryStringValue.rbxjson": "_binarystringvalue",
+    "BindableEvent.rbxjson": "_bindableevent",
+    "BindableFunction.rbxjson": "_bindablefunction",
+    "BlockMesh.rbxjson": "_blockmesh",
+    "BloomEffect.rbxjson": "_bloomeffect",
+    "BlurEffect.rbxjson": "_blureffect",
+    "BodyAngularVelocity.rbxjson": "_bodyangularvelocity",
+    "BodyColors.rbxjson": "_bodycolors",
+    "BodyForce.rbxjson": "_bodyforce",
+    "BodyGyro.rbxjson": "_bodygyro",
+    "BodyMover.rbxjson": "_bodymover",
+    "BodyPartDescription.rbxjson": "_bodypartdescription",
+    "BodyPosition.rbxjson": "_bodyposition",
+    "BodyThrust.rbxjson": "_bodythrust",
+    "BodyVelocity.rbxjson": "_bodyvelocity",
+    "Bone.rbxjson": "_bone",
+    "BoolValue.rbxjson": "_boolvalue",
+    "BoxHandleAdornment.rbxjson": "_boxhandleadornment",
+    "Breakpoint.rbxjson": "_breakpoint",
+    "BrickColorValue.rbxjson": "_brickcolorvalue",
+    "BrowserService.rbxjson": "_browserservice",
+    "BubbleChatConfiguration.rbxjson": "_bubblechatconfiguration",
+    "BubbleChatMessageProperties.rbxjson": "_bubblechatmessageproperties",
+    "BugReporterService.rbxjson": "_bugreporterservice",
+    "BulkImportService.rbxjson": "_bulkimportservice",
+    "BuoyancySensor.rbxjson": "_buoyancysensor",
+    "CFrameValue.rbxjson": "_cframevalue",
+    "CSGDictionaryService.rbxjson": "_csgdictionaryservice",
+    "CacheableContentProvider.rbxjson": "_cacheablecontentprovider",
+    "CalloutService.rbxjson": "_calloutservice",
+    "Camera.rbxjson": "_camera",
+    "CanvasGroup.rbxjson": "_canvasgroup",
+    "Capture.rbxjson": "_capture",
+    "CaptureService.rbxjson": "_captureservice",
+    "CapturesPages.rbxjson": "_capturespages",
+    "CatalogPages.rbxjson": "_catalogpages",
+    "ChangeHistoryService.rbxjson": "_changehistoryservice",
+    "ChangeHistoryStreamingService.rbxjson": "_changehistorystreamingservice",
+    "ChannelSelectorSoundEffect.rbxjson": "_channelselectorsoundeffect",
+    "ChannelTabsConfiguration.rbxjson": "_channeltabsconfiguration",
+    "CharacterAppearance.rbxjson": "_characterappearance",
+    "CharacterMesh.rbxjson": "_charactermesh",
+    "Chat.rbxjson": "_chat",
+    "ChatInputBarConfiguration.rbxjson": "_chatinputbarconfiguration",
+    "ChatWindowConfiguration.rbxjson": "_chatwindowconfiguration",
+    "ChatWindowMessageProperties.rbxjson": "_chatwindowmessageproperties",
+    "ChatbotUIService.rbxjson": "_chatbotuiservice",
+    "ChorusSoundEffect.rbxjson": "_chorussoundeffect",
+    "ClickDetector.rbxjson": "_clickdetector",
+    "ClientReplicator.rbxjson": "_clientreplicator",
+    "ClimbController.rbxjson": "_climbcontroller",
+    "Clothing.rbxjson": "_clothing",
+    "CloudCRUDService.rbxjson": "_cloudcrudservice",
+    "CloudLocalizationTable.rbxjson": "_cloudlocalizationtable",
+    "Clouds.rbxjson": "_clouds",
+    "ClusterPacketCache.rbxjson": "_clusterpacketcache",
+    "Collaborator.rbxjson": "_collaborator",
+    "CollaboratorsService.rbxjson": "_collaboratorsservice",
+    "CollectionService.rbxjson": "_collectionservice",
+    "Color3Value.rbxjson": "_color3value",
+    "ColorCorrectionEffect.rbxjson": "_colorcorrectioneffect",
+    "ColorGradingEffect.rbxjson": "_colorgradingeffect",
+    "CommerceService.rbxjson": "_commerceservice",
+    "CompositeValueCurve.rbxjson": "_compositevaluecurve",
+    "CompressorSoundEffect.rbxjson": "_compressorsoundeffect",
+    "ConeHandleAdornment.rbxjson": "_conehandleadornment",
+    "ConfigService.rbxjson": "_configservice",
+    "ConfigSnapshot.rbxjson": "_configsnapshot",
+    "Configuration.rbxjson": "_configuration",
+    "ConfigureServerService.rbxjson": "_configureserverservice",
+    "ConnectivityService.rbxjson": "_connectivityservice",
+    "Constraint.rbxjson": "_constraint",
+    "ContentProvider.rbxjson": "_contentprovider",
+    "ContextActionService.rbxjson": "_contextactionservice",
+    "Controller.rbxjson": "_controller",
+    "ControllerBase.rbxjson": "_controllerbase",
+    "ControllerManager.rbxjson": "_controllermanager",
+    "ControllerPartSensor.rbxjson": "_controllerpartsensor",
+    "ControllerSensor.rbxjson": "_controllersensor",
+    "ControllerService.rbxjson": "_controllerservice",
+    "ConversationalAIAcceptanceService.rbxjson": "_conversationalaiacceptanceservice",
+    "CookiesService.rbxjson": "_cookiesservice",
+    "CoreGui.rbxjson": "_coregui",
+    "CorePackages.rbxjson": "_corepackages",
+    "CoreScript.rbxjson": "_corescript",
+    "CoreScriptDebuggingManagerHelper.rbxjson": "_corescriptdebuggingmanagerhelper",
+    "CoreScriptSyncService.rbxjson": "_corescriptsyncservice",
+    "CornerWedgePart.rbxjson": "_cornerwedgepart",
+    "CreationDBService.rbxjson": "_creationdbservice",
+    "CreatorStoreService.rbxjson": "_creatorstoreservice",
+    "CrossDMScriptChangeListener.rbxjson": "_crossdmscriptchangelistener",
+    "CurveAnimation.rbxjson": "_curveanimation",
+    "CustomEvent.rbxjson": "_customevent",
+    "CustomEventReceiver.rbxjson": "_customeventreceiver",
+    "CustomLog.rbxjson": "_customlog",
+    "CustomSoundEffect.rbxjson": "_customsoundeffect",
+    "CylinderHandleAdornment.rbxjson": "_cylinderhandleadornment",
+    "CylinderMesh.rbxjson": "_cylindermesh",
+    "CylindricalConstraint.rbxjson": "_cylindricalconstraint",
+    "DataModel.rbxjson": "_datamodel",
+    "DataModelMesh.rbxjson": "_datamodelmesh",
+    "DataModelPatchService.rbxjson": "_datamodelpatchservice",
+    "DataModelSession.rbxjson": "_datamodelsession",
+    "DataStore.rbxjson": "_datastore",
+    "DataStoreGetOptions.rbxjson": "_datastoregetoptions",
+    "DataStoreIncrementOptions.rbxjson": "_datastoreincrementoptions",
+    "DataStoreInfo.rbxjson": "_datastoreinfo",
+    "DataStoreKey.rbxjson": "_datastorekey",
+    "DataStoreKeyInfo.rbxjson": "_datastorekeyinfo",
+    "DataStoreKeyPages.rbxjson": "_datastorekeypages",
+    "DataStoreListingPages.rbxjson": "_datastorelistingpages",
+    "DataStoreObjectVersionInfo.rbxjson": "_datastoreobjectversioninfo",
+    "DataStoreOptions.rbxjson": "_datastoreoptions",
+    "DataStorePages.rbxjson": "_datastorepages",
+    "DataStoreService.rbxjson": "_datastoreservice",
+    "DataStoreSetOptions.rbxjson": "_datastoresetoptions",
+    "DataStoreVersionPages.rbxjson": "_datastoreversionpages",
+    "Debris.rbxjson": "_debris",
+    "DebugSettings.rbxjson": "_debugsettings",
+    "DebuggablePluginWatcher.rbxjson": "_debuggablepluginwatcher",
+    "DebuggerBreakpoint.rbxjson": "_debuggerbreakpoint",
+    "DebuggerConnection.rbxjson": "_debuggerconnection",
+    "DebuggerConnectionManager.rbxjson": "_debuggerconnectionmanager",
+    "DebuggerLuaResponse.rbxjson": "_debuggerluaresponse",
+    "DebuggerManager.rbxjson": "_debuggermanager",
+    "DebuggerUIService.rbxjson": "_debuggeruiservice",
+    "DebuggerVariable.rbxjson": "_debuggervariable",
+    "DebuggerWatch.rbxjson": "_debuggerwatch",
+    "Decal.rbxjson": "_decal",
+    "DepthOfFieldEffect.rbxjson": "_depthoffieldeffect",
+    "DeviceIdService.rbxjson": "_deviceidservice",
+    "Dialog.rbxjson": "_dialog",
+    "DialogChoice.rbxjson": "_dialogchoice",
+    "DistortionSoundEffect.rbxjson": "_distortionsoundeffect",
+    "DockWidgetPluginGui.rbxjson": "_dockwidgetplugingui",
+    "DoubleConstrainedValue.rbxjson": "_doubleconstrainedvalue",
+    "DraftsService.rbxjson": "_draftsservice",
+    "DragDetector.rbxjson": "_dragdetector",
+    "Dragger.rbxjson": "_dragger",
+    "DraggerService.rbxjson": "_draggerservice",
+    "DynamicRotate.rbxjson": "_dynamicrotate",
+    "EchoSoundEffect.rbxjson": "_echosoundeffect",
+    "EditableImage.rbxjson": "_editableimage",
+    "EditableMesh.rbxjson": "_editablemesh",
+    "EditableService.rbxjson": "_editableservice",
+    "EmotesPages.rbxjson": "_emotespages",
+    "EncodingService.rbxjson": "_encodingservice",
+    "EqualizerSoundEffect.rbxjson": "_equalizersoundeffect",
+    "EulerRotationCurve.rbxjson": "_eulerrotationcurve",
+    "EventIngestService.rbxjson": "_eventingestservice",
+    "ExampleV2Service.rbxjson": "_examplev2service",
+    "ExecutedRemoteCommand.rbxjson": "_executedremotecommand",
+    "ExperienceAuthService.rbxjson": "_experienceauthservice",
+    "ExperienceInviteOptions.rbxjson": "_experienceinviteoptions",
+    "ExperienceNotificationService.rbxjson": "_experiencenotificationservice",
+    "ExperienceService.rbxjson": "_experienceservice",
+    "ExperienceStateCaptureService.rbxjson": "_experiencestatecaptureservice",
+    "ExperienceStateRecordingService.rbxjson": "_experiencestaterecordingservice",
+    "ExplorerFilter.rbxjson": "_explorerfilter",
+    "ExplorerFilterAutocompleter.rbxjson": "_explorerfilterautocompleter",
+    "ExplorerServiceVisibilityService.rbxjson": "_explorerservicevisibilityservice",
+    "Explosion.rbxjson": "_explosion",
+    "FaceAnimatorService.rbxjson": "_faceanimatorservice",
+    "FaceControls.rbxjson": "_facecontrols",
+    "FaceInstance.rbxjson": "_faceinstance",
+    "FacialAgeEstimationService.rbxjson": "_facialageestimationservice",
+    "FacialAnimationRecordingService.rbxjson": "_facialanimationrecordingservice",
+    "FacialAnimationStreamingServiceStats.rbxjson": "_facialanimationstreamingservicestats",
+    "FacialAnimationStreamingServiceV2.rbxjson": "_facialanimationstreamingservicev2",
+    "FacialAnimationStreamingSubsessionStats.rbxjson": "_facialanimationstreamingsubsessionstats",
+    "FacsImportData.rbxjson": "_facsimportdata",
+    "Feature.rbxjson": "_feature",
+    "FeatureRestrictionManager.rbxjson": "_featurerestrictionmanager",
+    "File.rbxjson": "_file",
+    "FileMesh.rbxjson": "_filemesh",
+    "Fire.rbxjson": "_fire",
+    "Flag.rbxjson": "_flag",
+    "FlagStand.rbxjson": "_flagstand",
+    "FlagStandService.rbxjson": "_flagstandservice",
+    "FlangeSoundEffect.rbxjson": "_flangesoundeffect",
+    "FloatCurve.rbxjson": "_floatcurve",
+    "FloorWire.rbxjson": "_floorwire",
+    "FluidForceSensor.rbxjson": "_fluidforcesensor",
+    "FlyweightService.rbxjson": "_flyweightservice",
+    "Folder.rbxjson": "_folder",
+    "ForceField.rbxjson": "_forcefield",
+    "FormFactorPart.rbxjson": "_formfactorpart",
+    "Frame.rbxjson": "_frame",
+    "FriendPages.rbxjson": "_friendpages",
+    "FriendService.rbxjson": "_friendservice",
+    "FunctionalTest.rbxjson": "_functionaltest",
+    "GamePassService.rbxjson": "_gamepassservice",
+    "GameSettings.rbxjson": "_gamesettings",
+    "GamepadService.rbxjson": "_gamepadservice",
+    "GenerationService.rbxjson": "_generationservice",
+    "GenericChallengeService.rbxjson": "_genericchallengeservice",
+    "GenericSettings.rbxjson": "_genericsettings",
+    "Geometry.rbxjson": "_geometry",
+    "GeometryService.rbxjson": "_geometryservice",
+    "GetTextBoundsParams.rbxjson": "_gettextboundsparams",
+    "GlobalDataStore.rbxjson": "_globaldatastore",
+    "GlobalSettings.rbxjson": "_globalsettings",
+    "Glue.rbxjson": "_glue",
+    "GroundController.rbxjson": "_groundcontroller",
+    "GroupImportData.rbxjson": "_groupimportdata",
+    "GroupService.rbxjson": "_groupservice",
+    "GuiBase.rbxjson": "_guibase",
+    "GuiBase2d.rbxjson": "_guibase2d",
+    "GuiBase3d.rbxjson": "_guibase3d",
+    "GuiButton.rbxjson": "_guibutton",
+    "GuiLabel.rbxjson": "_guilabel",
+    "GuiMain.rbxjson": "_guimain",
+    "GuiObject.rbxjson": "_guiobject",
+    "GuiService.rbxjson": "_guiservice",
+    "GuidRegistryService.rbxjson": "_guidregistryservice",
+    "HSRDataContentProvider.rbxjson": "_hsrdatacontentprovider",
+    "HandRigDescription.rbxjson": "_handrigdescription",
+    "HandleAdornment.rbxjson": "_handleadornment",
+    "Handles.rbxjson": "_handles",
+    "HandlesBase.rbxjson": "_handlesbase",
+    "HapticEffect.rbxjson": "_hapticeffect",
+    "HapticService.rbxjson": "_hapticservice",
+    "HarmonyService.rbxjson": "_harmonyservice",
+    "Hat.rbxjson": "_hat",
+    "HeapProfilerService.rbxjson": "_heapprofilerservice",
+    "HeatmapService.rbxjson": "_heatmapservice",
+    "HeightmapImporterService.rbxjson": "_heightmapimporterservice",
+    "HiddenSurfaceRemovalAsset.rbxjson": "_hiddensurfaceremovalasset",
+    "Highlight.rbxjson": "_highlight",
+    "HingeConstraint.rbxjson": "_hingeconstraint",
+    "Hint.rbxjson": "_hint",
+    "Hole.rbxjson": "_hole",
+    "Hopper.rbxjson": "_hopper",
+    "HopperBin.rbxjson": "_hopperbin",
+    "HttpRbxApiService.rbxjson": "_httprbxapiservice",
+    "HttpRequest.rbxjson": "_httprequest",
+    "HttpService.rbxjson": "_httpservice",
+    "Humanoid.rbxjson": "_humanoid",
+    "HumanoidController.rbxjson": "_humanoidcontroller",
+    "HumanoidDescription.rbxjson": "_humanoiddescription",
+    "HumanoidRigDescription.rbxjson": "_humanoidrigdescription",
+    "IKControl.rbxjson": "_ikcontrol",
+    "ILegacyStudioBridge.rbxjson": "_ilegacystudiobridge",
+    "IXPService.rbxjson": "_ixpservice",
+    "ImageButton.rbxjson": "_imagebutton",
+    "ImageHandleAdornment.rbxjson": "_imagehandleadornment",
+    "ImageLabel.rbxjson": "_imagelabel",
+    "ImportSession.rbxjson": "_importsession",
+    "IncrementalPatchBuilder.rbxjson": "_incrementalpatchbuilder",
+    "InputAction.rbxjson": "_inputaction",
+    "InputBinding.rbxjson": "_inputbinding",
+    "InputContext.rbxjson": "_inputcontext",
+    "InputObject.rbxjson": "_inputobject",
+    "InsertService.rbxjson": "_insertservice",
+    "Instance.rbxjson": "_instance",
+    "InstanceAdornment.rbxjson": "_instanceadornment",
+    "InstanceExtensionsService.rbxjson": "_instanceextensionsservice",
+    "InstanceFileSyncService.rbxjson": "_instancefilesyncservice",
+    "IntConstrainedValue.rbxjson": "_intconstrainedvalue",
+    "IntValue.rbxjson": "_intvalue",
+    "IntersectOperation.rbxjson": "_intersectoperation",
+    "InventoryPages.rbxjson": "_inventorypages",
+    "JointImportData.rbxjson": "_jointimportdata",
+    "JointInstance.rbxjson": "_jointinstance",
+    "JointsService.rbxjson": "_jointsservice",
+    "KeyboardService.rbxjson": "_keyboardservice",
+    "Keyframe.rbxjson": "_keyframe",
+    "KeyframeMarker.rbxjson": "_keyframemarker",
+    "KeyframeSequence.rbxjson": "_keyframesequence",
+    "KeyframeSequenceProvider.rbxjson": "_keyframesequenceprovider",
+    "LSPFileSyncService.rbxjson": "_lspfilesyncservice",
+    "LanguageService.rbxjson": "_languageservice",
+    "LayerCollector.rbxjson": "_layercollector",
+    "LegacyStudioBridge.rbxjson": "_legacystudiobridge",
+    "Light.rbxjson": "_light",
+    "LineForce.rbxjson": "_lineforce",
+    "LineHandleAdornment.rbxjson": "_linehandleadornment",
+    "LinearVelocity.rbxjson": "_linearvelocity",
+    "LinkingService.rbxjson": "_linkingservice",
+    "LiveScriptingService.rbxjson": "_livescriptingservice",
+    "LiveSyncService.rbxjson": "_livesyncservice",
+    "LocalDebuggerConnection.rbxjson": "_localdebuggerconnection",
+    "LocalScript.rbxjson": "_localscript",
+    "LocalStorageService.rbxjson": "_localstorageservice",
+    "LocalizationService.rbxjson": "_localizationservice",
+    "LocalizationTable.rbxjson": "_localizationtable",
+    "LodDataEntity.rbxjson": "_loddataentity",
+    "LodDataService.rbxjson": "_loddataservice",
+    "LogReporterService.rbxjson": "_logreporterservice",
+    "LogService.rbxjson": "_logservice",
+    "LoginService.rbxjson": "_loginservice",
+    "LuaSettings.rbxjson": "_luasettings",
+    "LuaSourceContainer.rbxjson": "_luasourcecontainer",
+    "LuaWebService.rbxjson": "_luawebservice",
+    "LuauScriptAnalyzerService.rbxjson": "_luauscriptanalyzerservice",
+    "MLModelDeliveryService.rbxjson": "_mlmodeldeliveryservice",
+    "MLService.rbxjson": "_mlservice",
+    "MLSession.rbxjson": "_mlsession",
+    "MakeupDescription.rbxjson": "_makeupdescription",
+    "ManualGlue.rbxjson": "_manualglue",
+    "ManualSurfaceJointInstance.rbxjson": "_manualsurfacejointinstance",
+    "ManualWeld.rbxjson": "_manualweld",
+    "MarkerCurve.rbxjson": "_markercurve",
+    "MarketplaceService.rbxjson": "_marketplaceservice",
+    "MatchmakingService.rbxjson": "_matchmakingservice",
+    "MaterialGenerationService.rbxjson": "_materialgenerationservice",
+    "MaterialImportData.rbxjson": "_materialimportdata",
+    "MaterialService.rbxjson": "_materialservice",
+    "MaterialVariant.rbxjson": "_materialvariant",
+    "MemStorageConnection.rbxjson": "_memstorageconnection",
+    "MemStorageService.rbxjson": "_memstorageservice",
+    "MemoryStoreHashMap.rbxjson": "_memorystorehashmap",
+    "MemoryStoreHashMapPages.rbxjson": "_memorystorehashmappages",
+    "MemoryStoreQueue.rbxjson": "_memorystorequeue",
+    "MemoryStoreService.rbxjson": "_memorystoreservice",
+    "MemoryStoreSortedMap.rbxjson": "_memorystoresortedmap",
+    "MeshContentProvider.rbxjson": "_meshcontentprovider",
+    "MeshImportData.rbxjson": "_meshimportdata",
+    "MeshPart.rbxjson": "_meshpart",
+    "Message.rbxjson": "_message",
+    "MessageBusConnection.rbxjson": "_messagebusconnection",
+    "MessageBusService.rbxjson": "_messagebusservice",
+    "MessagingService.rbxjson": "_messagingservice",
+    "MetaBreakpoint.rbxjson": "_metabreakpoint",
+    "MetaBreakpointContext.rbxjson": "_metabreakpointcontext",
+    "MetaBreakpointManager.rbxjson": "_metabreakpointmanager",
+    "MicroProfilerService.rbxjson": "_microprofilerservice",
+    "Model.rbxjson": "_model",
+    "ModerationService.rbxjson": "_moderationservice",
+    "ModuleScript.rbxjson": "_modulescript",
+    "Motor.rbxjson": "_motor",
+    "Motor6D.rbxjson": "_motor6d",
+    "MotorFeature.rbxjson": "_motorfeature",
+    "Mouse.rbxjson": "_mouse",
+    "MouseService.rbxjson": "_mouseservice",
+    "MultipleDocumentInterfaceInstance.rbxjson": "_multipledocumentinterfaceinstance",
+    "NegateOperation.rbxjson": "_negateoperation",
+    "NetworkClient.rbxjson": "_networkclient",
+    "NetworkMarker.rbxjson": "_networkmarker",
+    "NetworkPeer.rbxjson": "_networkpeer",
+    "NetworkReplicator.rbxjson": "_networkreplicator",
+    "NetworkServer.rbxjson": "_networkserver",
+    "NetworkSettings.rbxjson": "_networksettings",
+    "NoCollisionConstraint.rbxjson": "_nocollisionconstraint",
+    "Noise.rbxjson": "_noise",
+    "NonReplicatedCSGDictionaryService.rbxjson": "_nonreplicatedcsgdictionaryservice",
+    "NotificationService.rbxjson": "_notificationservice",
+    "NumberPose.rbxjson": "_numberpose",
+    "NumberValue.rbxjson": "_numbervalue",
+    "Object.rbxjson": "_object",
+    "ObjectValue.rbxjson": "_objectvalue",
+    "OmniRecommendationsService.rbxjson": "_omnirecommendationsservice",
+    "OpenCloudApiV1.rbxjson": "_opencloudapiv1",
+    "OpenCloudService.rbxjson": "_opencloudservice",
+    "OperationGraph.rbxjson": "_operationgraph",
+    "OrderedDataStore.rbxjson": "_ordereddatastore",
+    "OutfitPages.rbxjson": "_outfitpages",
+    "PVAdornment.rbxjson": "_pvadornment",
+    "PVInstance.rbxjson": "_pvinstance",
+    "PackageLink.rbxjson": "_packagelink",
+    "PackageService.rbxjson": "_packageservice",
+    "PackageUIService.rbxjson": "_packageuiservice",
+    "Pages.rbxjson": "_pages",
+    "Pants.rbxjson": "_pants",
+    "ParabolaAdornment.rbxjson": "_parabolaadornment",
+    "Part.rbxjson": "_part",
+    "PartAdornment.rbxjson": "_partadornment",
+    "PartOperation.rbxjson": "_partoperation",
+    "PartOperationAsset.rbxjson": "_partoperationasset",
+    "ParticleEmitter.rbxjson": "_particleemitter",
+    "PartyEmulatorService.rbxjson": "_partyemulatorservice",
+    "PatchBundlerFileWatch.rbxjson": "_patchbundlerfilewatch",
+    "PatchMapping.rbxjson": "_patchmapping",
+    "Path.rbxjson": "_path",
+    "Path2D.rbxjson": "_path2d",
+    "PathfindingLink.rbxjson": "_pathfindinglink",
+    "PathfindingModifier.rbxjson": "_pathfindingmodifier",
+    "PathfindingService.rbxjson": "_pathfindingservice",
+    "PausedState.rbxjson": "_pausedstate",
+    "PausedStateBreakpoint.rbxjson": "_pausedstatebreakpoint",
+    "PausedStateException.rbxjson": "_pausedstateexception",
+    "PerformanceControlService.rbxjson": "_performancecontrolservice",
+    "PermissionsService.rbxjson": "_permissionsservice",
+    "PhysicsService.rbxjson": "_physicsservice",
+    "PhysicsSettings.rbxjson": "_physicssettings",
+    "PitchShiftSoundEffect.rbxjson": "_pitchshiftsoundeffect",
+    "PlaceAssetIdsService.rbxjson": "_placeassetidsservice",
+    "PlaceStatsService.rbxjson": "_placestatsservice",
+    "PlacesService.rbxjson": "_placesservice",
+    "Plane.rbxjson": "_plane",
+    "PlaneConstraint.rbxjson": "_planeconstraint",
+    "Platform.rbxjson": "_platform",
+    "PlatformCloudStorageService.rbxjson": "_platformcloudstorageservice",
+    "PlatformFriendsService.rbxjson": "_platformfriendsservice",
+    "Player.rbxjson": "_player",
+    "PlayerData.rbxjson": "_playerdata",
+    "PlayerDataRecord.rbxjson": "_playerdatarecord",
+    "PlayerDataRecordConfig.rbxjson": "_playerdatarecordconfig",
+    "PlayerDataService.rbxjson": "_playerdataservice",
+    "PlayerEmulatorService.rbxjson": "_playeremulatorservice",
+    "PlayerGui.rbxjson": "_playergui",
+    "PlayerHydrationService.rbxjson": "_playerhydrationservice",
+    "PlayerMouse.rbxjson": "_playermouse",
+    "PlayerScripts.rbxjson": "_playerscripts",
+    "PlayerViewService.rbxjson": "_playerviewservice",
+    "Plugin.rbxjson": "_plugin",
+    "PluginAction.rbxjson": "_pluginaction",
+    "PluginCapabilities.rbxjson": "_plugincapabilities",
+    "PluginDebugService.rbxjson": "_plugindebugservice",
+    "PluginDragEvent.rbxjson": "_plugindragevent",
+    "PluginGui.rbxjson": "_plugingui",
+    "PluginGuiService.rbxjson": "_pluginguiservice",
+    "PluginManagementService.rbxjson": "_pluginmanagementservice",
+    "PluginManager.rbxjson": "_pluginmanager",
+    "PluginManagerInterface.rbxjson": "_pluginmanagerinterface",
+    "PluginMenu.rbxjson": "_pluginmenu",
+    "PluginMouse.rbxjson": "_pluginmouse",
+    "PluginPolicyService.rbxjson": "_pluginpolicyservice",
+    "PluginToolbar.rbxjson": "_plugintoolbar",
+    "PluginToolbarButton.rbxjson": "_plugintoolbarbutton",
+    "PointLight.rbxjson": "_pointlight",
+    "PointsService.rbxjson": "_pointsservice",
+    "PolicyService.rbxjson": "_policyservice",
+    "Pose.rbxjson": "_pose",
+    "PoseBase.rbxjson": "_posebase",
+    "PostEffect.rbxjson": "_posteffect",
+    "PrismaticConstraint.rbxjson": "_prismaticconstraint",
+    "ProcessInstancePhysicsService.rbxjson": "_processinstancephysicsservice",
+    "ProximityPrompt.rbxjson": "_proximityprompt",
+    "ProximityPromptService.rbxjson": "_proximitypromptservice",
+    "PublishService.rbxjson": "_publishservice",
+    "PyramidHandleAdornment.rbxjson": "_pyramidhandleadornment",
+    "QWidgetPluginGui.rbxjson": "_qwidgetplugingui",
+    "RTAnimationTracker.rbxjson": "_rtanimationtracker",
+    "RayValue.rbxjson": "_rayvalue",
+    "RbxAnalyticsService.rbxjson": "_rbxanalyticsservice",
+    "RecommendationPages.rbxjson": "_recommendationpages",
+    "RecommendationService.rbxjson": "_recommendationservice",
+    "ReflectionMetadata.rbxjson": "_reflectionmetadata",
+    "ReflectionMetadataCallbacks.rbxjson": "_reflectionmetadatacallbacks",
+    "ReflectionMetadataClass.rbxjson": "_reflectionmetadataclass",
+    "ReflectionMetadataClasses.rbxjson": "_reflectionmetadataclasses",
+    "ReflectionMetadataEnum.rbxjson": "_reflectionmetadataenum",
+    "ReflectionMetadataEnumItem.rbxjson": "_reflectionmetadataenumitem",
+    "ReflectionMetadataEnums.rbxjson": "_reflectionmetadataenums",
+    "ReflectionMetadataEvents.rbxjson": "_reflectionmetadataevents",
+    "ReflectionMetadataFunctions.rbxjson": "_reflectionmetadatafunctions",
+    "ReflectionMetadataItem.rbxjson": "_reflectionmetadataitem",
+    "ReflectionMetadataMember.rbxjson": "_reflectionmetadatamember",
+    "ReflectionMetadataProperties.rbxjson": "_reflectionmetadataproperties",
+    "ReflectionMetadataYieldFunctions.rbxjson": "_reflectionmetadatayieldfunctions",
+    "ReflectionService.rbxjson": "_reflectionservice",
+    "RelativeGui.rbxjson": "_relativegui",
+    "RemoteCommandService.rbxjson": "_remotecommandservice",
+    "RemoteCursorService.rbxjson": "_remotecursorservice",
+    "RemoteDebuggerServer.rbxjson": "_remotedebuggerserver",
+    "RemoteEvent.rbxjson": "_remoteevent",
+    "RemoteFunction.rbxjson": "_remotefunction",
+    "RenderSettings.rbxjson": "_rendersettings",
+    "RenderingTest.rbxjson": "_renderingtest",
+    "ReplicatedScriptService.rbxjson": "_replicatedscriptservice",
+    "ReverbSoundEffect.rbxjson": "_reverbsoundeffect",
+    "RibbonNotificationService.rbxjson": "_ribbonnotificationservice",
+    "RigidConstraint.rbxjson": "_rigidconstraint",
+    "RobloxPluginGuiService.rbxjson": "_robloxpluginguiservice",
+    "RobloxReplicatedStorage.rbxjson": "_robloxreplicatedstorage",
+    "RobloxSerializableInstance.rbxjson": "_robloxserializableinstance",
+    "RobloxServerStorage.rbxjson": "_robloxserverstorage",
+    "RocketPropulsion.rbxjson": "_rocketpropulsion",
+    "RodConstraint.rbxjson": "_rodconstraint",
+    "RomarkRbxAnalyticsService.rbxjson": "_romarkrbxanalyticsservice",
+    "RomarkService.rbxjson": "_romarkservice",
+    "RootImportData.rbxjson": "_rootimportdata",
+    "RopeConstraint.rbxjson": "_ropeconstraint",
+    "Rotate.rbxjson": "_rotate",
+    "RotateP.rbxjson": "_rotatep",
+    "RotateV.rbxjson": "_rotatev",
+    "RotationCurve.rbxjson": "_rotationcurve",
+    "RtMessagingService.rbxjson": "_rtmessagingservice",
+    "RunService.rbxjson": "_runservice",
+    "RunningAverageItemDouble.rbxjson": "_runningaverageitemdouble",
+    "RunningAverageItemInt.rbxjson": "_runningaverageitemint",
+    "RunningAverageTimeIntervalItem.rbxjson": "_runningaveragetimeintervalitem",
+    "RuntimeContentService.rbxjson": "_runtimecontentservice",
+    "RuntimeScriptService.rbxjson": "_runtimescriptservice",
+    "SafetyService.rbxjson": "_safetyservice",
+    "ScreenGui.rbxjson": "_screengui",
+    "ScreenshotCapture.rbxjson": "_screenshotcapture",
+    "ScreenshotHud.rbxjson": "_screenshothud",
+    "Script.rbxjson": "_script",
+    "ScriptBuilder.rbxjson": "_scriptbuilder",
+    "ScriptChangeService.rbxjson": "_scriptchangeservice",
+    "ScriptCloneWatcher.rbxjson": "_scriptclonewatcher",
+    "ScriptCloneWatcherHelper.rbxjson": "_scriptclonewatcherhelper",
+    "ScriptCommitService.rbxjson": "_scriptcommitservice",
+    "ScriptContext.rbxjson": "_scriptcontext",
+    "ScriptDebugger.rbxjson": "_scriptdebugger",
+    "ScriptDocument.rbxjson": "_scriptdocument",
+    "ScriptEditorService.rbxjson": "_scripteditorservice",
+    "ScriptProfilerService.rbxjson": "_scriptprofilerservice",
+    "ScriptRegistrationService.rbxjson": "_scriptregistrationservice",
+    "ScriptRuntime.rbxjson": "_scriptruntime",
+    "ScriptService.rbxjson": "_scriptservice",
+    "ScrollingFrame.rbxjson": "_scrollingframe",
+    "Seat.rbxjson": "_seat",
+    "Selection.rbxjson": "_selection",
+    "SelectionBox.rbxjson": "_selectionbox",
+    "SelectionHighlightManager.rbxjson": "_selectionhighlightmanager",
+    "SelectionLasso.rbxjson": "_selectionlasso",
+    "SelectionPartLasso.rbxjson": "_selectionpartlasso",
+    "SelectionPointLasso.rbxjson": "_selectionpointlasso",
+    "SelectionSphere.rbxjson": "_selectionsphere",
+    "SensorBase.rbxjson": "_sensorbase",
+    "SerializationService.rbxjson": "_serializationservice",
+    "ServerReplicator.rbxjson": "_serverreplicator",
+    "ServiceProvider.rbxjson": "_serviceprovider",
+    "ServiceVisibilityService.rbxjson": "_servicevisibilityservice",
+    "SessionCheckService.rbxjson": "_sessioncheckservice",
+    "SessionService.rbxjson": "_sessionservice",
+    "SharedTableRegistry.rbxjson": "_sharedtableregistry",
+    "Shirt.rbxjson": "_shirt",
+    "ShirtGraphic.rbxjson": "_shirtgraphic",
+    "SkateboardController.rbxjson": "_skateboardcontroller",
+    "SkateboardPlatform.rbxjson": "_skateboardplatform",
+    "Skin.rbxjson": "_skin",
+    "Sky.rbxjson": "_sky",
+    "SlidingBallConstraint.rbxjson": "_slidingballconstraint",
+    "SlimAnimationDataEntity.rbxjson": "_slimanimationdataentity",
+    "SlimAnimationReplicationService.rbxjson": "_slimanimationreplicationservice",
+    "SlimContentProvider.rbxjson": "_slimcontentprovider",
+    "SlimReplicationService.rbxjson": "_slimreplicationservice",
+    "SlimService.rbxjson": "_slimservice",
+    "Smoke.rbxjson": "_smoke",
+    "SmoothVoxelsUpgraderService.rbxjson": "_smoothvoxelsupgraderservice",
+    "Snap.rbxjson": "_snap",
+    "SnippetService.rbxjson": "_snippetservice",
+    "SocialService.rbxjson": "_socialservice",
+    "SolidModelContentProvider.rbxjson": "_solidmodelcontentprovider",
+    "Sound.rbxjson": "_sound",
+    "SoundEffect.rbxjson": "_soundeffect",
+    "SoundGroup.rbxjson": "_soundgroup",
+    "SoundShimService.rbxjson": "_soundshimservice",
+    "Sparkles.rbxjson": "_sparkles",
+    "SpawnLocation.rbxjson": "_spawnlocation",
+    "SpawnerService.rbxjson": "_spawnerservice",
+    "SpecialMesh.rbxjson": "_specialmesh",
+    "SphereHandleAdornment.rbxjson": "_spherehandleadornment",
+    "SpotLight.rbxjson": "_spotlight",
+    "SpringConstraint.rbxjson": "_springconstraint",
+    "StackFrame.rbxjson": "_stackframe",
+    "StandalonePluginScripts.rbxjson": "_standalonepluginscripts",
+    "StandardPages.rbxjson": "_standardpages",
+    "StartPageService.rbxjson": "_startpageservice",
+    "StarterCharacterScripts.rbxjson": "_startercharacterscripts",
+    "StarterGear.rbxjson": "_startergear",
+    "StartupMessageService.rbxjson": "_startupmessageservice",
+    "Stats.rbxjson": "_stats",
+    "StatsItem.rbxjson": "_statsitem",
+    "Status.rbxjson": "_status",
+    "StopWatchReporter.rbxjson": "_stopwatchreporter",
+    "StreamingService.rbxjson": "_streamingservice",
+    "StringValue.rbxjson": "_stringvalue",
+    "Studio.rbxjson": "_studio",
+    "StudioAssetService.rbxjson": "_studioassetservice",
+    "StudioAttachment.rbxjson": "_studioattachment",
+    "StudioCallout.rbxjson": "_studiocallout",
+    "StudioCameraService.rbxjson": "_studiocameraservice",
+    "StudioData.rbxjson": "_studiodata",
+    "StudioDeviceEmulatorService.rbxjson": "_studiodeviceemulatorservice",
+    "StudioObjectBase.rbxjson": "_studioobjectbase",
+    "StudioPublishService.rbxjson": "_studiopublishservice",
+    "StudioScriptDebugEventListener.rbxjson": "_studioscriptdebugeventlistener",
+    "StudioSdkService.rbxjson": "_studiosdkservice",
+    "StudioService.rbxjson": "_studioservice",
+    "StudioTestService.rbxjson": "_studiotestservice",
+    "StudioTheme.rbxjson": "_studiotheme",
+    "StudioUserService.rbxjson": "_studiouserservice",
+    "StudioWidget.rbxjson": "_studiowidget",
+    "StudioWidgetsService.rbxjson": "_studiowidgetsservice",
+    "StyleBase.rbxjson": "_stylebase",
+    "StyleDerive.rbxjson": "_stylederive",
+    "StyleLink.rbxjson": "_stylelink",
+    "StyleQuery.rbxjson": "_stylequery",
+    "StyleRule.rbxjson": "_stylerule",
+    "StyleSheet.rbxjson": "_stylesheet",
+    "StylingService.rbxjson": "_stylingservice",
+    "SunRaysEffect.rbxjson": "_sunrayseffect",
+    "SurfaceAppearance.rbxjson": "_surfaceappearance",
+    "SurfaceGui.rbxjson": "_surfacegui",
+    "SurfaceGuiBase.rbxjson": "_surfaceguibase",
+    "SurfaceLight.rbxjson": "_surfacelight",
+    "SurfaceSelection.rbxjson": "_surfaceselection",
+    "SwimController.rbxjson": "_swimcontroller",
+    "SyncScriptBuilder.rbxjson": "_syncscriptbuilder",
+    "SystemThemeService.rbxjson": "_systemthemeservice",
+    "TaskScheduler.rbxjson": "_taskscheduler",
+    "Team.rbxjson": "_team",
+    "TeamCreateData.rbxjson": "_teamcreatedata",
+    "TeamCreatePublishService.rbxjson": "_teamcreatepublishservice",
+    "TeamCreateService.rbxjson": "_teamcreateservice",
+    "Teams.rbxjson": "_teams",
+    "TelemetryService.rbxjson": "_telemetryservice",
+    "TeleportAsyncResult.rbxjson": "_teleportasyncresult",
+    "TeleportOptions.rbxjson": "_teleportoptions",
+    "TeleportService.rbxjson": "_teleportservice",
+    "TemporaryCageMeshProvider.rbxjson": "_temporarycagemeshprovider",
+    "TemporaryScriptService.rbxjson": "_temporaryscriptservice",
+    "Terrain.rbxjson": "_terrain",
+    "TerrainDetail.rbxjson": "_terraindetail",
+    "TerrainIterateOperation.rbxjson": "_terrainiterateoperation",
+    "TerrainModifyOperation.rbxjson": "_terrainmodifyoperation",
+    "TerrainReadOperation.rbxjson": "_terrainreadoperation",
+    "TerrainRegion.rbxjson": "_terrainregion",
+    "TerrainWriteOperation.rbxjson": "_terrainwriteoperation",
+    "TestService.rbxjson": "_testservice",
+    "TextBox.rbxjson": "_textbox",
+    "TextBoxService.rbxjson": "_textboxservice",
+    "TextButton.rbxjson": "_textbutton",
+    "TextChannel.rbxjson": "_textchannel",
+    "TextChatCommand.rbxjson": "_textchatcommand",
+    "TextChatConfigurations.rbxjson": "_textchatconfigurations",
+    "TextChatMessage.rbxjson": "_textchatmessage",
+    "TextChatMessageProperties.rbxjson": "_textchatmessageproperties",
+    "TextChatService.rbxjson": "_textchatservice",
+    "TextFilterResult.rbxjson": "_textfilterresult",
+    "TextFilterTranslatedResult.rbxjson": "_textfiltertranslatedresult",
+    "TextGenerator.rbxjson": "_textgenerator",
+    "TextLabel.rbxjson": "_textlabel",
+    "TextService.rbxjson": "_textservice",
+    "TextSource.rbxjson": "_textsource",
+    "Texture.rbxjson": "_texture",
+    "TextureGenerationPartGroup.rbxjson": "_texturegenerationpartgroup",
+    "TextureGenerationService.rbxjson": "_texturegenerationservice",
+    "TextureGenerationUnwrappingRequest.rbxjson": "_texturegenerationunwrappingrequest",
+    "ThirdPartyUserService.rbxjson": "_thirdpartyuserservice",
+    "ThreadState.rbxjson": "_threadstate",
+    "TimerService.rbxjson": "_timerservice",
+    "ToastNotificationService.rbxjson": "_toastnotificationservice",
+    "Tool.rbxjson": "_tool",
+    "Torque.rbxjson": "_torque",
+    "TorsionSpringConstraint.rbxjson": "_torsionspringconstraint",
+    "TotalCountTimeIntervalItem.rbxjson": "_totalcounttimeintervalitem",
+    "TouchInputService.rbxjson": "_touchinputservice",
+    "TouchTransmitter.rbxjson": "_touchtransmitter",
+    "TracerService.rbxjson": "_tracerservice",
+    "TrackerLodController.rbxjson": "_trackerlodcontroller",
+    "TrackerStreamAnimation.rbxjson": "_trackerstreamanimation",
+    "Trail.rbxjson": "_trail",
+    "Translator.rbxjson": "_translator",
+    "TremoloSoundEffect.rbxjson": "_tremolosoundeffect",
+    "TriangleMeshPart.rbxjson": "_trianglemeshpart",
+    "TrussPart.rbxjson": "_trusspart",
+    "TutorialService.rbxjson": "_tutorialservice",
+    "Tween.rbxjson": "_tween",
+    "TweenBase.rbxjson": "_tweenbase",
+    "TweenService.rbxjson": "_tweenservice",
+    "UGCAvatarService.rbxjson": "_ugcavatarservice",
+    "UGCValidationService.rbxjson": "_ugcvalidationservice",
+    "UIAspectRatioConstraint.rbxjson": "_uiaspectratioconstraint",
+    "UIBase.rbxjson": "_uibase",
+    "UIComponent.rbxjson": "_uicomponent",
+    "UIConstraint.rbxjson": "_uiconstraint",
+    "UICorner.rbxjson": "_uicorner",
+    "UIDragDetector.rbxjson": "_uidragdetector",
+    "UIDragDetectorService.rbxjson": "_uidragdetectorservice",
+    "UIFlexItem.rbxjson": "_uiflexitem",
+    "UIGradient.rbxjson": "_uigradient",
+    "UIGridLayout.rbxjson": "_uigridlayout",
+    "UIGridStyleLayout.rbxjson": "_uigridstylelayout",
+    "UILayout.rbxjson": "_uilayout",
+    "UIListLayout.rbxjson": "_uilistlayout",
+    "UIPadding.rbxjson": "_uipadding",
+    "UIPageLayout.rbxjson": "_uipagelayout",
+    "UIScale.rbxjson": "_uiscale",
+    "UISizeConstraint.rbxjson": "_uisizeconstraint",
+    "UIStroke.rbxjson": "_uistroke",
+    "UITableLayout.rbxjson": "_uitablelayout",
+    "UITextSizeConstraint.rbxjson": "_uitextsizeconstraint",
+    "UnionOperation.rbxjson": "_unionoperation",
+    "UniqueIdLookupService.rbxjson": "_uniqueidlookupservice",
+    "UniversalConstraint.rbxjson": "_universalconstraint",
+    "UnreliableRemoteEvent.rbxjson": "_unreliableremoteevent",
+    "UnvalidatedAssetService.rbxjson": "_unvalidatedassetservice",
+    "UserGameSettings.rbxjson": "_usergamesettings",
+    "UserInputService.rbxjson": "_userinputservice",
+    "UserService.rbxjson": "_userservice",
+    "UserSettings.rbxjson": "_usersettings",
+    "UserStorageService.rbxjson": "_userstorageservice",
+    "VRService.rbxjson": "_vrservice",
+    "VRStatusService.rbxjson": "_vrstatusservice",
+    "ValueBase.rbxjson": "_valuebase",
+    "ValueCurve.rbxjson": "_valuecurve",
+    "Vector3Curve.rbxjson": "_vector3curve",
+    "Vector3Value.rbxjson": "_vector3value",
+    "VectorForce.rbxjson": "_vectorforce",
+    "VehicleController.rbxjson": "_vehiclecontroller",
+    "VehicleSeat.rbxjson": "_vehicleseat",
+    "VelocityMotor.rbxjson": "_velocitymotor",
+    "VersionControlService.rbxjson": "_versioncontrolservice",
+    "VideoCapture.rbxjson": "_videocapture",
+    "VideoCaptureService.rbxjson": "_videocaptureservice",
+    "VideoDeviceInput.rbxjson": "_videodeviceinput",
+    "VideoDisplay.rbxjson": "_videodisplay",
+    "VideoFrame.rbxjson": "_videoframe",
+    "VideoPlayer.rbxjson": "_videoplayer",
+    "VideoSampler.rbxjson": "_videosampler",
+    "VideoScreenCaptureService.rbxjson": "_videoscreencaptureservice",
+    "VideoService.rbxjson": "_videoservice",
+    "ViewportFrame.rbxjson": "_viewportframe",
+    "VirtualInputManager.rbxjson": "_virtualinputmanager",
+    "VirtualUser.rbxjson": "_virtualuser",
+    "VisibilityCheckDispatcher.rbxjson": "_visibilitycheckdispatcher",
+    "Visit.rbxjson": "_visit",
+    "VisualizationMode.rbxjson": "_visualizationmode",
+    "VisualizationModeCategory.rbxjson": "_visualizationmodecategory",
+    "VisualizationModeService.rbxjson": "_visualizationmodeservice",
+    "VoiceChatInternal.rbxjson": "_voicechatinternal",
+    "VoiceChatService.rbxjson": "_voicechatservice",
+    "WebSocketClient.rbxjson": "_websocketclient",
+    "WebSocketService.rbxjson": "_websocketservice",
+    "WebStreamClient.rbxjson": "_webstreamclient",
+    "WebViewService.rbxjson": "_webviewservice",
+    "WedgePart.rbxjson": "_wedgepart",
+    "Weld.rbxjson": "_weld",
+    "WeldConstraint.rbxjson": "_weldconstraint",
+    "Wire.rbxjson": "_wire",
+    "WireframeHandleAdornment.rbxjson": "_wireframehandleadornment",
+    "Workspace.rbxjson": "_workspace",
+    "WorkspaceAnnotation.rbxjson": "_workspaceannotation",
+    "WorldModel.rbxjson": "_worldmodel",
+    "WorldRoot.rbxjson": "_worldroot",
+    "WrapDeformer.rbxjson": "_wrapdeformer",
+    "WrapLayer.rbxjson": "_wraplayer",
+    "WrapTarget.rbxjson": "_wraptarget",
+    "WrapTextureTransfer.rbxjson": "_wraptexturetransfer",
+    "lighting.rbxjson": "_lighting",
+    "players.rbxjson": "_players",
+    "replicatedfirst.rbxjson": "_replicatedfirst",
+    "replicatedstorage.rbxjson": "_replicatedstorage",
+    "serverscriptservice.rbxjson": "_serverscriptservice",
+    "serverstorage.rbxjson": "_serverstorage",
+    "soundservice.rbxjson": "_soundservice",
+    "startergui.rbxjson": "_startergui",
+    "starterpack.rbxjson": "_starterpack",
+    "starterplayer.rbxjson": "_starterplayer",
+    "starterplayerscripts.rbxjson": "_starterplayerscripts"
   },
-  "fileNames": {},
+  "fileNames": {
+    "init.rbxjson": "_meta",
+    "_meta.rbxjson": "_meta"
+  },
   "file": null,
   "folder": "_folder",
   "folderExpanded": "_folder",
+  "folderNames": {
+    "ServerScriptService": "_serverscriptservice",
+    "ServerStorage": "_serverstorage",
+    "ReplicatedStorage": "_replicatedstorage",
+    "ReplicatedFirst": "_replicatedfirst",
+    "StarterGui": "_startergui",
+    "StarterPack": "_starterpack",
+    "StarterPlayer": "_starterplayer",
+    "StarterPlayerScripts": "_starterplayerscripts",
+    "StarterCharacterScripts": "_starterplayerscripts",
+    "Workspace": "_workspace",
+    "Lighting": "_lighting",
+    "Players": "_players",
+    "SoundService": "_soundservice",
+    "MaterialService": "_materialservice",
+    "Teams": "_teams",
+    "Chat": "_chat",
+    "LocalizationService": "_localizationservice",
+    "TestService": "_testservice",
+    "Terrain": "_terrain"
+  },
+  "folderNamesExpanded": {
+    "ServerScriptService": "_serverscriptservice",
+    "ServerStorage": "_serverstorage",
+    "ReplicatedStorage": "_replicatedstorage",
+    "ReplicatedFirst": "_replicatedfirst",
+    "StarterGui": "_startergui",
+    "StarterPack": "_starterpack",
+    "StarterPlayer": "_starterplayer",
+    "StarterPlayerScripts": "_starterplayerscripts",
+    "StarterCharacterScripts": "_starterplayerscripts",
+    "Workspace": "_workspace",
+    "Lighting": "_lighting",
+    "Players": "_players",
+    "SoundService": "_soundservice",
+    "MaterialService": "_materialservice",
+    "Teams": "_teams",
+    "Chat": "_chat",
+    "LocalizationService": "_localizationservice",
+    "TestService": "_testservice",
+    "Terrain": "_terrain"
+  },
   "languageIds": {
     "luau": "_modulescript"
   },
