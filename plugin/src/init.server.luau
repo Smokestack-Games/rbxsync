@@ -1571,6 +1571,76 @@ local function handleCommand(command: string, payload: any)
         end
         return { success = true, output = resultStr, result = result }
 
+    elseif command == "read-properties:get" then
+        local path = payload and payload.path
+        if not path then
+            return { success = false, error = "No path provided" }
+        end
+
+        -- Parse the path and find the instance
+        local instance = nil
+        local parts = string.split(path, "/")
+        if #parts == 0 then
+            return { success = false, error = "Invalid path" }
+        end
+
+        -- First part should be a service name (e.g., "Workspace", "ServerScriptService")
+        local serviceName = Serializer.unescapePathSegment(parts[1])
+        local ok, service = pcall(function()
+            return game:GetService(serviceName)
+        end)
+        if not ok or not service then
+            -- Try as direct child of game
+            ok, service = pcall(function()
+                return game:FindFirstChild(serviceName)
+            end)
+            if not ok or not service then
+                return { success = false, error = "Service or root not found: " .. serviceName }
+            end
+        end
+
+        instance = service
+
+        -- Navigate through the rest of the path
+        for i = 2, #parts do
+            local partName = Serializer.unescapePathSegment(parts[i])
+            -- Handle disambiguated names (e.g., "Part~abc123")
+            local baseName, debugIdSuffix = string.match(partName, "^(.+)~([^~]+)$")
+            if baseName then
+                -- Find child with matching name and debugId prefix
+                local found = false
+                for _, child in instance:GetChildren() do
+                    if child.Name == baseName then
+                        local debugId = child:GetDebugId(0)
+                        if string.sub(debugId, 1, #debugIdSuffix) == debugIdSuffix then
+                            instance = child
+                            found = true
+                            break
+                        end
+                    end
+                end
+                if not found then
+                    return { success = false, error = "Instance not found at path segment: " .. partName }
+                end
+            else
+                -- Simple name lookup
+                local child = instance:FindFirstChild(partName)
+                if not child then
+                    return { success = false, error = "Instance not found: " .. partName .. " in " .. instance:GetFullName() }
+                end
+                instance = child
+            end
+        end
+
+        -- Serialize the instance using existing Serializer
+        local apiDump = Reflection.getAPIDump()
+        local serialized = Serializer.serializeInstance(instance, apiDump)
+        if not serialized then
+            return { success = false, error = "Failed to serialize instance" }
+        end
+
+        return { success = true, data = serialized }
+
     elseif command == "insert:model" then
         local assetId = payload and payload.assetId
         if not assetId then

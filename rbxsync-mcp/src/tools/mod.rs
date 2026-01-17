@@ -709,6 +709,23 @@ impl RbxSyncClient {
 
         Ok(resp)
     }
+
+    /// Read properties of an instance at the given path
+    pub async fn read_properties(&self, path: &str) -> anyhow::Result<ReadPropertiesResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/read-properties", self.base_url))
+            .json(&serde_json::json!({
+                "path": path
+            }))
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
 }
 
 // ============================================================================
@@ -799,4 +816,14 @@ pub struct HarnessStatusResponse {
     pub features: Vec<serde_json::Value>,
     pub feature_summary: FeatureSummary,
     pub recent_sessions: Vec<SessionSummary>,
+}
+
+/// Response from read_properties
+#[derive(Debug, Deserialize)]
+pub struct ReadPropertiesResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
 }

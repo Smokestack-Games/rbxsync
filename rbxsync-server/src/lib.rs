@@ -378,6 +378,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/console/history", get(handle_console_history))
         // Run arbitrary Luau code (for MCP)
         .route("/run", post(handle_run_code))
+        // Read instance properties (for MCP)
+        .route("/read-properties", post(handle_read_properties))
         // Health check
         .route("/health", get(handle_health))
         // Shutdown endpoint
@@ -3956,6 +3958,80 @@ async fn handle_run_code(
                 Json(serde_json::json!({
                     "success": false,
                     "output": null,
+                    "error": "Plugin response timeout"
+                })),
+            )
+        }
+    }
+}
+
+// ============================================================================
+// Read Properties Endpoint
+// ============================================================================
+
+/// Request structure for reading instance properties
+#[derive(Debug, Deserialize)]
+struct ReadPropertiesRequest {
+    path: String,
+}
+
+/// Read properties of an instance at the given path (for MCP integration)
+async fn handle_read_properties(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<ReadPropertiesRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+    tracing::info!("read-properties:get request {} - path: {}", request_id, req.path);
+    let request = PluginRequest {
+        id: request_id,
+        command: "read-properties:get".to_string(),
+        payload: serde_json::json!({
+            "path": req.path
+        }),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request
+    let queue_len = {
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(request);
+        queue.len()
+    };
+    tracing::info!("read-properties:get request {} - queued (queue length: {})", request_id, queue_len);
+    state.trigger.send(()).ok();
+
+    // Wait for response with timeout
+    let timeout = tokio::time::Duration::from_secs(30);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (StatusCode::OK, Json(serde_json::json!({
+                "success": response.success,
+                "data": response.data,
+                "error": response.error
+            })))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "data": null,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "data": null,
                     "error": "Plugin response timeout"
                 })),
             )
