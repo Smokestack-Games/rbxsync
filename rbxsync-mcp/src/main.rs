@@ -539,7 +539,9 @@ impl RbxSyncServer {
     /// Starts a play session, captures all prints/warnings/errors, then stops and returns output.
     /// For interactive bot testing, use background: true to start the test and return immediately,
     /// then use bot_observe/bot_move/bot_action while the test runs.
-    #[tool(description = "Run automated play test in Studio and return console output. For interactive bot testing, use background: true to start test and return immediately, then use bot_observe/bot_move/bot_action while test runs.")]
+    /// IMPORTANT: Stop playtest with stop_test before making code changes.
+    /// Changes won't take effect until you stop_test, sync, then run_test again.
+    #[tool(description = "Run automated play test in Studio and return console output. For interactive bot testing, use background: true to start test and return immediately. IMPORTANT: Stop playtest with stop_test before making code changes.")]
     async fn run_test(
         &self,
         Parameters(params): Parameters<RunTestParams>,
@@ -631,6 +633,25 @@ impl RbxSyncServer {
         }
 
         Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))
+    }
+
+    /// Stop any running playtest in Roblox Studio.
+    /// Call this before making code changes - changes won't take effect until you stop the test,
+    /// sync your changes, then run a new test.
+    #[tool(description = "Stop any running playtest. Call before making code changes.")]
+    async fn stop_test(&self) -> Result<CallToolResult, McpError> {
+        let result = self.client.stop_test().await.map_err(|e| mcp_error(e.to_string()))?;
+
+        if result.success {
+            Ok(CallToolResult::success(vec![Content::text(
+                result.message.unwrap_or_else(|| "Playtest stopped successfully.".to_string())
+            )]))
+        } else {
+            Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to stop playtest: {}",
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            ))]))
+        }
     }
 
     // ========================================================================
