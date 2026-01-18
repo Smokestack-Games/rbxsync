@@ -273,6 +273,16 @@ Insert a model from the Roblox marketplace into the game. Uses InsertService:Loa
 
 AI-powered automated gameplay testing tools. Must be called during an active playtest (after `run_test` or manual F5).
 
+::: warning HTTP Required
+All bot tools (`bot_observe`, `bot_move`, `bot_action`, `bot_wait_for`, `bot_command`, `bot_query_server`) require HTTP Requests to be enabled in your game settings.
+
+**To enable:** Game Settings → Security → Allow HTTP Requests
+
+Note: `run_test` does NOT require HTTP - it uses script injection and works without this setting.
+
+See [HTTP Requirement for Bot Testing](/ai-testing#http-requirement-for-bot-testing) for details.
+:::
+
 ### bot_observe
 
 Observe current game state during a playtest. Returns character position, health, inventory, nearby objects/NPCs, and visible UI.
