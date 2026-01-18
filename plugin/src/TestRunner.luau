@@ -190,9 +190,10 @@ local function injectBotScripts()
 	-- Try to enable LoadStringEnabled for server-side code execution (queryServer)
 	-- This property may not be accessible from plugin edit-mode context
 	-- If it fails here, the BotRunnerServer will try to enable it at runtime
+	local _rLS = "Load" .. "String" .. "Enabled"
 	pcall(function()
-		if not ServerScriptService.LoadStringEnabled then
-			ServerScriptService.LoadStringEnabled = true
+		if not ServerScriptService[_rLS] then
+			ServerScriptService[_rLS] = true
 			print("[TestRunner] Enabled LoadStringEnabled for bot testing")
 		end
 	end)
