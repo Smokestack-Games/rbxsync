@@ -17,6 +17,10 @@ The bot testing system consists of:
 1. RbxSync server running (`rbxsync serve`)
 2. RbxSync plugin installed in Studio
 3. A game open in Studio with a spawn point
+4. **HTTP Requests enabled** (for bot commands)
+   - Go to **Game Settings** → **Security** → Enable **Allow HTTP Requests**
+   - Required for: `bot_observe`, `bot_move`, `bot_action`, `bot_query_server`
+   - NOT required for: `run_test` (uses script injection)
 
 ### Basic Usage
 
@@ -342,6 +346,7 @@ curl -X POST http://localhost:44755/bot/action \
 
 - Bot commands only work during active playtests (F5/F6)
 - The plugin must be connected to the server
+- **HTTP Requests must be enabled** in Game Settings → Security for bot commands to work
 - State observation should be throttled (~10/sec max)
 
 ## TestAssertions Module
@@ -433,6 +438,17 @@ end
 - Verify UI path is correct
 - Ensure UI is visible before clicking
 - Use `bot_command type="ui" command="getVisibleUI"` to debug
+
+### "HTTP request failed" or connection errors
+
+Bot commands communicate with the game via HTTP during playtests.
+
+**Fix:**
+1. Enable HTTP Requests: **Game Settings** → **Security** → **Allow HTTP Requests**
+2. Ensure a playtest is running (F5 in Studio)
+3. Verify plugin is connected (green indicator)
+
+Note: `run_test` does not require HTTP - it uses script injection. Only the interactive `bot_*` commands need HTTP enabled.
 
 ## Best Practices
 

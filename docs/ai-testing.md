@@ -34,6 +34,11 @@ Before using AI-assisted testing:
    - AI client (Claude Code, Cursor, etc.) configured with RbxSync MCP server
    - See [MCP Setup](/mcp/setup) for configuration details
 
+4. **HTTP Requests enabled** (for interactive bot testing)
+   - Required for: `bot_observe`, `bot_move`, `bot_action`, `bot_query_server`, `bot_wait_for`, `bot_command`
+   - NOT required for: `run_test` (uses script injection)
+   - See [HTTP Requirement](#http-requirement-for-bot-testing) below
+
 ## The Testing Loop
 
 AI-assisted testing follows a cycle:
@@ -313,6 +318,54 @@ These prompts demonstrate how to instruct AI agents for testing:
 ### Performance Testing
 
 > "Check for errors when loading a large inventory. Use run_code to give the player 100 items, then verify the inventory UI displays correctly."
+
+## HTTP Requirement for Bot Testing
+
+Interactive bot testing tools communicate with the game during playtests via HTTP. This requires enabling HTTP requests in your Roblox game settings.
+
+### Which Tools Need HTTP?
+
+| Tool | Requires HTTP | Notes |
+|------|---------------|-------|
+| `run_test` | ❌ No | Uses script injection, works without HTTP |
+| `run_code` | ❌ No | Executes in plugin context, no HTTP needed |
+| `sync_to_studio` | ❌ No | Uses plugin API |
+| `bot_observe` | ✅ Yes | Queries game state via HTTP |
+| `bot_move` | ✅ Yes | Sends movement commands via HTTP |
+| `bot_action` | ✅ Yes | Sends action commands via HTTP |
+| `bot_query_server` | ✅ Yes | Executes server-side code via HTTP |
+| `bot_wait_for` | ✅ Yes | Polls conditions via HTTP |
+| `bot_command` | ✅ Yes | Sends generic commands via HTTP |
+
+### How to Enable HTTP Requests
+
+1. In Roblox Studio, go to **Home** → **Game Settings** (or **File** → **Game Settings**)
+2. Navigate to the **Security** tab
+3. Enable **Allow HTTP Requests**
+4. Click **Save**
+
+::: warning Published Games
+For published games, this setting affects both Studio testing and the live game. HTTP requests are disabled by default for security. Only enable if you understand the implications.
+:::
+
+### Why HTTP is Required
+
+During a playtest, the bot tools need to communicate with the running game server to:
+- Read player state (position, health, inventory)
+- Send movement and action commands
+- Execute server-side Luau code
+- Poll for condition changes
+
+The RbxSync plugin creates HTTP endpoints during playtests that the bot tools call. Without HTTP enabled, these requests will fail with connection errors.
+
+### Troubleshooting HTTP Issues
+
+If bot commands fail with "HTTP request failed" or similar errors:
+
+1. **Verify HTTP is enabled** - Check Game Settings → Security
+2. **Check firewall settings** - Ensure localhost connections are allowed
+3. **Verify playtest is running** - HTTP endpoints only exist during playtests
+4. **Check plugin connection** - Plugin must show green indicator
 
 ## Limitations
 
