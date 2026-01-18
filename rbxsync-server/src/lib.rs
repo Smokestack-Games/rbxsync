@@ -417,6 +417,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/bot/move", post(handle_bot_move))
         .route("/bot/action", post(handle_bot_action))
         .route("/bot/observe", post(handle_bot_observe))
+        .route("/bot/query-server", post(handle_bot_query_server))
         // Direct bot command queue (for HTTP polling from running game)
         .route("/bot/queue", post(handle_bot_queue))
         .route("/bot/pending", get(handle_bot_pending))
@@ -3616,6 +3617,12 @@ fn default_observe_type() -> String {
     "state".to_string()
 }
 
+/// Bot query server request
+#[derive(Debug, Deserialize)]
+struct BotQueryServerRequest {
+    code: String,
+}
+
 /// Helper function to send a bot command to the plugin
 async fn send_bot_command(
     state: &Arc<AppState>,
@@ -3743,6 +3750,23 @@ async fn handle_bot_observe(
     });
 
     match send_bot_command(&state, "bot:observe", payload).await {
+        Ok(data) => (StatusCode::OK, Json(data)),
+        Err((status, json)) => (status, json),
+    }
+}
+
+/// Handle bot query server command - execute Luau code on server
+async fn handle_bot_query_server(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<BotQueryServerRequest>,
+) -> impl IntoResponse {
+    // Send with action: queryServer format expected by BotRunnerServer
+    let payload = serde_json::json!({
+        "action": "queryServer",
+        "code": req.code
+    });
+
+    match send_bot_command(&state, "bot:command", payload).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }

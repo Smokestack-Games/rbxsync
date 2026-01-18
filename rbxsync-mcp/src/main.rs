@@ -769,11 +769,9 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<BotQueryServerParams>,
     ) -> Result<CallToolResult, McpError> {
-        // Send as a bot command with queryServer action
+        // Send as a dedicated bot query server command
         let result = self.client
-            .bot_command("query", "queryServer", Some(serde_json::json!({
-                "code": params.code
-            })))
+            .bot_query_server(&params.code)
             .await
             .map_err(|e| mcp_error(e.to_string()))?;
 

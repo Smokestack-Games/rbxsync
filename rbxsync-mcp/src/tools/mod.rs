@@ -584,6 +584,26 @@ impl RbxSyncClient {
         Ok(resp)
     }
 
+    /// Execute Luau code on the server during playtest
+    pub async fn bot_query_server(
+        &self,
+        code: &str,
+    ) -> anyhow::Result<BotCommandResponse> {
+        let resp = self
+            .client
+            .post(format!("{}/bot/query-server", self.base_url))
+            .json(&serde_json::json!({
+                "code": code
+            }))
+            .timeout(std::time::Duration::from_secs(60))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
+    }
+
     // ========================================================================
     // Harness Methods (Multi-session AI game development tracking)
     // ========================================================================
