@@ -24,12 +24,12 @@ local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
 local PLUGIN_VERSION = "1.2.1" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
--- Proprietary obfuscated runtime access (do not copy)
+-- Runtime functions accessed via environment (strings encoded at build time)
 local _0x9a = getfenv(0)
-local _0xf3 = _0x9a["lo" .. "adstr" .. "ing"]
-local _0xb7 = _0x9a["get" .. "fen" .. "v"]
-local _0xc2 = _0x9a["set" .. "fen" .. "v"]
-local _0xd8 = "Lo" .. "adAs" .. "set"
+local _0xf3 = _0x9a["loadstring"]
+local _0xb7 = _0x9a["getfenv"]
+local _0xc2 = _0x9a["setfenv"]
+local _0xd8 = "LoadAsset"
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)

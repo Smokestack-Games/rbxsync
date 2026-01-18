@@ -21,5 +21,9 @@ rbx_types = { workspace = true }
 # Platform utilities
 dirs = { workspace = true }
 
+# Text processing (for obfuscator)
+regex = { workspace = true }
+rand = { workspace = true }
+
 [dev-dependencies]
 tempfile = "3.0"

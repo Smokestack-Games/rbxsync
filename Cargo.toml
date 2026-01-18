@@ -61,3 +61,7 @@ dirs = "5.0"
 # MCP protocol
 rmcp = { version = "0.9", features = ["server", "transport-io"] }
 schemars = "1.0"
+
+# Text processing
+regex = "1.10"
+rand = "0.8"
