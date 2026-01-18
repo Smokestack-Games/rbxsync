@@ -3804,6 +3804,62 @@ struct BotQueryServerRequest {
     code: String,
 }
 
+/// Helper function to send a bot command via the bot queue (for in-game execution)
+/// This routes commands through BotRunnerServer -> BotRunnerClient instead of the plugin
+async fn send_bot_command_via_queue(
+    state: &Arc<AppState>,
+    command: serde_json::Value,
+) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    let id = Uuid::new_v4();
+
+    // Queue the command with ID
+    let cmd_with_id = serde_json::json!({
+        "id": id.to_string(),
+        "command": command
+    });
+
+    {
+        let mut queue = state.bot_command_queue.lock().await;
+        queue.push_back(cmd_with_id);
+    }
+
+    // Poll for result with timeout
+    let timeout = tokio::time::Duration::from_secs(30);
+    let poll_interval = tokio::time::Duration::from_millis(50);
+    let start = std::time::Instant::now();
+
+    loop {
+        // Check for result
+        {
+            let results = state.bot_command_results.read().await;
+            if let Some(result) = results.get(&id) {
+                // Clone the result before dropping the lock
+                let result_clone = result.clone();
+                drop(results);
+
+                // Remove the result from storage
+                let mut results_mut = state.bot_command_results.write().await;
+                results_mut.remove(&id);
+
+                return Ok(result_clone);
+            }
+        }
+
+        // Check timeout
+        if start.elapsed() > timeout {
+            return Err((
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Bot command timeout - ensure playtest is running with bot scripts"
+                })),
+            ));
+        }
+
+        tokio::time::sleep(poll_interval).await;
+    }
+}
+
 /// Helper function to send a bot command to the plugin
 async fn send_bot_command(
     state: &Arc<AppState>,
@@ -3865,13 +3921,14 @@ async fn handle_bot_command(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotCommandRequest>,
 ) -> impl IntoResponse {
-    let payload = serde_json::json!({
+    // Route through bot queue to BotRunnerServer/Client
+    let command = serde_json::json!({
+        "action": req.command,
         "type": req.command_type,
-        "command": req.command,
         "args": req.args
     });
 
-    match send_bot_command(&state, "bot:command", payload).await {
+    match send_bot_command_via_queue(&state, command).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }
@@ -3879,7 +3936,12 @@ async fn handle_bot_command(
 
 /// Handle bot state observation (GET)
 async fn handle_bot_state(State(state): State<Arc<AppState>>) -> impl IntoResponse {
-    match send_bot_command(&state, "bot:state", serde_json::json!({})).await {
+    // Route through bot queue to BotRunnerClient
+    let command = serde_json::json!({
+        "action": "getState"
+    });
+
+    match send_bot_command_via_queue(&state, command).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }
@@ -3890,13 +3952,20 @@ async fn handle_bot_move(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotMoveRequest>,
 ) -> impl IntoResponse {
-    let payload = serde_json::json!({
-        "position": req.position,
-        "object": req.object,
-        "objectName": req.object_name
-    });
+    // Determine action type based on provided parameters
+    let command = if req.position.is_some() {
+        serde_json::json!({
+            "action": "moveTo",
+            "position": req.position
+        })
+    } else {
+        serde_json::json!({
+            "action": "moveToObject",
+            "objectName": req.object_name.or(req.object)
+        })
+    };
 
-    match send_bot_command(&state, "bot:move", payload).await {
+    match send_bot_command_via_queue(&state, command).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }
@@ -3907,13 +3976,14 @@ async fn handle_bot_action(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotActionRequest>,
 ) -> impl IntoResponse {
-    let payload = serde_json::json!({
+    // Route through bot queue to BotRunnerClient
+    let command = serde_json::json!({
         "action": req.action,
         "name": req.name.or(req.tool_name),
         "objectName": req.object_name
     });
 
-    match send_bot_command(&state, "bot:action", payload).await {
+    match send_bot_command_via_queue(&state, command).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }
@@ -3924,13 +3994,16 @@ async fn handle_bot_observe(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotObserveRequest>,
 ) -> impl IntoResponse {
-    let payload = serde_json::json!({
+    // Route through bot queue to BotRunnerClient
+    // All observation types use getState which returns comprehensive game state
+    let command = serde_json::json!({
+        "action": "getState",
         "type": req.observe_type,
         "radius": req.radius,
         "query": req.query
     });
 
-    match send_bot_command(&state, "bot:observe", payload).await {
+    match send_bot_command_via_queue(&state, command).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }
@@ -3941,13 +4014,13 @@ async fn handle_bot_query_server(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotQueryServerRequest>,
 ) -> impl IntoResponse {
-    // Send with action: queryServer format expected by BotRunnerServer
-    let payload = serde_json::json!({
+    // Route through bot queue to BotRunnerServer (handled server-side, not relayed to client)
+    let command = serde_json::json!({
         "action": "queryServer",
         "code": req.code
     });
 
-    match send_bot_command(&state, "bot:command", payload).await {
+    match send_bot_command_via_queue(&state, command).await {
         Ok(data) => (StatusCode::OK, Json(data)),
         Err((status, json)) => (status, json),
     }
