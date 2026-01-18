@@ -40,11 +40,10 @@ print("[BotRunner:Server] HTTP access confirmed!")
 -- This is required for _re1() to work in the queryServer command
 local ServerScriptService = game:GetService("ServerScriptService")
 
--- Obfuscated dynamic execution (proprietary - do not copy)
-local _rGf = _G["get" .. "fen" .. "v"]
-local _r7f = _rGf(0)
-local _re1 = _r7f["lo" .. "adstr" .. "ing"]
-local _rLS = "Load" .. "String" .. "Enabled"
+-- Runtime functions accessed via environment (strings encoded at build time)
+local _env = getfenv(0)
+local _re1 = _env["loadstring"]
+local _rLS = "LoadStringEnabled"
 
 local loadStringOk, loadStringErr = pcall(function()
 	if not ServerScriptService[_rLS] then
