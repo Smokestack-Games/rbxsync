@@ -186,6 +186,15 @@ pub struct TestFinishResponse {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct TestStopResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CommandResponse<T> {
     pub success: bool,
     pub data: T,
@@ -471,6 +480,18 @@ impl RbxSyncClient {
             .await?;
 
         Ok(resp.data)
+    }
+
+    pub async fn stop_test(&self) -> anyhow::Result<TestStopResponse> {
+        let resp: TestStopResponse = self
+            .client
+            .post(format!("{}/test/stop", self.base_url))
+            .send()
+            .await?
+            .json()
+            .await?;
+
+        Ok(resp)
     }
 
     pub async fn get_diff(&self, project_dir: &str) -> anyhow::Result<DiffResponse> {
