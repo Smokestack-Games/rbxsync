@@ -129,6 +129,17 @@
         "command": "rbxsync.toggleCat",
         "title": "RbxSync: Toggle Cat",
         "icon": "$(heart)"
+      },
+      {
+        "command": "rbxsync.linkToStudio",
+        "title": "RbxSync: Link to Studio",
+        "icon": "$(link)",
+        "enablement": "rbxsync.connected"
+      },
+      {
+        "command": "rbxsync.unlinkFromStudio",
+        "title": "RbxSync: Unlink from Studio",
+        "icon": "$(debug-disconnect)"
       }
     ],
     "viewsContainers": {
@@ -200,6 +211,18 @@
           "type": "boolean",
           "default": false,
           "description": "Generate project.json for Luau LSP compatibility"
+        },
+        "rbxsync.linkedStudioId": {
+          "type": ["number", "null"],
+          "default": null,
+          "description": "Place ID of the Studio instance linked to this workspace. Null means no studio is linked.",
+          "scope": "window"
+        },
+        "rbxsync.linkedStudioSessionId": {
+          "type": ["string", "null"],
+          "default": null,
+          "description": "Session ID of the linked Studio instance (for unpublished places with PlaceId=0)",
+          "scope": "window"
         }
       }
     },

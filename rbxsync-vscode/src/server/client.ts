@@ -34,8 +34,10 @@ export class RbxSyncClient {
   private _connectionState: ConnectionState = { connected: false };
   private _onConnectionChange = new vscode.EventEmitter<ConnectionState>();
   private _projectDir: string = '';
+  private _onLinkedStudioChange = new vscode.EventEmitter<{ placeId: number | null; sessionId: string | null }>();
 
   public readonly onConnectionChange = this._onConnectionChange.event;
+  public readonly onLinkedStudioChange = this._onLinkedStudioChange.event;
 
   constructor(port: number = 44755) {
     this.client = axios.create({
@@ -57,6 +59,138 @@ export class RbxSyncClient {
 
   setProjectDir(dir: string): void {
     this._projectDir = dir;
+  }
+
+  /**
+   * Get the linked Studio place ID from workspace settings
+   */
+  getLinkedStudioId(): number | null {
+    const config = vscode.workspace.getConfiguration('rbxsync');
+    const linkedId = config.get<number | null>('linkedStudioId');
+    return linkedId ?? null;
+  }
+
+  /**
+   * Get the linked Studio session ID from workspace settings (for unpublished places)
+   */
+  getLinkedStudioSessionId(): string | null {
+    const config = vscode.workspace.getConfiguration('rbxsync');
+    const sessionId = config.get<string | null>('linkedStudioSessionId');
+    return sessionId ?? null;
+  }
+
+  /**
+   * Set the linked Studio in workspace settings
+   */
+  async setLinkedStudio(placeId: number | null, sessionId: string | null = null): Promise<void> {
+    const config = vscode.workspace.getConfiguration('rbxsync');
+    await config.update('linkedStudioId', placeId, vscode.ConfigurationTarget.Workspace);
+    await config.update('linkedStudioSessionId', sessionId, vscode.ConfigurationTarget.Workspace);
+    this._onLinkedStudioChange.fire({ placeId, sessionId });
+  }
+
+  /**
+   * Check if a specific place is the linked studio for this workspace
+   */
+  isLinkedStudio(placeId: number, sessionId?: string): boolean {
+    const linkedId = this.getLinkedStudioId();
+    const linkedSession = this.getLinkedStudioSessionId();
+
+    // For unpublished places (placeId=0), use sessionId
+    if (placeId === 0 && sessionId) {
+      return linkedSession === sessionId;
+    }
+
+    // For published places, use placeId
+    return linkedId === placeId;
+  }
+
+  /**
+   * Get the linked place info from connected places
+   */
+  async getLinkedPlace(): Promise<PlaceInfo | undefined> {
+    const places = await this.getConnectedPlaces();
+    const linkedId = this.getLinkedStudioId();
+    const linkedSession = this.getLinkedStudioSessionId();
+
+    // For unpublished places, match by session
+    if (linkedSession) {
+      const bySession = places.find(p => p.session_id === linkedSession);
+      if (bySession) return bySession;
+    }
+
+    // For published places, match by placeId
+    if (linkedId !== null && linkedId > 0) {
+      return places.find(p => p.place_id === linkedId);
+    }
+
+    return undefined;
+  }
+
+  /**
+   * Show quick pick to select a Studio to link
+   */
+  async promptLinkToStudio(): Promise<boolean> {
+    const places = await this.getConnectedPlaces();
+
+    if (places.length === 0) {
+      vscode.window.showWarningMessage('No Studio instances connected. Open Roblox Studio with the RbxSync plugin installed.');
+      return false;
+    }
+
+    interface PlaceQuickPickItem extends vscode.QuickPickItem {
+      place: PlaceInfo;
+    }
+
+    const linkedId = this.getLinkedStudioId();
+    const linkedSession = this.getLinkedStudioSessionId();
+
+    const items: PlaceQuickPickItem[] = places.map(place => {
+      const isCurrentlyLinked = this.isLinkedStudio(place.place_id, place.session_id);
+      return {
+        label: `$(${isCurrentlyLinked ? 'check' : 'circle-outline'}) ${place.place_name || 'Unnamed Place'}`,
+        description: place.place_id > 0 ? `ID: ${place.place_id}` : 'Unpublished',
+        detail: isCurrentlyLinked ? '$(link) Currently linked to this workspace' : undefined,
+        place
+      };
+    });
+
+    // Add unlink option if currently linked
+    if (linkedId !== null || linkedSession !== null) {
+      items.push({
+        label: '$(debug-disconnect) Unlink from Studio',
+        description: 'Remove the link to allow seeing all Studios',
+        place: null as any
+      });
+    }
+
+    const selected = await vscode.window.showQuickPick(items, {
+      placeHolder: 'Select a Studio instance to link to this workspace',
+      title: 'Link to Studio'
+    });
+
+    if (!selected) {
+      return false;
+    }
+
+    // Handle unlink
+    if (!selected.place) {
+      await this.setLinkedStudio(null, null);
+      vscode.window.showInformationMessage('Unlinked from Studio - all connected Studios are now visible');
+      return true;
+    }
+
+    const place = selected.place;
+    const sessionId = place.place_id === 0 ? place.session_id : null;
+    await this.setLinkedStudio(place.place_id > 0 ? place.place_id : 0, sessionId || null);
+
+    // Also notify the server about the link
+    if (this._projectDir) {
+      await this.linkStudio(place.place_id);
+    }
+
+    vscode.window.showInformationMessage(`Linked to "${place.place_name}" - this Studio is now the default for this workspace`);
+    return true;
   }
 
   private updateConnectionState(state: ConnectionState): void {
@@ -481,5 +615,6 @@ export class RbxSyncClient {
 
   dispose(): void {
     this._onConnectionChange.dispose();
+    this._onLinkedStudioChange.dispose();
   }
 }

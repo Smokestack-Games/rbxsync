@@ -31,6 +31,9 @@ interface SidebarState {
   rbxjsonHidden: boolean;
   // Cat panel visibility
   catVisible: boolean;
+  // Linked studio for this workspace (RBXSYNC-69)
+  linkedStudioId: number | null;
+  linkedStudioSessionId: string | null;
 }
 
 /**
@@ -74,7 +77,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     catMood: 'idle',
     catOperationType: null,
     rbxjsonHidden: true,
-    catVisible: true
+    catVisible: true,
+    linkedStudioId: null,
+    linkedStudioSessionId: null
   };
 
   constructor(extensionUri: vscode.Uri, version?: string) {
@@ -136,6 +141,14 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         case 'unlinkStudio':
           vscode.commands.executeCommand('rbxsync.unlinkStudio', message.placeId);
           break;
+        case 'linkToStudio':
+          // Open quick pick to link to a studio (RBXSYNC-69)
+          vscode.commands.executeCommand('rbxsync.linkToStudio');
+          break;
+        case 'unlinkFromStudio':
+          // Unlink from currently linked studio (RBXSYNC-69)
+          vscode.commands.executeCommand('rbxsync.unlinkFromStudio');
+          break;
         case 'ready':
           this._updateWebview();
           break;
@@ -194,6 +207,38 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
   public setRbxjsonHidden(hidden: boolean): void {
     this.state.rbxjsonHidden = hidden;
     this._updateWebview();
+  }
+
+  /**
+   * Set the linked studio for this workspace (RBXSYNC-69)
+   * When set, sidebar will filter to only show this studio
+   */
+  public setLinkedStudio(placeId: number | null, sessionId: string | null = null): void {
+    this.state.linkedStudioId = placeId;
+    this.state.linkedStudioSessionId = sessionId;
+    this._updateWebview();
+  }
+
+  /**
+   * Check if a place matches the linked studio for this workspace
+   */
+  private isLinkedPlace(place: PlaceInfo): boolean {
+    // If no link is set, all places are considered "linked"
+    if (this.state.linkedStudioId === null && this.state.linkedStudioSessionId === null) {
+      return true;
+    }
+
+    // For unpublished places (place_id=0), match by session
+    if (place.place_id === 0 && place.session_id && this.state.linkedStudioSessionId) {
+      return place.session_id === this.state.linkedStudioSessionId;
+    }
+
+    // For published places, match by placeId
+    if (place.place_id > 0 && this.state.linkedStudioId !== null) {
+      return place.place_id === this.state.linkedStudioId;
+    }
+
+    return false;
   }
 
   public toggleCat(): boolean {
@@ -751,6 +796,75 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       opacity: 0.8;
     }
 
+    /* Link Status Bar (RBXSYNC-69) */
+    .link-status-bar {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      background: var(--bg-surface);
+      border: 1px solid var(--border);
+      border-radius: var(--radius-sm);
+      padding: 8px 10px;
+      margin-bottom: 8px;
+    }
+    .link-status-bar.linked {
+      border-color: var(--success);
+      background: linear-gradient(135deg, var(--bg-surface) 0%, var(--success-soft) 100%);
+    }
+    .link-status-content {
+      display: flex;
+      align-items: center;
+      gap: 6px;
+      flex: 1;
+      min-width: 0;
+    }
+    .link-status-content .icon {
+      width: 14px;
+      height: 14px;
+      flex-shrink: 0;
+      opacity: 0.7;
+    }
+    .link-status-bar.linked .link-status-content .icon {
+      color: var(--success);
+      opacity: 1;
+    }
+    #linkStatusText {
+      font-size: 11px;
+      color: var(--text-secondary);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+    .link-status-bar.linked #linkStatusText {
+      color: var(--success);
+      font-weight: 500;
+    }
+    .link-btn {
+      padding: 4px 10px;
+      border-radius: var(--radius-xs);
+      border: 1px solid var(--border);
+      background: var(--bg-elevated);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 10px;
+      font-weight: 500;
+      cursor: pointer;
+      transition: all 0.15s;
+      flex-shrink: 0;
+    }
+    .link-btn:hover {
+      background: var(--bg-hover);
+      border-color: var(--border-light);
+    }
+    .link-btn.unlink {
+      border-color: var(--warning);
+      color: var(--warning);
+    }
+    .link-btn.unlink:hover {
+      background: var(--warning);
+      color: #fff;
+    }
+
     /* Server Control */
     .server-bar {
       display: flex;
@@ -1139,9 +1253,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
       <span class="section-label">Studios</span>
       <span class="count" id="studioCount">0</span>
+      <div class="header-status-dot" id="headerLinkDot" title="Linked to a specific Studio"></div>
       <svg class="chevron" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 9l6 6 6-6"/></svg>
     </div>
     <div class="section-content visible" id="studiosContent">
+      <!-- Link status bar (RBXSYNC-69) -->
+      <div class="link-status-bar" id="linkStatusBar">
+        <div class="link-status-content">
+          <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/><path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/></svg>
+          <span id="linkStatusText">Not linked to any Studio</span>
+        </div>
+        <button class="link-btn" id="linkBtn">Link</button>
+      </div>
       <div id="studioList"></div>
       <div class="empty-state" id="emptyState">
         <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5"><rect x="2" y="3" width="20" height="14" rx="2"/><path d="M8 21h8M12 17v4"/></svg>
@@ -2022,32 +2145,92 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       btn.className = 'server-btn ' + (isOn ? 'stop' : 'start');
       btn.disabled = isConnecting;
 
-      // Studios
+      // Link status bar (RBXSYNC-69)
+      const linkStatusBar = document.getElementById('linkStatusBar');
+      const linkStatusText = document.getElementById('linkStatusText');
+      const linkBtn = document.getElementById('linkBtn');
+      const headerLinkDot = document.getElementById('headerLinkDot');
+
+      // Check if we have a linked studio
+      const hasLinkedStudio = s.linkedStudioId !== null || s.linkedStudioSessionId !== null;
+
+      // Find the linked place info
+      let linkedPlace = null;
+      if (hasLinkedStudio) {
+        linkedPlace = s.places.find(p => {
+          if (p.place_id === 0 && p.session_id && s.linkedStudioSessionId) {
+            return p.session_id === s.linkedStudioSessionId;
+          }
+          return p.place_id > 0 && p.place_id === s.linkedStudioId;
+        });
+      }
+
+      // Update link status UI
+      if (hasLinkedStudio && linkedPlace) {
+        linkStatusBar.classList.add('linked');
+        linkStatusText.textContent = 'Linked to ' + (linkedPlace.place_name || 'Unnamed Place');
+        linkBtn.textContent = 'Unlink';
+        linkBtn.className = 'link-btn unlink';
+        headerLinkDot.classList.add('on');
+      } else if (hasLinkedStudio && !linkedPlace) {
+        // Linked but studio not connected
+        linkStatusBar.classList.remove('linked');
+        linkStatusText.textContent = 'Linked studio not connected';
+        linkBtn.textContent = 'Change';
+        linkBtn.className = 'link-btn';
+        headerLinkDot.classList.remove('on');
+      } else {
+        linkStatusBar.classList.remove('linked');
+        linkStatusText.textContent = s.places.length > 0 ? 'Select a Studio to link' : 'No Studios connected';
+        linkBtn.textContent = 'Link';
+        linkBtn.className = 'link-btn';
+        headerLinkDot.classList.remove('on');
+      }
+
+      // Studios list
       const list = document.getElementById('studioList');
       const empty = document.getElementById('emptyState');
       const count = document.getElementById('studioCount');
 
       list.innerHTML = '';
-      count.textContent = s.places.length;
 
-      if (s.places.length === 0) {
+      // Filter places: if linked, only show the linked one
+      let visiblePlaces = s.places;
+      if (hasLinkedStudio) {
+        visiblePlaces = s.places.filter(p => {
+          if (p.place_id === 0 && p.session_id && s.linkedStudioSessionId) {
+            return p.session_id === s.linkedStudioSessionId;
+          }
+          return p.place_id > 0 && p.place_id === s.linkedStudioId;
+        });
+      }
+
+      count.textContent = hasLinkedStudio ? (visiblePlaces.length > 0 ? '1' : '0') : s.places.length;
+
+      if (visiblePlaces.length === 0) {
         empty.classList.remove('hidden');
-        document.getElementById('emptyTitle').textContent = isOn ? 'No Studios Linked' : 'Server Not Running';
-        document.getElementById('emptyDesc').textContent = isOn
-          ? 'Open Studio and set the project path to this workspace'
-          : 'Start the server to connect to Roblox Studio';
+        if (hasLinkedStudio && s.places.length > 0) {
+          document.getElementById('emptyTitle').textContent = 'Linked Studio Offline';
+          document.getElementById('emptyDesc').textContent = 'The linked Studio is not connected. Click "Change" above to link a different Studio.';
+        } else {
+          document.getElementById('emptyTitle').textContent = isOn ? 'No Studios Connected' : 'Server Not Running';
+          document.getElementById('emptyDesc').textContent = isOn
+            ? 'Open Studio with the RbxSync plugin installed'
+            : 'Start the server to connect to Roblox Studio';
+        }
       } else {
         empty.classList.add('hidden');
 
-        // Sort: linked first
-        const sorted = [...s.places].sort((a, b) => {
+        // Sort: linked first (for when showing all places)
+        const sorted = [...visiblePlaces].sort((a, b) => {
           const aLinked = a.project_dir === s.currentProjectDir;
           const bLinked = b.project_dir === s.currentProjectDir;
           return bLinked - aLinked;
         });
 
         sorted.forEach((place, idx) => {
-          const isLinked = place.project_dir === s.currentProjectDir;
+          // When linked, the place is always considered linked
+          const isLinked = hasLinkedStudio || place.project_dir === s.currentProjectDir;
           // Generate studioKey matching the server logic - prefer session_id
           const studioKey = place.session_id
             ? 'session_' + place.session_id
@@ -2179,6 +2362,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     document.getElementById('consoleBtn').onclick = () => vscode.postMessage({ command: 'openConsole' });
     document.getElementById('e2eBtn').onclick = () => vscode.postMessage({ command: 'toggleE2E' });
     document.getElementById('rbxjsonBtn').onclick = () => vscode.postMessage({ command: 'toggleRbxjson' });
+
+    // Link button handler (RBXSYNC-69)
+    document.getElementById('linkBtn').onclick = () => {
+      const hasLinkedStudio = state?.linkedStudioId !== null || state?.linkedStudioSessionId !== null;
+      if (hasLinkedStudio) {
+        // If linked, clicking unlinks or opens picker to change
+        vscode.postMessage({ command: 'unlinkFromStudio' });
+      } else {
+        // If not linked, open link picker
+        vscode.postMessage({ command: 'linkToStudio' });
+      }
+    };
 
     vscode.postMessage({ command: 'ready' });
   </script>

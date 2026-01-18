@@ -80,6 +80,11 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
   const exclude = filesConfig.get<Record<string, boolean>>('exclude') || {};
   sidebarView.setRbxjsonHidden(exclude['**/*.rbxjson'] === true);
 
+  // Initialize linked studio from workspace settings (RBXSYNC-69)
+  const linkedStudioId = client.getLinkedStudioId();
+  const linkedSessionId = client.getLinkedStudioSessionId();
+  sidebarView.setLinkedStudio(linkedStudioId, linkedSessionId);
+
   // Register webview sidebar view
   const sidebarViewDisposable = vscode.window.registerWebviewViewProvider(
     SidebarWebviewProvider.viewType,
@@ -261,6 +266,29 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
         const places = await client.getConnectedPlaces();
         sidebarView.updatePlaces(places, client.projectDir);
       }
+    }),
+
+    // New "Link to Studio" command for command palette (RBXSYNC-69)
+    vscode.commands.registerCommand('rbxsync.linkToStudio', async () => {
+      const success = await client.promptLinkToStudio();
+      if (success) {
+        // Refresh sidebar with linked studio filtering
+        const places = await client.getConnectedPlaces();
+        const linkedId = client.getLinkedStudioId();
+        const linkedSessionId = client.getLinkedStudioSessionId();
+        sidebarView.setLinkedStudio(linkedId, linkedSessionId);
+        sidebarView.updatePlaces(places, client.projectDir);
+      }
+    }),
+
+    // Unlink from Studio command (RBXSYNC-69)
+    vscode.commands.registerCommand('rbxsync.unlinkFromStudio', async () => {
+      await client.setLinkedStudio(null, null);
+      vscode.window.showInformationMessage('Unlinked from Studio - all connected Studios are now visible');
+      // Refresh sidebar
+      const places = await client.getConnectedPlaces();
+      sidebarView.setLinkedStudio(null, null);
+      sidebarView.updatePlaces(places, client.projectDir);
     }),
 
     vscode.commands.registerCommand('rbxsync.refresh', () => {
