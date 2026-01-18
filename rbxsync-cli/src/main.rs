@@ -133,6 +133,14 @@ enum Commands {
         /// Install plugin to Studio's plugins folder after building
         #[arg(long)]
         install: bool,
+
+        /// Skip obfuscation (obfuscation is enabled by default)
+        #[arg(long)]
+        no_obfuscate: bool,
+
+        /// Path to obfuscation config file (default: obfuscate.toml)
+        #[arg(long)]
+        obfuscate_config: Option<PathBuf>,
     },
 
     /// Manage the RbxSync Studio plugin
@@ -513,8 +521,10 @@ async fn main() -> Result<()> {
             output,
             name,
             install,
+            no_obfuscate,
+            obfuscate_config,
         } => {
-            cmd_build_plugin(source, output, name, install)?;
+            cmd_build_plugin(source, output, name, install, !no_obfuscate, obfuscate_config)?;
         }
         Commands::Plugin { action } => {
             cmd_plugin(action)?;
@@ -1551,24 +1561,40 @@ fn cmd_build_plugin(
     output: Option<PathBuf>,
     name: Option<String>,
     install: bool,
+    obfuscate: bool,
+    obfuscate_config: Option<PathBuf>,
 ) -> Result<()> {
+    use rbxsync_core::build_plugin_with_stats;
+
     let config = PluginBuildConfig {
         source_dir: source.unwrap_or_else(|| PathBuf::from("plugin/src")),
         output_path: output.unwrap_or_else(|| PathBuf::from("build/RbxSync.rbxm")),
         plugin_name: name.unwrap_or_else(|| "RbxSync".to_string()),
+        obfuscate,
+        obfuscate_config,
     };
 
     println!("Building plugin from {:?}...", config.source_dir);
+    if config.obfuscate {
+        println!("Obfuscation: enabled");
+    } else {
+        println!("Obfuscation: disabled");
+    }
 
-    let output_path = build_plugin(&config).context("Failed to build plugin")?;
+    let (output_path, stats) = build_plugin_with_stats(&config).context("Failed to build plugin")?;
 
-    println!("Plugin built successfully: {}", output_path.display());
+    println!("\n\x1b[32m✓ Plugin built successfully\x1b[0m");
+    println!("  Output: {}", output_path.display());
+    println!("  Files processed: {}", stats.files_processed);
+    if config.obfuscate {
+        println!("  Patterns obfuscated: {}", stats.obfuscation_transforms);
+    }
 
     if install {
-        println!("Installing plugin to Studio...");
+        println!("\nInstalling plugin to Studio...");
         let installed_path =
             install_plugin(&output_path, &config.plugin_name).context("Failed to install plugin")?;
-        println!("Plugin installed to: {}", installed_path.display());
+        println!("\x1b[32m✓ Plugin installed\x1b[0m: {}", installed_path.display());
         println!("\nRestart Roblox Studio to load the plugin.");
     } else {
         println!("\nTo install, run: rbxsync build-plugin --install");
@@ -1596,6 +1622,8 @@ fn cmd_plugin(action: PluginAction) -> Result<()> {
                         source_dir: PathBuf::from("plugin/src"),
                         output_path: plugin_path.clone(),
                         plugin_name: plugin_name.clone(),
+                        obfuscate: true,
+                        obfuscate_config: None,
                     };
                     build_plugin(&config).context("Failed to build plugin")?;
                 } else {
@@ -2658,6 +2686,8 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
         source_dir: repo_dir.join("plugin/src"),
         output_path: repo_dir.join("build/RbxSync.rbxm"),
         plugin_name: "RbxSync".to_string(),
+        obfuscate: true,
+        obfuscate_config: None,
     };
 
     build_plugin(&plugin_config).context("Failed to build plugin")?;

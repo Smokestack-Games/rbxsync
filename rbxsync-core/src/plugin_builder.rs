@@ -1,6 +1,7 @@
 //! Plugin Builder
 //!
 //! Bundles Luau source files into a Roblox plugin .rbxm file using rbx-dom.
+//! Supports optional obfuscation of Luau source code at build time.
 
 use std::fs::{self, File};
 use std::io::BufWriter;
@@ -9,6 +10,8 @@ use std::path::{Path, PathBuf};
 use anyhow::{Context, Result};
 use rbx_dom_weak::types::Variant;
 use rbx_dom_weak::{InstanceBuilder, WeakDom};
+
+use crate::obfuscator::Obfuscator;
 
 /// Configuration for building a plugin
 #[derive(Debug, Clone)]
@@ -19,6 +22,10 @@ pub struct PluginBuildConfig {
     pub output_path: PathBuf,
     /// Name of the plugin (used as root instance name)
     pub plugin_name: String,
+    /// Whether to apply obfuscation (default: true)
+    pub obfuscate: bool,
+    /// Path to obfuscation config file (default: obfuscate.toml)
+    pub obfuscate_config: Option<PathBuf>,
 }
 
 impl Default for PluginBuildConfig {
@@ -27,8 +34,19 @@ impl Default for PluginBuildConfig {
             source_dir: PathBuf::from("plugin/src"),
             output_path: PathBuf::from("build/RbxSync.rbxm"),
             plugin_name: "RbxSync".to_string(),
+            obfuscate: true,
+            obfuscate_config: None,
         }
     }
+}
+
+/// Statistics from building a plugin
+#[derive(Debug, Clone, Default)]
+pub struct PluginBuildStats {
+    /// Number of files processed
+    pub files_processed: usize,
+    /// Total obfuscation transforms applied
+    pub obfuscation_transforms: usize,
 }
 
 /// Represents a Luau script file
@@ -46,6 +64,12 @@ struct ScriptFile {
 
 /// Build a Roblox plugin .rbxm from Luau source files
 pub fn build_plugin(config: &PluginBuildConfig) -> Result<PathBuf> {
+    let (path, _stats) = build_plugin_with_stats(config)?;
+    Ok(path)
+}
+
+/// Build a Roblox plugin .rbxm from Luau source files, returning build statistics
+pub fn build_plugin_with_stats(config: &PluginBuildConfig) -> Result<(PathBuf, PluginBuildStats)> {
     // Ensure source directory exists
     if !config.source_dir.exists() {
         anyhow::bail!(
@@ -55,10 +79,41 @@ pub fn build_plugin(config: &PluginBuildConfig) -> Result<PathBuf> {
     }
 
     // Collect all script files
-    let scripts = collect_scripts(&config.source_dir)?;
+    let mut scripts = collect_scripts(&config.source_dir)?;
 
     if scripts.is_empty() {
         anyhow::bail!("No .luau files found in {}", config.source_dir.display());
+    }
+
+    let mut stats = PluginBuildStats {
+        files_processed: scripts.len(),
+        obfuscation_transforms: 0,
+    };
+
+    // Apply obfuscation if enabled
+    if config.obfuscate {
+        let mut obfuscator = if let Some(config_path) = &config.obfuscate_config {
+            if config_path.exists() {
+                Obfuscator::from_config_file(config_path)?
+            } else {
+                Obfuscator::with_defaults()
+            }
+        } else {
+            // Try default config path
+            let default_config = PathBuf::from("obfuscate.toml");
+            if default_config.exists() {
+                Obfuscator::from_config_file(&default_config)?
+            } else {
+                Obfuscator::with_defaults()
+            }
+        };
+
+        for script in &mut scripts {
+            obfuscator.regenerate_prefix(); // New prefix per file
+            let result = obfuscator.obfuscate(&script.source);
+            stats.obfuscation_transforms += result.total_transforms();
+            script.source = result.source;
+        }
     }
 
     // Find the entry point (init.server.luau)
@@ -82,7 +137,7 @@ pub fn build_plugin(config: &PluginBuildConfig) -> Result<PathBuf> {
     let root_refs = vec![dom.root_ref()];
     rbx_binary::to_writer(output_file, &dom, &root_refs).context("Failed to write .rbxm file")?;
 
-    Ok(config.output_path.clone())
+    Ok((config.output_path.clone(), stats))
 }
 
 /// Collect all Luau script files from the source directory
@@ -223,7 +278,6 @@ pub fn install_plugin(rbxm_path: &Path, plugin_name: &str) -> Result<PathBuf> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use std::io::Write;
     use tempfile::TempDir;
 
     #[test]
@@ -263,7 +317,7 @@ mod tests {
     }
 
     #[test]
-    fn test_build_plugin() {
+    fn test_build_plugin_without_obfuscation() {
         let temp_dir = TempDir::new().unwrap();
         let src_dir = temp_dir.path().join("src");
         fs::create_dir_all(&src_dir).unwrap();
@@ -278,10 +332,41 @@ mod tests {
             source_dir: src_dir,
             output_path: output_path.clone(),
             plugin_name: "TestPlugin".to_string(),
+            obfuscate: false,
+            obfuscate_config: None,
         };
 
         let result = build_plugin(&config).unwrap();
         assert!(result.exists());
         assert!(result.metadata().unwrap().len() > 0);
+    }
+
+    #[test]
+    fn test_build_plugin_with_obfuscation() {
+        let temp_dir = TempDir::new().unwrap();
+        let src_dir = temp_dir.path().join("src");
+        fs::create_dir_all(&src_dir).unwrap();
+
+        // Create test files with sensitive strings
+        fs::write(
+            src_dir.join("init.server.luau"),
+            r#"local svc = game:GetService("InsertService")"#,
+        )
+        .unwrap();
+
+        let output_path = temp_dir.path().join("output.rbxm");
+
+        let config = PluginBuildConfig {
+            source_dir: src_dir,
+            output_path: output_path.clone(),
+            plugin_name: "TestPlugin".to_string(),
+            obfuscate: true,
+            obfuscate_config: None,
+        };
+
+        let (result, stats) = build_plugin_with_stats(&config).unwrap();
+        assert!(result.exists());
+        assert!(stats.files_processed == 1);
+        assert!(stats.obfuscation_transforms > 0); // InsertService should be encoded
     }
 }

@@ -1,0 +1,38 @@
+# RbxSync Luau Obfuscator Configuration
+#
+# This file configures build-time obfuscation for Luau source files.
+# Obfuscation uses hex-encoded string literals which Luau parses at compile time,
+# so functionality is preserved while evading simple string detection.
+#
+# Usage:
+#   rbxsync build-plugin                  # Obfuscation enabled by default
+#   rbxsync build-plugin --no-obfuscate   # Skip obfuscation
+
+[strings]
+# String literals to encode as hex escape sequences
+# "InsertService" becomes "\x49\x6e\x73\x65\x72\x74\x53\x65\x72\x76\x69\x63\x65"
+# Luau parses this at compile time, so it becomes "InsertService" at runtime
+encode = [
+    "getfenv",
+    "setfenv",
+    "loadstring",
+    "InsertService",
+    "LoadStringEnabled",
+    "LoadAsset",
+    "HttpService",
+]
+
+[debug]
+# Regex patterns for lines to remove entirely (debug statements)
+strip_patterns = [
+    '^\s*print\s*\(\s*"\[RbxSync',
+    '^\s*print\s*\(\s*"\[BotRunner',
+    '^\s*print\s*\(\s*"\[DEBUG',
+    '^\s*warn\s*\(\s*"\[RbxSync',
+]
+
+[minify]
+# Remove single-line comments (-- comment)
+strip_comments = false
+# Remove multi-line comments (--[[ comment ]])
+strip_block_comments = false
