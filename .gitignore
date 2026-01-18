@@ -26,12 +26,11 @@ game_project_new/
 test-*/
 testing/
 
-# Plugin build artifacts in wrong locations
-plugin/*.rbxm
+# Build outputs
+build/
 *.rbxm
-
-# Build artifacts (keep in build/ only)
-build/*.vsix
+*.vsix
+!plugin/RbxSync.rbxm
 
 # Local config
 .mcp.json
