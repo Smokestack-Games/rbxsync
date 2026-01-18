@@ -977,9 +977,18 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
             Sync.registerCreated(path, existingInstance)
             return { success = true, skipped = true }
         end
-        -- For services, if not found at path, they probably exist under game
-        local service = game:FindFirstChild(className)
-        if service then
+        -- For services, if not found at path, use GetService (more reliable than FindFirstChild)
+        local ok, service = pcall(function()
+            return game:GetService(className)
+        end)
+        if ok and service then
+            -- Service found, now apply properties if needed
+            local needsUpdate, reasons = Sync.instanceNeedsUpdate(service, data)
+            if needsUpdate then
+                local _, replacedInstance = Sync.updateInstance(service, data)
+                Sync.registerCreated(path, replacedInstance or service)
+                return { success = true, action = "updated", reasons = reasons }
+            end
             Sync.registerCreated(path, service)
             return { success = true, skipped = true }
         end
@@ -1097,7 +1106,16 @@ local function syncUpdate(payload: any): {success: boolean, error: string?, skip
 
     -- Handle immutable classes (services, built-in instances)
     if isImmutableClass(className) then
-        local instance = Sync.findInstanceAtPath(path) or game:FindFirstChild(className)
+        -- Use GetService as fallback for services (more reliable than FindFirstChild)
+        local instance = Sync.findInstanceAtPath(path)
+        if not instance and className ~= "" then
+            local ok, service = pcall(function()
+                return game:GetService(className)
+            end)
+            if ok then
+                instance = service
+            end
+        end
         if instance then
             -- Only update properties, never replace
             local needsUpdate, reasons = Sync.instanceNeedsUpdate(instance, data)

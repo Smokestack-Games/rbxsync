@@ -36,6 +36,26 @@ local pendingCSGReconstructions: {{path: string, data: any, parent: Instance}} =
 -- Track instances by path for CSG reconstruction
 local instancesByPath: {[string]: Instance} = {}
 
+-- Services that can be accessed via game:GetService()
+-- Used for reliable service lookup instead of FindFirstChild
+local SERVICES: {[string]: boolean} = {
+    Workspace = true,
+    ReplicatedStorage = true,
+    ReplicatedFirst = true,
+    ServerScriptService = true,
+    ServerStorage = true,
+    StarterGui = true,
+    StarterPack = true,
+    StarterPlayer = true,
+    Lighting = true,
+    SoundService = true,
+    Teams = true,
+    Chat = true,
+    LocalizationService = true,
+    TestService = true,
+    MaterialService = true,
+}
+
 -- Reference properties that need deferred resolution
 -- Comprehensive list of all Instance reference properties in Roblox
 local refProps = {
@@ -427,9 +447,18 @@ function Sync.findInstanceAtPath(path: string): Instance?
 
     local parts = string.split(path, "/")
 
-    -- Top-level service case
+    -- Top-level service case - use GetService for services (more reliable than FindFirstChild)
     if #parts == 1 then
-        return game:FindFirstChild(unescapePathSegment(parts[1]))
+        local name = unescapePathSegment(parts[1])
+        if SERVICES[name] then
+            local ok, service = pcall(function()
+                return game:GetService(name)
+            end)
+            if ok and service then
+                return service
+            end
+        end
+        return game:FindFirstChild(name)
     end
 
     -- Walk the tree to find the instance
