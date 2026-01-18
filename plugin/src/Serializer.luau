@@ -552,4 +552,23 @@ function Serializer.clearCache()
     table.clear(instancePaths)
 end
 
+-- Get the path for an instance (Fixes RBXSYNC-80)
+-- Uses cached disambiguated path if available, otherwise builds from names
+function Serializer.getPath(instance: Instance): string
+    -- Check cache first
+    local path = instancePaths[instance]
+    if path then
+        return path
+    end
+
+    -- Fallback: Build path manually with escaped names
+    local pathParts = {}
+    local current: Instance? = instance
+    while current and current ~= game do
+        table.insert(pathParts, 1, escapeNameForPath(current.Name))
+        current = current.Parent
+    end
+    return table.concat(pathParts, "/")
+end
+
 return Serializer

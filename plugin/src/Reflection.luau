@@ -322,4 +322,10 @@ function Reflection.getValueTypeName(prop: PropertyInfo): string
     return "unknown"
 end
 
+-- Get the API dump, loading it if not already loaded (Fixes RBXSYNC-81)
+-- This is an alias for loadAPIDump for consistency with other modules
+function Reflection.getAPIDump(): APIDump?
+    return Reflection.loadAPIDump()
+end
+
 return Reflection
