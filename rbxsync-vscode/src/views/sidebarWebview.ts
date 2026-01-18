@@ -679,6 +679,17 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     .studio-btn.unlink { background: var(--warning-soft); border-color: var(--warning); color: var(--warning); }
     .studio-btn.unlink:hover { background: var(--warning); color: #fff; }
 
+    /* Disabled buttons (when card not linked) */
+    .studio-btn:disabled {
+      opacity: 0.4;
+      cursor: not-allowed;
+    }
+    .studio-btn:disabled:hover {
+      background: var(--bg-surface);
+      border-color: var(--border);
+      color: var(--text-primary);
+    }
+
     /* Operation Status */
     .studio-status {
       display: flex;
@@ -2080,7 +2091,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             </div>
             \${statusHtml}
             <div class="studio-actions">
-              <button class="studio-btn sync" data-action="sync" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+              <button class="studio-btn sync" data-action="sync" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}" \${isLinked ? '' : 'disabled title="Link Studio to this project first"'}>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                   <polyline points="17 8 12 3 7 8"/>
@@ -2088,7 +2099,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 </svg>
                 Sync
               </button>
-              <button class="studio-btn extract" data-action="extract" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+              <button class="studio-btn extract" data-action="extract" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}" \${isLinked ? '' : 'disabled title="Link Studio to this project first"'}>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
                   <polyline points="7 10 12 15 17 10"/>
@@ -2096,7 +2107,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 </svg>
                 Extract
               </button>
-              <button class="studio-btn test" data-action="test" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+              <button class="studio-btn test" data-action="test" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}" \${isLinked ? '' : 'disabled title="Link Studio to this project first"'}>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <polygon points="5 3 19 12 5 21 5 3"/>
                 </svg>
@@ -2110,6 +2121,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         // Attach action handlers
         list.querySelectorAll('.studio-btn').forEach(btn => {
           btn.onclick = () => {
+            // Skip if button is disabled (card not linked)
+            if (btn.disabled) return;
             const action = btn.dataset.action;
             const placeId = parseInt(btn.dataset.placeId, 10);
             const sessionId = btn.dataset.sessionId || null;
