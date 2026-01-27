@@ -201,15 +201,19 @@ enum Commands {
     /// Open RbxSync documentation in browser
     Doc,
 
-    /// Update RbxSync (pull latest, rebuild CLI and plugin)
+    /// Update RbxSync from GitHub releases
     Update {
-        /// Skip git pull (just rebuild)
+        /// Build from source instead of downloading (requires Rust)
         #[arg(long)]
-        no_pull: bool,
+        from_source: bool,
 
-        /// Also rebuild VS Code extension
+        /// Also update VS Code extension
         #[arg(long)]
         vscode: bool,
+
+        /// Skip confirmation prompt
+        #[arg(short, long)]
+        yes: bool,
     },
 
     /// Uninstall RbxSync (remove CLI, plugin, and optionally VS Code extension)
@@ -265,15 +269,19 @@ enum Commands {
 
 #[derive(Subcommand)]
 enum PluginAction {
-    /// Install the plugin to Roblox Studio's plugins folder
+    /// Install the plugin to Roblox Studio's plugins folder (downloads from GitHub if needed)
     Install {
-        /// Path to .rbxm plugin file (default: build/RbxSync.rbxm)
+        /// Path to .rbxm plugin file (downloads from GitHub if not specified)
         #[arg(short, long)]
         path: Option<PathBuf>,
 
         /// Plugin name (default: RbxSync)
         #[arg(short, long)]
         name: Option<String>,
+
+        /// Force download from GitHub even if local file exists
+        #[arg(long)]
+        download: bool,
     },
     /// Uninstall the plugin from Roblox Studio's plugins folder
     Uninstall {
@@ -527,7 +535,7 @@ async fn main() -> Result<()> {
             cmd_build_plugin(source, output, name, install, !no_obfuscate, obfuscate_config)?;
         }
         Commands::Plugin { action } => {
-            cmd_plugin(action)?;
+            cmd_plugin(action).await?;
         }
         Commands::Sourcemap {
             path,
@@ -551,8 +559,8 @@ async fn main() -> Result<()> {
         Commands::Doc => {
             cmd_doc()?;
         }
-        Commands::Update { no_pull, vscode } => {
-            cmd_update(no_pull, vscode)?;
+        Commands::Update { from_source, vscode, yes } => {
+            cmd_update(from_source, vscode, yes).await?;
         }
         Commands::Version => {
             cmd_version().await?;
@@ -1605,34 +1613,42 @@ fn cmd_build_plugin(
 }
 
 /// Manage the Studio plugin
-fn cmd_plugin(action: PluginAction) -> Result<()> {
+async fn cmd_plugin(action: PluginAction) -> Result<()> {
     let plugins_folder = get_studio_plugins_folder()
         .context("Could not determine Studio plugins folder")?;
 
     match action {
-        PluginAction::Install { path, name } => {
-            let plugin_path = path.unwrap_or_else(|| PathBuf::from("build/RbxSync.rbxm"));
+        PluginAction::Install { path, name, download } => {
             let plugin_name = name.unwrap_or_else(|| "RbxSync".to_string());
 
-            if !plugin_path.exists() {
-                // Try to build if source exists
-                if PathBuf::from("plugin/src").exists() {
-                    println!("Plugin file not found. Building from source...");
-                    let config = PluginBuildConfig {
-                        source_dir: PathBuf::from("plugin/src"),
-                        output_path: plugin_path.clone(),
-                        plugin_name: plugin_name.clone(),
-                        obfuscate: true,
-                        obfuscate_config: None,
-                    };
-                    build_plugin(&config).context("Failed to build plugin")?;
-                } else {
-                    anyhow::bail!(
-                        "Plugin file not found: {}\nBuild the plugin first with: rbxsync build-plugin",
-                        plugin_path.display()
-                    );
-                }
-            }
+            // Determine the plugin path
+            let plugin_path = if let Some(p) = path {
+                // User specified a path
+                p
+            } else if download {
+                // Force download from GitHub
+                download_plugin_from_github().await?
+            } else if PathBuf::from("build/RbxSync.rbxm").exists() {
+                // Use local build
+                PathBuf::from("build/RbxSync.rbxm")
+            } else if PathBuf::from("plugin/src").exists() {
+                // Build from source
+                println!("Building plugin from source...");
+                let output_path = PathBuf::from("build/RbxSync.rbxm");
+                let config = PluginBuildConfig {
+                    source_dir: PathBuf::from("plugin/src"),
+                    output_path: output_path.clone(),
+                    plugin_name: plugin_name.clone(),
+                    obfuscate: true,
+                    obfuscate_config: None,
+                };
+                build_plugin(&config).context("Failed to build plugin")?;
+                output_path
+            } else {
+                // Download from GitHub
+                println!("Downloading plugin from GitHub releases...");
+                download_plugin_from_github().await?
+            };
 
             println!("Installing plugin to Studio...");
             let installed_path =
@@ -2538,26 +2554,340 @@ fn cmd_doc() -> Result<()> {
     Ok(())
 }
 
-/// Update RbxSync - pull latest changes, rebuild CLI and plugin
-fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
-    // Find repo in this order:
-    // 1. Current directory (if it's the repo)
-    // 2. ~/.rbxsync/repo (managed clone)
-    // 3. Walk up from executable (dev builds)
-    // 4. Auto-clone to ~/.rbxsync/repo
+/// Get the GitHub release asset name for the current platform
+fn get_platform_asset_name() -> Option<&'static str> {
+    #[cfg(all(target_os = "macos", target_arch = "aarch64"))]
+    return Some("rbxsync-macos-aarch64");
+
+    #[cfg(all(target_os = "macos", target_arch = "x86_64"))]
+    return Some("rbxsync-macos-x86_64");
+
+    #[cfg(all(target_os = "windows", target_arch = "x86_64"))]
+    return Some("rbxsync-windows-x86_64.exe");
+
+    #[cfg(not(any(
+        all(target_os = "macos", target_arch = "aarch64"),
+        all(target_os = "macos", target_arch = "x86_64"),
+        all(target_os = "windows", target_arch = "x86_64"),
+    )))]
+    return None;
+}
+
+/// Download a file from a URL to a local path
+async fn download_file(client: &reqwest::Client, url: &str, path: &PathBuf) -> Result<()> {
+    let response = client
+        .get(url)
+        .header("User-Agent", "rbxsync-cli")
+        .send()
+        .await
+        .context("Failed to start download")?;
+
+    if !response.status().is_success() {
+        bail!("Download failed with status: {}", response.status());
+    }
+
+    let bytes = response.bytes().await.context("Failed to read download")?;
+    std::fs::write(path, &bytes).context("Failed to write file")?;
+
+    Ok(())
+}
+
+/// Download the latest plugin from GitHub releases
+async fn download_plugin_from_github() -> Result<PathBuf> {
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    // Fetch latest release info
+    print!("Fetching latest release... ");
+    let response = client
+        .get("https://api.github.com/repos/devmarissa/rbxsync/releases/latest")
+        .header("User-Agent", "rbxsync-cli")
+        .send()
+        .await
+        .context("Failed to fetch release info")?;
+
+    if !response.status().is_success() {
+        bail!("GitHub API returned status: {}", response.status());
+    }
+
+    let release: serde_json::Value = response.json().await
+        .context("Failed to parse release info")?;
+
+    let version = release.get("tag_name")
+        .and_then(|t| t.as_str())
+        .unwrap_or("unknown");
+    println!("{}", version);
+
+    // Find plugin download URL
+    let assets = release.get("assets")
+        .and_then(|a| a.as_array())
+        .context("Could not find assets in release")?;
+
+    let plugin_url = assets.iter()
+        .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("RbxSync.rbxm"))
+        .and_then(|a| a.get("browser_download_url"))
+        .and_then(|u| u.as_str())
+        .context("Could not find RbxSync.rbxm in release assets")?;
+
+    // Download to ~/.rbxsync/downloads
+    let home_dir = dirs::home_dir().context("Failed to get home directory")?;
+    let download_dir = home_dir.join(".rbxsync").join("downloads");
+    std::fs::create_dir_all(&download_dir).context("Failed to create download directory")?;
+
+    let plugin_path = download_dir.join("RbxSync.rbxm");
+
+    print!("Downloading plugin... ");
+    download_file(&client, plugin_url, &plugin_path).await?;
+    println!("done!");
+
+    Ok(plugin_path)
+}
+
+/// Update RbxSync from GitHub releases (or build from source with --from-source)
+async fn cmd_update(from_source: bool, vscode: bool, yes: bool) -> Result<()> {
+    let current_version = env!("CARGO_PKG_VERSION");
+
+    println!("RbxSync Update");
+    println!("==============");
+    println!("Current version: v{}", current_version);
+    println!();
+
+    // If --from-source, use the old build-from-source method
+    if from_source {
+        return cmd_update_from_source(vscode);
+    }
+
+    // Check for platform support
+    let platform_asset = get_platform_asset_name();
+    if platform_asset.is_none() {
+        println!("Pre-built binaries are not available for your platform.");
+        println!("Use --from-source to build from source instead.");
+        return Ok(());
+    }
+    let platform_asset = platform_asset.unwrap();
+
+    // Fetch latest release info from GitHub
+    print!("Checking for updates... ");
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(30))
+        .build()?;
+
+    let response = client
+        .get("https://api.github.com/repos/devmarissa/rbxsync/releases/latest")
+        .header("User-Agent", "rbxsync-cli")
+        .send()
+        .await
+        .context("Failed to fetch release info from GitHub")?;
+
+    if !response.status().is_success() {
+        bail!("GitHub API returned status: {}", response.status());
+    }
+
+    let release: serde_json::Value = response.json().await
+        .context("Failed to parse GitHub release response")?;
+
+    let latest_version = release.get("tag_name")
+        .and_then(|t| t.as_str())
+        .map(|s| s.trim_start_matches('v'))
+        .context("Could not find version tag in release")?;
+
+    if !is_newer_version(latest_version, current_version) {
+        println!("\x1b[32mAlready up to date!\x1b[0m");
+        return Ok(());
+    }
+
+    println!("\x1b[33mUpdate available: v{}\x1b[0m", latest_version);
+    println!();
+
+    // Find download URLs for CLI and plugin
+    let assets = release.get("assets")
+        .and_then(|a| a.as_array())
+        .context("Could not find assets in release")?;
+
+    let cli_url = assets.iter()
+        .find(|a| a.get("name").and_then(|n| n.as_str()) == Some(platform_asset))
+        .and_then(|a| a.get("browser_download_url"))
+        .and_then(|u| u.as_str())
+        .context(format!("Could not find {} in release assets", platform_asset))?;
+
+    let plugin_url = assets.iter()
+        .find(|a| a.get("name").and_then(|n| n.as_str()) == Some("RbxSync.rbxm"))
+        .and_then(|a| a.get("browser_download_url"))
+        .and_then(|u| u.as_str())
+        .context("Could not find RbxSync.rbxm in release assets")?;
+
+    // Confirm update
+    if !yes {
+        println!("This will update:");
+        println!("  - CLI binary ({})", platform_asset);
+        println!("  - Studio plugin (RbxSync.rbxm)");
+        if vscode {
+            println!("  - VS Code extension");
+        }
+        println!();
+        print!("Continue? [Y/n] ");
+        use std::io::Write;
+        std::io::stdout().flush()?;
+
+        let mut input = String::new();
+        std::io::stdin().read_line(&mut input)?;
+        let input = input.trim().to_lowercase();
+        if !input.is_empty() && input != "y" && input != "yes" {
+            println!("Update cancelled.");
+            return Ok(());
+        }
+    }
+
+    // Create temp directory for downloads
+    let home_dir = dirs::home_dir().context("Failed to get home directory")?;
+    let download_dir = home_dir.join(".rbxsync").join("downloads");
+    std::fs::create_dir_all(&download_dir).context("Failed to create download directory")?;
+
+    // Step 1: Download and install CLI
+    println!();
+    println!("1. Downloading CLI...");
+    let cli_path = download_dir.join(platform_asset);
+    download_file(&client, cli_url, &cli_path).await
+        .context("Failed to download CLI")?;
+    println!("   Downloaded!");
+
+    // Install CLI
+    let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
+    println!("   Installing to {}...", current_exe.display());
+
+    #[cfg(unix)]
+    {
+        // Make executable
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&cli_path, std::fs::Permissions::from_mode(0o755))
+            .context("Failed to set executable permission")?;
+
+        // Try to copy directly, fall back to sudo
+        if std::fs::copy(&cli_path, &current_exe).is_err() {
+            let status = std::process::Command::new("sudo")
+                .args(["cp", cli_path.to_str().unwrap(), current_exe.to_str().unwrap()])
+                .status();
+
+            match status {
+                Ok(s) if s.success() => println!("   Installed!"),
+                _ => {
+                    println!("   Could not auto-install. Run manually:");
+                    println!("   sudo cp {} {}", cli_path.display(), current_exe.display());
+                }
+            }
+        } else {
+            println!("   Installed!");
+        }
+    }
+
+    #[cfg(windows)]
+    {
+        // On Windows, we can't replace a running executable
+        // Download to a temp location and use a batch file to replace after exit
+        let temp_exe = download_dir.join("rbxsync-new.exe");
+        std::fs::copy(&cli_path, &temp_exe).context("Failed to copy new binary")?;
+
+        let batch_path = download_dir.join("update.bat");
+        let batch_content = format!(
+            r#"@echo off
+timeout /t 1 /nobreak >nul
+copy /y "{}" "{}"
+del "{}"
+del "%~f0"
+"#,
+            temp_exe.display(),
+            current_exe.display(),
+            temp_exe.display()
+        );
+        std::fs::write(&batch_path, batch_content)?;
+
+        println!("   Will install on exit (Windows limitation)");
+
+        // Schedule the batch file to run
+        std::process::Command::new("cmd")
+            .args(["/C", "start", "/min", batch_path.to_str().unwrap()])
+            .spawn()
+            .context("Failed to schedule update")?;
+    }
+    println!();
+
+    // Step 2: Download and install plugin
+    println!("2. Downloading Studio plugin...");
+    let plugin_path = download_dir.join("RbxSync.rbxm");
+    download_file(&client, plugin_url, &plugin_path).await
+        .context("Failed to download plugin")?;
+    println!("   Downloaded!");
+
+    install_plugin(&plugin_path, "RbxSync").context("Failed to install plugin")?;
+    println!("   Installed!");
+    println!();
+
+    // Step 3: VS Code extension (optional)
+    if vscode {
+        println!("3. Downloading VS Code extension...");
+
+        // Find .vsix file in assets
+        let vsix_asset = assets.iter()
+            .find(|a| {
+                a.get("name")
+                    .and_then(|n| n.as_str())
+                    .map(|n| n.ends_with(".vsix"))
+                    .unwrap_or(false)
+            });
+
+        if let Some(asset) = vsix_asset {
+            let vsix_name = asset.get("name").and_then(|n| n.as_str()).unwrap();
+            let vsix_url = asset.get("browser_download_url").and_then(|u| u.as_str()).unwrap();
+            let vsix_path = download_dir.join(vsix_name);
+
+            download_file(&client, vsix_url, &vsix_path).await
+                .context("Failed to download VS Code extension")?;
+            println!("   Downloaded!");
+
+            // Install using code CLI
+            let status = std::process::Command::new("code")
+                .args(["--install-extension", vsix_path.to_str().unwrap()])
+                .status();
+
+            match status {
+                Ok(s) if s.success() => println!("   Installed!"),
+                _ => {
+                    println!("   Could not auto-install. Run manually:");
+                    println!("   code --install-extension {}", vsix_path.display());
+                }
+            }
+        } else {
+            println!("   Warning: VS Code extension not found in release");
+        }
+        println!();
+    }
+
+    println!("\x1b[32mUpdate complete!\x1b[0m");
+    println!();
+    println!("Next steps:");
+    println!("  1. Restart Roblox Studio to load the updated plugin");
+    if vscode {
+        println!("  2. Restart VS Code to load the updated extension");
+    }
+
+    Ok(())
+}
+
+/// Update RbxSync by building from source (legacy method)
+fn cmd_update_from_source(vscode: bool) -> Result<()> {
+    println!("Building from source...");
+    println!();
 
     let cwd = std::env::current_dir().context("Failed to get current directory")?;
     let home_dir = dirs::home_dir().context("Failed to get home directory")?;
     let managed_repo = home_dir.join(".rbxsync").join("repo");
 
     let repo_dir = if cwd.join("Cargo.toml").exists() && cwd.join("plugin").exists() {
-        // We're in the repo directory
         cwd
     } else if managed_repo.join("Cargo.toml").exists() && managed_repo.join("plugin").exists() {
-        // Use managed repo at ~/.rbxsync/repo
-        managed_repo
+        managed_repo.clone()
     } else {
-        // Try to find repo from executable path (for dev builds)
         let exe_path = std::env::current_exe().context("Failed to get executable path")?;
         let mut found_dir = exe_path.parent().map(|p| p.to_path_buf());
 
@@ -2573,61 +2903,41 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
         match found_dir {
             Some(dir) if dir.join("Cargo.toml").exists() && dir.join("plugin").exists() => dir,
             _ => {
-                // No repo found - clone to ~/.rbxsync/repo
-                println!("RbxSync repository not found. Cloning to ~/.rbxsync/repo...");
-                println!();
-
-                // Create ~/.rbxsync directory
+                println!("Cloning repository to ~/.rbxsync/repo...");
                 std::fs::create_dir_all(&home_dir.join(".rbxsync"))
                     .context("Failed to create ~/.rbxsync directory")?;
 
-                // Clone the repo
                 let status = std::process::Command::new("git")
-                    .args([
-                        "clone",
-                        "https://github.com/devmarissa/rbxsync.git",
-                        managed_repo.to_str().unwrap(),
-                    ])
+                    .args(["clone", "https://github.com/devmarissa/rbxsync.git", managed_repo.to_str().unwrap()])
                     .status()
-                    .context("Failed to clone repository. Is git installed?")?;
+                    .context("Failed to clone repository")?;
 
                 if !status.success() {
                     bail!("Failed to clone repository");
                 }
-
-                println!("Repository cloned successfully!");
-                println!();
-
-                managed_repo
+                managed_repo.clone()
             }
         }
     };
 
-    println!("RbxSync Update");
-    println!("==============");
     println!("Repository: {}", repo_dir.display());
     println!();
 
-    // Step 1: Git pull (unless --no-pull)
-    if !no_pull {
-        println!("1. Pulling latest changes...");
-        let status = std::process::Command::new("git")
-            .args(["pull", "--ff-only"])
-            .current_dir(&repo_dir)
-            .status()
-            .context("Failed to run git pull")?;
+    println!("1. Pulling latest changes...");
+    let status = std::process::Command::new("git")
+        .args(["pull", "--ff-only"])
+        .current_dir(&repo_dir)
+        .status()
+        .context("Failed to run git pull")?;
 
-        if !status.success() {
-            println!("   Warning: git pull failed. You may have local changes.");
-            println!("   Run with --no-pull to skip this step.");
-        } else {
-            println!("   Done!");
-        }
-        println!();
+    if !status.success() {
+        println!("   Warning: git pull failed (local changes?)");
+    } else {
+        println!("   Done!");
     }
+    println!();
 
-    // Step 2: Rebuild CLI
-    println!("2. Rebuilding CLI...");
+    println!("2. Building CLI...");
     let status = std::process::Command::new("cargo")
         .args(["build", "--release", "-p", "rbxsync"])
         .current_dir(&repo_dir)
@@ -2639,29 +2949,22 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
     }
     println!("   Done!");
 
-    // Install CLI to system PATH
     let new_binary = repo_dir.join("target/release/rbxsync");
     let current_exe = std::env::current_exe().context("Failed to get current executable path")?;
 
-    // Only copy if current exe is in a system location (not in target/)
     if !current_exe.to_string_lossy().contains("target") {
         println!("   Installing to {}...", current_exe.display());
 
         #[cfg(unix)]
         {
-            // Try to copy directly, fall back to sudo
             if std::fs::copy(&new_binary, &current_exe).is_err() {
-                // Need elevated permissions
                 let status = std::process::Command::new("sudo")
                     .args(["cp", new_binary.to_str().unwrap(), current_exe.to_str().unwrap()])
                     .status();
 
                 match status {
                     Ok(s) if s.success() => println!("   Installed!"),
-                    _ => {
-                        println!("   Could not auto-install. Run manually:");
-                        println!("   sudo cp {} {}", new_binary.display(), current_exe.display());
-                    }
+                    _ => println!("   Run: sudo cp {} {}", new_binary.display(), current_exe.display()),
                 }
             } else {
                 println!("   Installed!");
@@ -2671,8 +2974,7 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
         #[cfg(windows)]
         {
             if std::fs::copy(&new_binary, &current_exe).is_err() {
-                println!("   Could not auto-install. Run manually as Administrator:");
-                println!("   copy {} {}", new_binary.display(), current_exe.display());
+                println!("   Run as Admin: copy {} {}", new_binary.display(), current_exe.display());
             } else {
                 println!("   Installed!");
             }
@@ -2680,8 +2982,7 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
     }
     println!();
 
-    // Step 3: Rebuild and install plugin
-    println!("3. Rebuilding and installing plugin...");
+    println!("3. Building and installing plugin...");
     let plugin_config = PluginBuildConfig {
         source_dir: repo_dir.join("plugin/src"),
         output_path: repo_dir.join("build/RbxSync.rbxm"),
@@ -2696,62 +2997,36 @@ fn cmd_update(no_pull: bool, vscode: bool) -> Result<()> {
     println!("   Done!");
     println!();
 
-    // Step 4: VS Code extension (optional)
     if vscode {
-        println!("4. Rebuilding VS Code extension...");
+        println!("4. Building VS Code extension...");
         let vscode_dir = repo_dir.join("rbxsync-vscode");
 
         if vscode_dir.exists() {
-            // npm install
-            let status = std::process::Command::new("npm")
+            let _ = std::process::Command::new("npm")
                 .args(["install"])
                 .current_dir(&vscode_dir)
-                .status()
-                .context("Failed to run npm install")?;
+                .status();
 
-            if !status.success() {
-                println!("   Warning: npm install failed");
-            }
-
-            // npm run build
-            let status = std::process::Command::new("npm")
+            let _ = std::process::Command::new("npm")
                 .args(["run", "build"])
                 .current_dir(&vscode_dir)
-                .status()
-                .context("Failed to run npm build")?;
+                .status();
 
-            if !status.success() {
-                println!("   Warning: npm build failed");
-            }
-
-            // npm run package
             let status = std::process::Command::new("npm")
                 .args(["run", "package"])
                 .current_dir(&vscode_dir)
-                .status()
-                .context("Failed to run npm package")?;
+                .status();
 
-            if !status.success() {
-                println!("   Warning: npm package failed");
+            if status.map(|s| s.success()).unwrap_or(false) {
+                println!("   Built! Install with: code --install-extension rbxsync-vscode/rbxsync-*.vsix");
             } else {
-                println!("   Built: rbxsync-vscode/rbxsync-*.vsix");
-                println!("   Install with: code --install-extension rbxsync-vscode/rbxsync-*.vsix");
+                println!("   Build failed");
             }
-        } else {
-            println!("   Warning: VS Code extension directory not found");
         }
         println!();
     }
 
-    println!("Update complete!");
-    println!();
-    println!("Next steps:");
-    println!("  1. Restart Roblox Studio to load the updated plugin");
-    if vscode {
-        println!("  2. Install the VS Code extension: code --install-extension rbxsync-vscode/rbxsync-*.vsix");
-        println!("  3. Restart VS Code");
-    }
-
+    println!("Update complete! Restart Studio to load the new plugin.");
     Ok(())
 }
 

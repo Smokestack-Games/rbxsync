@@ -76,11 +76,7 @@ cargo build --release
 
 Choose one option:
 
-**Option A: Roblox Creator Store (Recommended)**
-
-Install from the [Roblox Creator Store](https://create.roblox.com/store/asset/89280418878393/RbxSync).
-
-**Option B: Download from GitHub**
+**Option A: Download from GitHub (Recommended)**
 
 1. Download `RbxSync.rbxm` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
 2. Copy to your plugins folder:
@@ -90,6 +86,13 @@ Install from the [Roblox Creator Store](https://create.roblox.com/store/asset/89
 ::: tip Finding the Windows plugins folder
 Press `Win + R`, paste `%LOCALAPPDATA%\Roblox\Plugins\`, and press Enter.
 :::
+
+**Option B: CLI Install**
+
+If you have the CLI installed, you can download and install the plugin directly:
+```bash
+rbxsync plugin install
+```
 
 **Option C: Build from source**
 
@@ -134,17 +137,16 @@ rbxsync update
 
 ### Update Studio Plugin
 
-**If installed from Creator Store:**
-1. Open Roblox Studio
-2. Go to **Toolbox** → **Inventory** → **My Plugins**
-3. Find RbxSync and click **Update** if available
-4. Restart Studio
-
-**If installed manually:**
+**Using CLI (Recommended):**
 ```bash
-rbxsync build-plugin --install
+rbxsync plugin install
 ```
-Then restart Studio.
+This downloads the latest plugin from GitHub releases and installs it. Then restart Studio.
+
+**Manually:**
+1. Download the latest `RbxSync.rbxm` from [GitHub Releases](https://github.com/devmarissa/rbxsync/releases)
+2. Copy to your plugins folder (same as installation)
+3. Restart Studio
 
 ### Update VS Code Extension
 

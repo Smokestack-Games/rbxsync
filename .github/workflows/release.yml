@@ -151,7 +151,7 @@ jobs:
           ```
 
           ### Other Downloads
-          - **RbxSync.rbxm** - Roblox Studio plugin (or install from [Creator Store](https://create.roblox.com/store/asset/89280418878393/RbxSync))
+          - **RbxSync.rbxm** - Roblox Studio plugin
           - **rbxsync-*.vsix** - VS Code extension (or install from [Marketplace](https://marketplace.visualstudio.com/items?itemName=rbxsync.rbxsync))
 
           ## Changes
