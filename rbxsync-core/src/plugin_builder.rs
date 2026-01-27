@@ -260,6 +260,29 @@ pub fn get_studio_plugins_folder() -> Option<PathBuf> {
     }
 }
 
+/// Check if an existing RbxSync plugin is already installed (possibly from marketplace)
+/// Returns the path to the existing plugin if found, None otherwise
+pub fn find_existing_rbxsync_plugin() -> Option<PathBuf> {
+    let plugins_folder = get_studio_plugins_folder()?;
+
+    if !plugins_folder.exists() {
+        return None;
+    }
+
+    // Look for any RbxSync*.rbxm files
+    let entries = fs::read_dir(&plugins_folder).ok()?;
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+            if name.starts_with("RbxSync") && name.ends_with(".rbxm") {
+                return Some(path);
+            }
+        }
+    }
+
+    None
+}
+
 /// Install a plugin to Studio's plugins folder
 pub fn install_plugin(rbxm_path: &Path, plugin_name: &str) -> Result<PathBuf> {
     let plugins_folder =

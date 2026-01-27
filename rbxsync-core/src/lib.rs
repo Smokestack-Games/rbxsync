@@ -16,7 +16,7 @@ pub mod types;
 
 // Re-export commonly used types
 pub use obfuscator::{Obfuscator, ObfuscatorConfig, ObfuscationResult};
-pub use plugin_builder::{build_plugin, build_plugin_with_stats, get_studio_plugins_folder, install_plugin, PluginBuildConfig, PluginBuildStats};
+pub use plugin_builder::{build_plugin, build_plugin_with_stats, find_existing_rbxsync_plugin, get_studio_plugins_folder, install_plugin, PluginBuildConfig, PluginBuildStats};
 pub use rojo::{
     find_rojo_project, parse_rojo_project, rojo_to_tree_mapping, RojoError, RojoProject, RojoTree,
 };

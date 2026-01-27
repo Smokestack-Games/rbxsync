@@ -15,8 +15,8 @@ use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rbx_dom_weak::types::Variant;
 use rbx_dom_weak::{InstanceBuilder, WeakDom};
 use rbxsync_core::{
-    build_plugin, find_rojo_project, get_studio_plugins_folder, install_plugin, parse_rojo_project,
-    rojo_to_tree_mapping, PluginBuildConfig, ProjectConfig,
+    build_plugin, find_existing_rbxsync_plugin, find_rojo_project, get_studio_plugins_folder,
+    install_plugin, parse_rojo_project, rojo_to_tree_mapping, PluginBuildConfig, ProjectConfig,
 };
 use rbxsync_server::{run_server, ServerConfig};
 
@@ -282,6 +282,10 @@ enum PluginAction {
         /// Force download from GitHub even if local file exists
         #[arg(long)]
         download: bool,
+
+        /// Force install even if marketplace plugin is detected
+        #[arg(long)]
+        force: bool,
     },
     /// Uninstall the plugin from Roblox Studio's plugins folder
     Uninstall {
@@ -1618,8 +1622,26 @@ async fn cmd_plugin(action: PluginAction) -> Result<()> {
         .context("Could not determine Studio plugins folder")?;
 
     match action {
-        PluginAction::Install { path, name, download } => {
+        PluginAction::Install { path, name, download, force } => {
             let plugin_name = name.unwrap_or_else(|| "RbxSync".to_string());
+
+            // Check for existing marketplace plugin
+            if !force {
+                if let Some(existing) = find_existing_rbxsync_plugin() {
+                    println!("\x1b[33m⚠ Existing RbxSync plugin detected:\x1b[0m {}", existing.display());
+                    println!();
+                    println!("Marketplace plugin detected. Please uninstall from Roblox first,");
+                    println!("or use --force to install anyway.");
+                    println!();
+                    println!("To uninstall marketplace plugin:");
+                    println!("  1. Open Roblox Studio");
+                    println!("  2. Go to Plugins > Manage Plugins");
+                    println!("  3. Uninstall RbxSync");
+                    println!();
+                    println!("Then run: rbxsync plugin install");
+                    return Ok(());
+                }
+            }
 
             // Determine the plugin path
             let plugin_path = if let Some(p) = path {
