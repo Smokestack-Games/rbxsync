@@ -133,7 +133,35 @@ pub struct SyncBatchResponse {
     pub errors: Vec<String>,
 }
 
+/// A changed file with its status (matches server's ChangedFile)
 #[derive(Debug, Deserialize)]
+pub struct ChangedFile {
+    pub path: String,
+    pub status: String, // "modified", "added", "deleted", "renamed", "untracked", "staged"
+}
+
+/// Git status from server (matches server's GitStatus struct)
+#[derive(Debug, Default, Deserialize)]
+pub struct ServerGitStatus {
+    pub branch: String,
+    #[serde(default)]
+    pub is_dirty: bool,
+    #[serde(default)]
+    pub staged_count: usize,
+    #[serde(default)]
+    pub unstaged_count: usize,
+    #[serde(default)]
+    pub untracked_count: usize,
+    #[serde(default)]
+    pub ahead: usize,
+    #[serde(default)]
+    pub behind: usize,
+    #[serde(default)]
+    pub changed_files: Vec<ChangedFile>,
+}
+
+/// Processed git status for MCP tool output
+#[derive(Debug)]
 pub struct GitStatusResponse {
     pub is_repo: bool,
     pub branch: Option<String>,
@@ -407,7 +435,7 @@ impl RbxSyncClient {
     }
 
     pub async fn get_git_status(&self, project_dir: &str) -> anyhow::Result<GitStatusResponse> {
-        let resp = self
+        let resp: CommandResponse<ServerGitStatus> = self
             .client
             .post(format!("{}/git/status", self.base_url))
             .json(&serde_json::json!({
@@ -418,7 +446,40 @@ impl RbxSyncClient {
             .json()
             .await?;
 
-        Ok(resp)
+        if !resp.success {
+            // Not a git repo or other error
+            return Ok(GitStatusResponse {
+                is_repo: false,
+                branch: None,
+                staged: vec![],
+                modified: vec![],
+                untracked: vec![],
+            });
+        }
+
+        let status = resp.data.ok_or_else(|| anyhow::anyhow!("Missing data in git status response"))?;
+
+        // Convert changed_files to categorized lists
+        let mut staged = Vec::new();
+        let mut modified = Vec::new();
+        let mut untracked = Vec::new();
+
+        for file in status.changed_files {
+            match file.status.as_str() {
+                "staged" | "added" => staged.push(file.path),
+                "modified" | "deleted" | "renamed" => modified.push(file.path),
+                "untracked" => untracked.push(file.path),
+                _ => modified.push(file.path), // Default to modified for unknown status
+            }
+        }
+
+        Ok(GitStatusResponse {
+            is_repo: true,
+            branch: Some(status.branch),
+            staged,
+            modified,
+            untracked,
+        })
     }
 
     pub async fn git_commit(
