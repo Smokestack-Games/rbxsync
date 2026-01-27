@@ -76,7 +76,7 @@ export class StatusBarManager {
         this.statusBarItem.color = new vscode.ThemeColor('charts.yellow');
       }
       this.statusBarItem.backgroundColor = undefined;
-      this.statusBarItem.command = 'rbxsync.activityView.focus';
+      this.statusBarItem.command = 'rbxsync.sidebarView.focus';
     } else {
       this.statusBarItem.text = '$(circle-outline) RbxSync';
       this.statusBarItem.tooltip = state.lastError
