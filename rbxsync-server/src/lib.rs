@@ -4529,9 +4529,11 @@ async fn handle_read_properties(
     match tokio::time::timeout(timeout, rx.recv()).await {
         Ok(Some(response)) => {
             state.response_channels.write().await.remove(&request_id);
+            // Plugin returns {success, data: {actual_data}}, extract the nested data field
+            let data = response.data.get("data").cloned().unwrap_or(serde_json::Value::Null);
             (StatusCode::OK, Json(serde_json::json!({
                 "success": response.success,
-                "data": response.data,
+                "data": data,
                 "error": response.error
             })))
         }
@@ -4615,11 +4617,13 @@ async fn handle_explore_hierarchy(
     match tokio::time::timeout(timeout, rx.recv()).await {
         Ok(Some(response)) => {
             state.response_channels.write().await.remove(&request_id);
+            // Plugin returns {success, data: {tree_node}}, extract the nested data field
+            let data = response.data.get("data").cloned().unwrap_or(serde_json::Value::Null);
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
                     "success": response.success,
-                    "data": response.data,
+                    "data": data,
                     "error": response.error
                 })),
             )
@@ -4711,11 +4715,13 @@ async fn handle_find_instances(
     match tokio::time::timeout(timeout, rx.recv()).await {
         Ok(Some(response)) => {
             state.response_channels.write().await.remove(&request_id);
+            // Plugin returns {success, data: {instances, total, limited}}, extract the nested data field
+            let data = response.data.get("data").cloned().unwrap_or(serde_json::Value::Null);
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
                     "success": response.success,
-                    "data": response.data,
+                    "data": data,
                     "error": response.error
                 })),
             )
