@@ -3952,16 +3952,23 @@ async fn handle_bot_move(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotMoveRequest>,
 ) -> impl IntoResponse {
-    // Determine action type based on provided parameters
+    // Format command for BotController.executeCommand()
+    // BotController expects: { type, command, args }
     let command = if req.position.is_some() {
         serde_json::json!({
-            "action": "moveTo",
-            "position": req.position
+            "type": "move",
+            "command": "moveTo",
+            "args": {
+                "position": req.position
+            }
         })
     } else {
         serde_json::json!({
-            "action": "moveToObject",
-            "objectName": req.object_name.or(req.object)
+            "type": "move",
+            "command": "moveToObject",
+            "args": {
+                "objectName": req.object_name.or(req.object)
+            }
         })
     };
 
@@ -3976,11 +3983,27 @@ async fn handle_bot_action(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotActionRequest>,
 ) -> impl IntoResponse {
-    // Route through bot queue to BotRunnerClient
+    // Format command for BotController.executeCommand()
+    // BotController expects: { type, command, args }
+    // Map action names to BotController command names
+    let (cmd_type, cmd_name) = match req.action.as_str() {
+        "jump" => ("move", "jump"),
+        "equip" => ("action", "equipTool"),
+        "unequip" => ("action", "unequipTool"),
+        "activate" => ("action", "activateTool"),
+        "deactivate" => ("action", "deactivateTool"),
+        "interact" => ("action", "interact"),
+        // Pass through if already in correct format
+        other => ("action", other),
+    };
+
     let command = serde_json::json!({
-        "action": req.action,
-        "name": req.name.or(req.tool_name),
-        "objectName": req.object_name
+        "type": cmd_type,
+        "command": cmd_name,
+        "args": {
+            "name": req.name.or(req.tool_name),
+            "objectName": req.object_name
+        }
     });
 
     match send_bot_command_via_queue(&state, command).await {
@@ -3994,13 +4017,25 @@ async fn handle_bot_observe(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotObserveRequest>,
 ) -> impl IntoResponse {
-    // Route through bot queue to BotRunnerClient
-    // All observation types use getState which returns comprehensive game state
+    // Format command for BotController.executeCommand()
+    // BotController expects: { type, command, args }
+    // Map observe_type to BotController command names
+    let cmd_name = match req.observe_type.as_str() {
+        "state" => "getState",
+        "nearby" => "getNearbyObjects",
+        "npcs" => "getNearbyNPCs",
+        "inventory" => "getInventory",
+        "find" => "findObjects",
+        other => other,
+    };
+
     let command = serde_json::json!({
-        "action": "getState",
-        "type": req.observe_type,
-        "radius": req.radius,
-        "query": req.query
+        "type": "observe",
+        "command": cmd_name,
+        "args": {
+            "radius": req.radius,
+            "query": req.query
+        }
     });
 
     match send_bot_command_via_queue(&state, command).await {
