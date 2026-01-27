@@ -24,12 +24,7 @@ local CHUNK_SIZE = 200 -- instances per chunk (Roblox HttpService has 1MB limit)
 local PLUGIN_VERSION = "1.2.1" -- Current plugin version (update on release)
 local UPDATE_CHECK_INTERVAL = 86400 -- Check for updates once per 24 hours
 
--- Runtime functions accessed via environment (strings encoded at build time)
-local _0x9a = getfenv(0)
-local _0xf3 = _0x9a["loadstring"]
-local _0xb7 = _0x9a["getfenv"]
-local _0xc2 = _0x9a["setfenv"]
-local _0xd8 = "LoadAsset"
+-- Runtime functions (used for code execution features)
 
 -- Load modules (modules are children of this script in the bundled .rbxm)
 local Reflection = require(script.Reflection)
@@ -1573,12 +1568,12 @@ local function handleCommand(command: string, payload: any)
             table.insert(output, table.concat(strs, "\t"))
             oldPrint(...)
         end
-        local fn, loadErr = _0xf3(code)
+        local fn, loadErr = loadstring(code)
         if not fn then
             return { success = false, error = "Syntax error: " .. tostring(loadErr), output = "" }
         end
-        local env = setmetatable({ print = capturePrint }, { __index = _0xb7() })
-        _0xc2(fn, env)
+        local env = setmetatable({ print = capturePrint }, { __index = getfenv() })
+        setfenv(fn, env)
         local ok, result = pcall(fn)
         if not ok then
             return { success = false, error = "Runtime error: " .. tostring(result), output = table.concat(output, "\n") }
@@ -1943,7 +1938,7 @@ local function handleCommand(command: string, payload: any)
 
         local InsertService = game:GetService("InsertService")
         local loadSuccess, model = pcall(function()
-            return InsertService[_0xd8](InsertService, assetId)
+            return InsertService:LoadAsset(assetId)
         end)
         if not loadSuccess then
             return { success = false, error = "Failed to load asset: " .. tostring(model) }

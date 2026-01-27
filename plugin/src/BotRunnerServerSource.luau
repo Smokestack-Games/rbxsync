@@ -37,12 +37,8 @@ end
 print("[BotRunner:Server] HTTP access confirmed!")
 
 -- Enable LoadStringEnabled for server-side code execution (queryServer)
--- This is required for _0xe1() to work in the queryServer command
+-- This is required for loadstring() to work in the queryServer command
 local ServerScriptService = game:GetService("ServerScriptService")
-
--- Runtime functions accessed via environment (strings encoded at build time)
-local _0x7f = getfenv(0)
-local _0xe1 = _0x7f["loadstring"]
 
 local loadStringOk, loadStringErr = pcall(function()
 	if not ServerScriptService.LoadStringEnabled then
@@ -225,10 +221,10 @@ local function handleCommandOnServer(cmd, cmdId)
 		print("[BotRunner:Server] Executing queryServer:", string.sub(code, 1, 50) .. "...")
 
 		-- Try with "return" wrapper first for expressions
-		local fn, loadErr = _0xe1("return " .. code)
+		local fn, loadErr = loadstring("return " .. code)
 		if not fn then
 			-- Try without wrapper for statements
-			fn, loadErr = _0xe1(code)
+			fn, loadErr = loadstring(code)
 		end
 
 		if fn then
@@ -269,7 +265,7 @@ local function handleCommandOnServer(cmd, cmdId)
 		print("[BotRunner:Server] waitForServer starting, timeout:", timeout)
 
 		-- Compile condition
-		local condFn, loadErr = _0xe1("return " .. condition)
+		local condFn, loadErr = loadstring("return " .. condition)
 		if not condFn then
 			reportResult(cmdId, {
 				success = false,
