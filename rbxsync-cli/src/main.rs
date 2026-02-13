@@ -234,6 +234,9 @@ enum Commands {
     /// Show current version and check for updates
     Version,
 
+    /// Check for common issues (duplicate binaries, stale installs, etc.)
+    Doctor,
+
     /// Migrate from Rojo project to RbxSync
     Migrate {
         /// Source format (currently only "rojo" is supported)
@@ -568,6 +571,9 @@ async fn main() -> Result<()> {
         }
         Commands::Version => {
             cmd_version().await?;
+        }
+        Commands::Doctor => {
+            cmd_doctor()?;
         }
         Commands::Flux { local, set_api_key } => {
             // Flux agent is not yet implemented in the CLI
@@ -1041,6 +1047,9 @@ fn detect_project_structure() -> Option<String> {
 
 /// Start the sync server
 async fn cmd_serve(port: u16, background: bool) -> Result<()> {
+    // Check for duplicate binaries early
+    warn_duplicate_binaries();
+
     let config_path = std::env::current_dir()?.join("rbxsync.json");
     let zero_config_mode = !config_path.exists();
 
@@ -3110,6 +3119,165 @@ async fn cmd_version() -> Result<()> {
 
     println!();
     println!("Documentation: https://rbxsync.dev");
+
+    Ok(())
+}
+
+/// Find all rbxsync binaries in PATH and common install locations.
+/// Returns a list of (path, modified_time) for each found binary.
+fn find_rbxsync_binaries() -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
+    let mut found = Vec::new();
+    let mut seen = HashSet::new();
+
+    // Check all PATH entries
+    if let Ok(path_var) = std::env::var("PATH") {
+        for dir in path_var.split(':') {
+            let candidate = PathBuf::from(dir).join("rbxsync");
+            if candidate.exists() {
+                if let Ok(canonical) = candidate.canonicalize() {
+                    if seen.insert(canonical.clone()) {
+                        let mtime = std::fs::metadata(&canonical)
+                            .ok()
+                            .and_then(|m| m.modified().ok());
+                        found.push((canonical, mtime));
+                    }
+                }
+            }
+        }
+    }
+
+    // Check common install locations that might not be in PATH
+    let home = dirs::home_dir().unwrap_or_default();
+    let extra_locations = [
+        PathBuf::from("/usr/local/bin/rbxsync"),
+        home.join(".cargo/bin/rbxsync"),
+        home.join(".local/bin/rbxsync"),
+        home.join(".rbxsync/bin/rbxsync"),
+    ];
+
+    for loc in &extra_locations {
+        if loc.exists() {
+            if let Ok(canonical) = loc.canonicalize() {
+                if seen.insert(canonical.clone()) {
+                    let mtime = std::fs::metadata(&canonical)
+                        .ok()
+                        .and_then(|m| m.modified().ok());
+                    found.push((canonical, mtime));
+                }
+            }
+        }
+    }
+
+    found
+}
+
+/// Warn if multiple rbxsync binaries are found. Returns the list of binaries.
+fn warn_duplicate_binaries() -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
+    let binaries = find_rbxsync_binaries();
+    if binaries.len() > 1 {
+        eprintln!("\x1b[33m⚠  Warning: Multiple rbxsync binaries found:\x1b[0m");
+        let current_exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+        for (path, mtime) in &binaries {
+            let age = mtime
+                .and_then(|t| t.elapsed().ok())
+                .map(|d| {
+                    if d.as_secs() < 3600 {
+                        format!("{} min ago", d.as_secs() / 60)
+                    } else if d.as_secs() < 86400 {
+                        format!("{} hours ago", d.as_secs() / 3600)
+                    } else {
+                        format!("{} days ago", d.as_secs() / 86400)
+                    }
+                })
+                .unwrap_or_else(|| "unknown age".to_string());
+            let marker = if current_exe.as_ref() == Some(path) { " (active)" } else { "" };
+            eprintln!("   {} ({}){}", path.display(), age, marker);
+        }
+        eprintln!();
+        eprintln!("   Consider removing stale binaries to avoid version conflicts.");
+        eprintln!();
+    }
+    binaries
+}
+
+/// Check for common issues
+fn cmd_doctor() -> Result<()> {
+    let version = env!("CARGO_PKG_VERSION");
+    println!("RbxSync Doctor v{}", version);
+    println!("====================");
+    println!();
+
+    let mut issues = 0;
+
+    // 1. Check current binary
+    if let Ok(exe) = std::env::current_exe() {
+        println!("\x1b[32m✓\x1b[0m Binary: {}", exe.display());
+    } else {
+        println!("\x1b[31m✗\x1b[0m Could not determine binary path");
+        issues += 1;
+    }
+
+    // 2. Check for duplicate binaries
+    let binaries = find_rbxsync_binaries();
+    if binaries.len() > 1 {
+        println!("\x1b[33m⚠\x1b[0m Found {} rbxsync installations:", binaries.len());
+        let current_exe = std::env::current_exe().ok().and_then(|p| p.canonicalize().ok());
+        for (path, mtime) in &binaries {
+            let age = mtime
+                .and_then(|t| t.elapsed().ok())
+                .map(|d| {
+                    if d.as_secs() < 86400 {
+                        format!("{} hours ago", d.as_secs() / 3600)
+                    } else {
+                        format!("{} days ago", d.as_secs() / 86400)
+                    }
+                })
+                .unwrap_or_else(|| "unknown".to_string());
+            let marker = if current_exe.as_ref() == Some(path) { " ← active" } else { "" };
+            let remove_cmd = if path.starts_with("/usr/local") {
+                format!("sudo rm {}", path.display())
+            } else {
+                format!("rm {}", path.display())
+            };
+            println!("  - {} (modified {}){}", path.display(), age, marker);
+            if current_exe.as_ref() != Some(path) {
+                println!("    Remove with: {}", remove_cmd);
+            }
+        }
+        issues += 1;
+    } else {
+        println!("\x1b[32m✓\x1b[0m Single installation (no conflicts)");
+    }
+
+    // 3. Check Studio plugin
+    if let Some(plugins_folder) = get_studio_plugins_folder() {
+        let plugin_path = plugins_folder.join("RbxSync.rbxm");
+        if plugin_path.exists() {
+            println!("\x1b[32m✓\x1b[0m Studio plugin: {}", plugin_path.display());
+        } else {
+            println!("\x1b[33m⚠\x1b[0m Studio plugin not installed");
+            println!("    Install with: rbxsync build-plugin --install");
+            issues += 1;
+        }
+    } else {
+        println!("\x1b[33m⚠\x1b[0m Could not find Studio plugins folder");
+        issues += 1;
+    }
+
+    // 4. Check if server is running
+    if !is_port_available(44755) {
+        println!("\x1b[32m✓\x1b[0m Server running on port 44755");
+    } else {
+        println!("  Server not running (start with: rbxsync serve)");
+    }
+
+    // Summary
+    println!();
+    if issues == 0 {
+        println!("\x1b[32mAll checks passed!\x1b[0m");
+    } else {
+        println!("\x1b[33m{} issue(s) found.\x1b[0m", issues);
+    }
 
     Ok(())
 }
