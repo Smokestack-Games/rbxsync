@@ -26,7 +26,11 @@ output_v2/
 game_project/
 game_project_new/
 test-*/
-testing/
+testing/*
+!testing/examples/
+!testing/TESTING.md
+!testing/AI_TESTING.md
+!testing/README.md
 
 # Plugin build artifacts in wrong locations
 plugin/*.rbxm
@@ -44,6 +48,7 @@ build/*.vsix
 !.claude/TEAM-LEAD-PROMPT.md
 !.claude/hooks/
 !.claude/templates/
+!.claude/skills/
 !.claude/.gitignore
 !.claude/reports/
 .claude/reports/*
