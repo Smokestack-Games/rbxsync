@@ -10,7 +10,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod luau_helpers;
 mod tools;
-use luau_helpers::{escape_luau_string, luau_navigate_snippet, validate_luau_identifier};
+use luau_helpers::{escape_luau_string, json_value_to_luau, luau_navigate_snippet, validate_luau_identifier};
 use tools::RbxSyncClient;
 
 /// RbxSync MCP Server - provides tools for extracting and syncing Roblox games
@@ -357,6 +357,14 @@ pub struct GetTagsParams {
     pub path: String,
 }
 
+/// Parameters for get_attributes tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetAttributesParams {
+    /// Instance path (e.g., "Workspace/MyPart")
+    #[schemars(description = "Instance path (e.g., 'Workspace/MyPart')")]
+    pub path: String,
+}
+
 /// Parameters for add_tag tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct AddTagParams {
@@ -388,6 +396,31 @@ pub struct GetTaggedParams {
     /// Maximum results (default: 100)
     #[schemars(description = "Max results (default: 100)")]
     pub limit: Option<u32>,
+}
+
+/// Parameters for set_attribute tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetAttributeParams {
+    /// Instance path (e.g., "Workspace/MyPart")
+    #[schemars(description = "Instance path (e.g., 'Workspace/MyPart')")]
+    pub path: String,
+    /// Attribute name
+    #[schemars(description = "Attribute name to set")]
+    pub name: String,
+    /// Attribute value (string, number, boolean)
+    #[schemars(description = "Attribute value (string, number, or boolean)")]
+    pub value: serde_json::Value,
+}
+
+/// Parameters for delete_attribute tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteAttributeParams {
+    /// Instance path (e.g., "Workspace/MyPart")
+    #[schemars(description = "Instance path (e.g., 'Workspace/MyPart')")]
+    pub path: String,
+    /// Attribute name to remove
+    #[schemars(description = "Attribute name to remove")]
+    pub name: String,
 }
 
 fn mcp_error(msg: impl Into<String>) -> McpError {
@@ -1403,7 +1436,7 @@ impl RbxSyncServer {
     }
 
     /// Find all instances with a specific tag.
-    /// Useful for understanding game structure — e.g., find all "Enemy" or "Collectible" instances.
+    /// Useful for understanding game structure -- e.g., find all "Enemy" or "Collectible" instances.
     #[tool(description = "Find all instances with a specific tag")]
     async fn get_tagged(
         &self,
@@ -1431,6 +1464,97 @@ impl RbxSyncServer {
             return header .. \":\\n\" .. table.concat(results, \"\\n\")",
             tag = tag_escaped,
             limit = limit,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    // ========================================================================
+    // Attribute Management Tools (Issue #132)
+    // ========================================================================
+
+    /// Get all attributes on an instance.
+    /// Returns a JSON object with attribute name-value pairs.
+    #[tool(description = "Get all attributes on an instance by path")]
+    async fn get_attributes(
+        &self,
+        Parameters(params): Parameters<GetAttributesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            local attrs = target:GetAttributes()\n\
+            local parts = {{}}\n\
+            for name, value in pairs(attrs) do\n\
+                local valStr = tostring(value)\n\
+                if type(value) == \"string\" then valStr = '\"' .. value .. '\"' end\n\
+                table.insert(parts, '\"' .. name .. '\": ' .. valStr)\n\
+            end\n\
+            if #parts == 0 then return \"No attributes on \" .. target:GetFullName() end\n\
+            return \"Attributes on \" .. target:GetFullName() .. \":\\n{{\" .. table.concat(parts, \", \") .. \"}}\"",
+            navigate = navigate,
+            path = path_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Set an attribute on an instance.
+    /// Creates the attribute if it doesn't exist.
+    #[tool(description = "Set an attribute on an instance (creates if new)")]
+    async fn set_attribute(
+        &self,
+        Parameters(params): Parameters<SetAttributeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+        let name_escaped = escape_luau_string(&params.name);
+        let value_lua = json_value_to_luau(&params.value);
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            local ok, err = pcall(function()\n\
+                target:SetAttribute(\"{name}\", {value})\n\
+            end)\n\
+            if not ok then return \"Error: \" .. tostring(err) end\n\
+            return \"Set attribute '\" .. \"{name}\" .. \"' = \" .. tostring(target:GetAttribute(\"{name}\")) .. \" on \" .. target:GetFullName()",
+            navigate = navigate,
+            path = path_escaped,
+            name = name_escaped,
+            value = value_lua,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Delete an attribute from an instance.
+    /// Sets the attribute to nil, which removes it.
+    #[tool(description = "Delete an attribute from an instance")]
+    async fn delete_attribute(
+        &self,
+        Parameters(params): Parameters<DeleteAttributeParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+        let name_escaped = escape_luau_string(&params.name);
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            local oldVal = target:GetAttribute(\"{name}\")\n\
+            if oldVal == nil then return \"Attribute '{name}' does not exist on \" .. target:GetFullName() end\n\
+            target:SetAttribute(\"{name}\", nil)\n\
+            return \"Deleted attribute '{name}' (was \" .. tostring(oldVal) .. \") from \" .. target:GetFullName()",
+            navigate = navigate,
+            path = path_escaped,
+            name = name_escaped,
         );
 
         let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
