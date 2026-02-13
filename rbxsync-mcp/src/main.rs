@@ -348,6 +348,65 @@ pub struct FindInstancesParams {
     pub limit: Option<u32>,
 }
 
+/// Parameters for get_tags tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTagsParams {
+    /// Instance path (e.g., "Workspace/MyPart")
+    #[schemars(description = "Instance path (e.g., 'Workspace/MyPart')")]
+    pub path: String,
+}
+
+/// Parameters for add_tag tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct AddTagParams {
+    /// Instance path (e.g., "Workspace/MyPart")
+    #[schemars(description = "Instance path (e.g., 'Workspace/MyPart')")]
+    pub path: String,
+    /// Tag to add
+    #[schemars(description = "Tag name to add")]
+    pub tag: String,
+}
+
+/// Parameters for remove_tag tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct RemoveTagParams {
+    /// Instance path (e.g., "Workspace/MyPart")
+    #[schemars(description = "Instance path (e.g., 'Workspace/MyPart')")]
+    pub path: String,
+    /// Tag to remove
+    #[schemars(description = "Tag name to remove")]
+    pub tag: String,
+}
+
+/// Parameters for get_tagged tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetTaggedParams {
+    /// Tag to search for
+    #[schemars(description = "Tag name to search for")]
+    pub tag: String,
+    /// Maximum results (default: 100)
+    #[schemars(description = "Max results (default: 100)")]
+    pub limit: Option<u32>,
+}
+
+/// Escape a string for use inside a Luau string literal.
+fn escape_luau_string(s: &str) -> String {
+    s.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// Generate Luau code to navigate to an instance by path.
+fn luau_navigate_snippet() -> &'static str {
+    r#"local function navigate(path)
+    local parts = string.split(path, "/")
+    local current = game:GetService(parts[1])
+    for i = 2, #parts do
+        current = current:FindFirstChild(parts[i])
+        if not current then return nil end
+    end
+    return current
+end"#
+}
+
 fn mcp_error(msg: impl Into<String>) -> McpError {
     McpError {
         code: ErrorCode(-32603),
@@ -1269,6 +1328,118 @@ impl RbxSyncServer {
                 result.data
             ))]))
         }
+    }
+
+    // ========================================================================
+    // CollectionService Tag Management Tools (Issue #133)
+    // ========================================================================
+
+    /// Get all tags on an instance.
+    #[tool(description = "List all tags on an instance")]
+    async fn get_tags(
+        &self,
+        Parameters(params): Parameters<GetTagsParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let path_escaped = escape_luau_string(&params.path);
+
+        let code = format!(
+            "{navigate}\n\
+            local CollectionService = game:GetService(\"CollectionService\")\n\
+            local inst = navigate(\"{path}\")\n\
+            if not inst then return \"Error: Instance not found at path: {path}\" end\n\
+            local tags = CollectionService:GetTags(inst)\n\
+            if #tags == 0 then return \"No tags on \" .. inst:GetFullName() end\n\
+            return \"Tags on \" .. inst:GetFullName() .. \" (\" .. #tags .. \"):\\n\" .. table.concat(tags, \"\\n\")",
+            navigate = luau_navigate_snippet(),
+            path = path_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Add a tag to an instance.
+    #[tool(description = "Add a tag to an instance")]
+    async fn add_tag(
+        &self,
+        Parameters(params): Parameters<AddTagParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let path_escaped = escape_luau_string(&params.path);
+        let tag_escaped = escape_luau_string(&params.tag);
+
+        let code = format!(
+            "{navigate}\n\
+            local CollectionService = game:GetService(\"CollectionService\")\n\
+            local inst = navigate(\"{path}\")\n\
+            if not inst then return \"Error: Instance not found at path: {path}\" end\n\
+            CollectionService:AddTag(inst, \"{tag}\")\n\
+            return \"Added tag '{tag}' to \" .. inst:GetFullName()",
+            navigate = luau_navigate_snippet(),
+            path = path_escaped,
+            tag = tag_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Remove a tag from an instance.
+    #[tool(description = "Remove a tag from an instance")]
+    async fn remove_tag(
+        &self,
+        Parameters(params): Parameters<RemoveTagParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let path_escaped = escape_luau_string(&params.path);
+        let tag_escaped = escape_luau_string(&params.tag);
+
+        let code = format!(
+            "{navigate}\n\
+            local CollectionService = game:GetService(\"CollectionService\")\n\
+            local inst = navigate(\"{path}\")\n\
+            if not inst then return \"Error: Instance not found at path: {path}\" end\n\
+            if not CollectionService:HasTag(inst, \"{tag}\") then\n\
+                return \"Tag '{tag}' not found on \" .. inst:GetFullName()\n\
+            end\n\
+            CollectionService:RemoveTag(inst, \"{tag}\")\n\
+            return \"Removed tag '{tag}' from \" .. inst:GetFullName()",
+            navigate = luau_navigate_snippet(),
+            path = path_escaped,
+            tag = tag_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Find all instances with a specific tag.
+    /// Useful for understanding game structure — e.g., find all "Enemy" or "Collectible" instances.
+    #[tool(description = "Find all instances with a specific tag")]
+    async fn get_tagged(
+        &self,
+        Parameters(params): Parameters<GetTaggedParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let tag_escaped = escape_luau_string(&params.tag);
+        let limit = params.limit.unwrap_or(100).min(500);
+
+        let code = format!(
+            "local CollectionService = game:GetService(\"CollectionService\")\n\
+            local instances = CollectionService:GetTagged(\"{tag}\")\n\
+            if #instances == 0 then return \"No instances found with tag '{tag}'\" end\n\
+            local results = {{}}\n\
+            local limit = {limit}\n\
+            for i, inst in instances do\n\
+                if i > limit then break end\n\
+                table.insert(results, inst:GetFullName() .. \" [\" .. inst.ClassName .. \"]\")\n\
+            end\n\
+            local header = \"Found \" .. #instances .. \" instances with tag '{tag}'\"\n\
+            if #instances > limit then header = header .. \" (showing first \" .. limit .. \")\" end\n\
+            return header .. \":\\n\" .. table.concat(results, \"\\n\")",
+            tag = tag_escaped,
+            limit = limit,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
     }
 
     // ========================================================================
