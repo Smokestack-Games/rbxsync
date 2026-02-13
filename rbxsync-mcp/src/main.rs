@@ -518,6 +518,46 @@ pub struct SearchByPropertyParams {
     pub limit: Option<u32>,
 }
 
+/// Parameters for create_instance tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct CreateInstanceParams {
+    /// ClassName of the instance to create (e.g., "Part", "Script", "Folder")
+    #[schemars(description = "ClassName to create (e.g., 'Part', 'Script', 'Folder')")]
+    #[serde(rename = "className")]
+    pub class_name: String,
+    /// Parent path (e.g., "Workspace", "ServerScriptService/MyFolder")
+    #[schemars(description = "Parent path (e.g., 'Workspace', 'ServerScriptService/MyFolder')")]
+    pub parent: String,
+    /// Optional name for the new instance
+    #[schemars(description = "Instance name (optional, defaults to ClassName)")]
+    pub name: Option<String>,
+    /// Optional properties to set as JSON object (e.g., {"Anchored": true, "Transparency": 0.5})
+    #[schemars(description = "Initial properties as JSON (e.g., {\"Anchored\": true})")]
+    pub properties: Option<serde_json::Value>,
+}
+
+/// Parameters for delete_instance tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DeleteInstanceParams {
+    /// Instance path to delete (e.g., "Workspace/OldPart")
+    #[schemars(description = "Instance path to delete (e.g., 'Workspace/OldPart')")]
+    pub path: String,
+}
+
+/// Parameters for duplicate_instance tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DuplicateInstanceParams {
+    /// Instance path to duplicate (e.g., "Workspace/TemplatePart")
+    #[schemars(description = "Instance path to duplicate")]
+    pub path: String,
+    /// Optional new name for the duplicate
+    #[schemars(description = "Name for the duplicate (optional)")]
+    pub name: Option<String>,
+    /// Optional new parent path (defaults to same parent)
+    #[schemars(description = "New parent path (optional, defaults to same parent)")]
+    pub parent: Option<String>,
+}
+
 /// Generate Luau code to find a scoped root from a parent path.
 fn luau_scope_snippet(parent: &Option<String>) -> String {
     match parent {
@@ -1963,6 +2003,148 @@ impl RbxSyncServer {
             value = value_lua,
             class_filter = class_filter,
             property = params.property,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    // ========================================================================
+    // Instance Management Tools (Issue #130)
+    // ========================================================================
+
+    /// Create a new instance in Studio.
+    /// Specify the ClassName, parent path, optional name, and optional initial properties.
+    #[tool(description = "Create a new instance in Studio (Part, Script, Folder, etc.)")]
+    async fn create_instance(
+        &self,
+        Parameters(params): Parameters<CreateInstanceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate className to prevent Luau injection
+        validate_luau_identifier(&params.class_name).map_err(|e| {
+            mcp_error(format!("Invalid class name: {}", e))
+        })?;
+
+        let class_escaped = escape_luau_string(&params.class_name);
+        let parent_escaped = escape_luau_string(&params.parent);
+        let name_line = match &params.name {
+            Some(n) => format!("inst.Name = \"{}\"", escape_luau_string(n)),
+            None => String::new(),
+        };
+
+        // Build property assignment lines with key validation
+        let prop_lines = match &params.properties {
+            Some(serde_json::Value::Object(map)) => {
+                let mut lines = Vec::new();
+                for (key, val) in map {
+                    // Validate each property key to prevent Luau injection
+                    validate_luau_identifier(key).map_err(|e| {
+                        mcp_error(format!("Invalid property name '{}': {}", key, e))
+                    })?;
+                    let luau_val = json_value_to_luau(val);
+                    lines.push(format!(
+                        "local ok, err = pcall(function() inst.{} = {} end)\n\
+                        if not ok then table.insert(errors, \"{}: \" .. tostring(err)) end",
+                        key, luau_val, escape_luau_string(key)
+                    ));
+                }
+                lines.join("\n")
+            }
+            _ => String::new(),
+        };
+
+        let navigate = luau_navigate_snippet(&params.parent);
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Parent not found at path: {parent}\" end\n\
+            local inst = Instance.new(\"{class_name}\")\n\
+            {name_line}\n\
+            local errors = {{}}\n\
+            {prop_lines}\n\
+            inst.Parent = target\n\
+            local result = \"Created \" .. inst.ClassName .. \" '\" .. inst.Name .. \"' at \" .. inst:GetFullName()\n\
+            if #errors > 0 then\n\
+                result = result .. \"\\nProperty errors: \" .. table.concat(errors, \"; \")\n\
+            end\n\
+            return result",
+            navigate = navigate,
+            parent = parent_escaped,
+            class_name = class_escaped,
+            name_line = name_line,
+            prop_lines = prop_lines,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Delete an instance by path.
+    /// The instance and all its descendants will be destroyed.
+    #[tool(description = "Delete an instance by path (destroys it and all descendants)")]
+    async fn delete_instance(
+        &self,
+        Parameters(params): Parameters<DeleteInstanceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            local name = target:GetFullName()\n\
+            local className = target.ClassName\n\
+            target:Destroy()\n\
+            return \"Deleted \" .. className .. \" at \" .. name",
+            navigate = navigate,
+            path = path_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Duplicate (clone) an instance by path.
+    /// Optionally rename the clone or move it to a different parent.
+    #[tool(description = "Duplicate (clone) an instance, optionally with a new name or parent")]
+    async fn duplicate_instance(
+        &self,
+        Parameters(params): Parameters<DuplicateInstanceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+        let name_line = match &params.name {
+            Some(n) => format!("clone.Name = \"{}\"", escape_luau_string(n)),
+            None => String::new(),
+        };
+        let parent_line = match &params.parent {
+            Some(p) => {
+                let parent_escaped = escape_luau_string(p);
+                format!(
+                    "local parts2 = string.split(\"{}\", \"/\")\n\
+                    local newParent = game:GetService(parts2[1])\n\
+                    for i = 2, #parts2 do\n\
+                        newParent = newParent and newParent:FindFirstChild(parts2[i])\n\
+                    end\n\
+                    if not newParent then return \"Error: New parent not found\" end\n\
+                    clone.Parent = newParent",
+                    parent_escaped
+                )
+            }
+            None => "clone.Parent = target.Parent".to_string(),
+        };
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            local clone = target:Clone()\n\
+            {name_line}\n\
+            {parent_line}\n\
+            return \"Duplicated to \" .. clone:GetFullName()",
+            navigate = navigate,
+            path = path_escaped,
+            name_line = name_line,
+            parent_line = parent_line,
         );
 
         let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
