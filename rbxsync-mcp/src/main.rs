@@ -423,6 +423,48 @@ pub struct DeleteAttributeParams {
     pub name: String,
 }
 
+/// Parameters for get_script_source tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct GetScriptSourceParams {
+    /// Path to the script instance
+    #[schemars(description = "Script path (e.g., 'ServerScriptService/Main')")]
+    pub path: String,
+    /// Optional start line (1-indexed)
+    #[schemars(description = "Start line number (1-indexed, optional)")]
+    pub start_line: Option<u32>,
+    /// Optional end line (1-indexed, inclusive)
+    #[schemars(description = "End line number (1-indexed, inclusive, optional)")]
+    pub end_line: Option<u32>,
+}
+
+/// Parameters for set_script_source tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetScriptSourceParams {
+    /// Path to the script instance
+    #[schemars(description = "Script path (e.g., 'ServerScriptService/Main')")]
+    pub path: String,
+    /// New source code to replace the entire script content
+    #[schemars(description = "New script source code")]
+    pub source: String,
+}
+
+/// Parameters for edit_script_lines tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct EditScriptLinesParams {
+    /// Path to the script instance
+    #[schemars(description = "Script path (e.g., 'ServerScriptService/Main')")]
+    pub path: String,
+    /// Start line to replace (1-indexed)
+    #[schemars(description = "Start line to replace (1-indexed)")]
+    pub start_line: u32,
+    /// End line to replace (1-indexed, inclusive)
+    #[schemars(description = "End line to replace (1-indexed, inclusive)")]
+    pub end_line: u32,
+    /// New content to replace the specified lines
+    #[schemars(description = "New content to replace the specified line range")]
+    pub new_content: String,
+}
+
 fn mcp_error(msg: impl Into<String>) -> McpError {
     McpError {
         code: ErrorCode(-32603),
@@ -1567,6 +1609,143 @@ impl RbxSyncServer {
             navigate = navigate,
             path = path_escaped,
             name = name_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    // ========================================================================
+    // Script Source Editing Tools (Issue #131)
+    // ========================================================================
+
+    /// Read script source code by instance path, with optional line range.
+    #[tool(description = "Read script source code by path, with optional line range")]
+    async fn get_script_source(
+        &self,
+        Parameters(params): Parameters<GetScriptSourceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate line range parameters (Luau arrays are 1-indexed)
+        if let Some(s) = params.start_line {
+            if s < 1 {
+                return Err(mcp_error("start_line must be >= 1 (Luau arrays are 1-indexed)"));
+            }
+        }
+        if let (Some(s), Some(e)) = (params.start_line, params.end_line) {
+            if s > e {
+                return Err(mcp_error(format!(
+                    "start_line ({}) must be <= end_line ({})", s, e
+                )));
+            }
+        }
+
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+        let line_filter = match (params.start_line, params.end_line) {
+            (Some(s), Some(e)) => format!(
+                "local lines = string.split(source, \"\\n\")\n\
+                 local selected = {{}}\n\
+                 for i = {}, math.min({}, #lines) do\n\
+                     table.insert(selected, i .. \": \" .. lines[i])\n\
+                 end\n\
+                 return table.concat(selected, \"\\n\")",
+                s, e
+            ),
+            (Some(s), None) => format!(
+                "local lines = string.split(source, \"\\n\")\n\
+                 local selected = {{}}\n\
+                 for i = {}, #lines do\n\
+                     table.insert(selected, i .. \": \" .. lines[i])\n\
+                 end\n\
+                 return table.concat(selected, \"\\n\")",
+                s
+            ),
+            _ => "return source".to_string(),
+        };
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            if not target:IsA(\"LuaSourceContainer\") then return \"Error: Not a script instance\" end\n\
+            local source = target.Source\n\
+            {line_filter}",
+            navigate = navigate,
+            path = path_escaped,
+            line_filter = line_filter,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Replace the entire source code of a script.
+    #[tool(description = "Replace entire script source code")]
+    async fn set_script_source(
+        &self,
+        Parameters(params): Parameters<SetScriptSourceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+        // Use double-bracket Luau string for source to avoid escaping issues
+        let source_escaped = params.source.replace("]]", "] ]");
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            if not target:IsA(\"LuaSourceContainer\") then return \"Error: Not a script instance\" end\n\
+            target.Source = [[{source}]]\n\
+            local lineCount = #string.split(target.Source, \"\\n\")\n\
+            return \"Set source on \" .. target:GetFullName() .. \" (\" .. lineCount .. \" lines)\"",
+            navigate = navigate,
+            path = path_escaped,
+            source = source_escaped,
+        );
+
+        let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
+        Ok(CallToolResult::success(vec![Content::text(result)]))
+    }
+
+    /// Edit specific lines within a script's source code.
+    /// Replaces lines from start_line to end_line (inclusive) with new_content.
+    #[tool(description = "Edit specific lines in a script (replace a line range with new content)")]
+    async fn edit_script_lines(
+        &self,
+        Parameters(params): Parameters<EditScriptLinesParams>,
+    ) -> Result<CallToolResult, McpError> {
+        // Validate line range parameters (Luau arrays are 1-indexed)
+        if params.start_line < 1 {
+            return Err(mcp_error("start_line must be >= 1 (Luau arrays are 1-indexed)"));
+        }
+        if params.start_line > params.end_line {
+            return Err(mcp_error(format!(
+                "start_line ({}) must be <= end_line ({})", params.start_line, params.end_line
+            )));
+        }
+
+        let navigate = luau_navigate_snippet(&params.path);
+        let path_escaped = escape_luau_string(&params.path);
+        let new_content_escaped = params.new_content.replace("]]", "] ]");
+
+        let code = format!(
+            "{navigate}\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            if not target:IsA(\"LuaSourceContainer\") then return \"Error: Not a script instance\" end\n\
+            local lines = string.split(target.Source, \"\\n\")\n\
+            local startLine = {start_line}\n\
+            local endLine = math.min({end_line}, #lines)\n\
+            if startLine > #lines then return \"Error: start_line exceeds script length (\" .. #lines .. \" lines)\" end\n\
+            local newLines = string.split([[{new_content}]], \"\\n\")\n\
+            local result = {{}}\n\
+            for i = 1, startLine - 1 do table.insert(result, lines[i]) end\n\
+            for _, line in newLines do table.insert(result, line) end\n\
+            for i = endLine + 1, #lines do table.insert(result, lines[i]) end\n\
+            target.Source = table.concat(result, \"\\n\")\n\
+            return \"Edited lines \" .. startLine .. \"-\" .. endLine .. \" in \" .. target:GetFullName() .. \" (now \" .. #result .. \" lines)\"",
+            navigate = navigate,
+            path = path_escaped,
+            start_line = params.start_line,
+            end_line = params.end_line,
+            new_content = new_content_escaped,
         );
 
         let result = self.client.run_code(&code).await.map_err(|e| mcp_error(e.to_string()))?;
