@@ -8,6 +8,7 @@ use serde::Deserialize;
 use std::borrow::Cow;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
+pub mod luau_helpers;
 mod tools;
 use tools::RbxSyncClient;
 
