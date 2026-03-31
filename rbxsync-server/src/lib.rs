@@ -70,14 +70,31 @@ fn apply_tree_mapping(datamodel_path: &str, tree_mapping: &HashMap<String, Strin
     }
 }
 
-/// Recursively copy a directory
+/// Directories to skip during recursive copy operations
+const SKIP_DIRS: &[&str] = &[".rbxsync-trash", ".rbxsync-backup", ".rbxsync", ".git", "node_modules"];
+
+/// Recursively copy a directory, skipping system directories and
+/// preventing circular copies (dst inside src).
 fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
+    let resolved_src = src.canonicalize().unwrap_or_else(|_| src.clone());
+    let resolved_dst = dst.canonicalize().unwrap_or_else(|_| dst.clone());
+
+    if resolved_dst.starts_with(&resolved_src) {
+        tracing::warn!("Skipping circular copy: {:?} is inside {:?}", dst, src);
+        return Ok(());
+    }
+
     std::fs::create_dir_all(dst)?;
     for entry in std::fs::read_dir(src)? {
         let entry = entry?;
         let path = entry.path();
         let dest_path = dst.join(entry.file_name());
         if path.is_dir() {
+            if let Some(name) = entry.file_name().to_str() {
+                if SKIP_DIRS.contains(&name) {
+                    continue;
+                }
+            }
             copy_dir_recursive(&path, &dest_path)?;
         } else {
             std::fs::copy(&path, &dest_path)?;
@@ -349,9 +366,38 @@ pub struct ExtractionSession {
     pub id: String,
     pub chunks_received: usize,
     pub total_chunks: Option<usize>,
-    pub data: Vec<serde_json::Value>,
+    /// Directory where chunk files are stored on disk
+    pub output_dir: String,
     /// Whether finalize has been called (extraction complete even if 0 chunks)
     pub finalized: bool,
+}
+
+/// Read all chunk files from disk and return the combined instances.
+///
+/// Note: If a chunk write failed partway (e.g., disk full), `chunks_received` may have been
+/// incremented but the file may not exist on disk. Missing or unparseable chunks are logged
+/// with `tracing::warn` and skipped rather than causing an error.
+fn read_chunks_from_disk(output_dir: &str, count: usize) -> Vec<serde_json::Value> {
+    let mut all_instances = Vec::new();
+    for i in 0..count {
+        let chunk_path = format!("{}/chunk_{:06}.json", output_dir, i);
+        match std::fs::read_to_string(&chunk_path) {
+            Ok(data) => {
+                match serde_json::from_str::<serde_json::Value>(&data) {
+                    Ok(chunk) => {
+                        if let Some(instances) = chunk.as_array() {
+                            all_instances.extend(instances.iter().cloned());
+                        } else {
+                            all_instances.push(chunk);
+                        }
+                    }
+                    Err(e) => tracing::warn!("Failed to parse chunk {}: {}", i, e),
+                }
+            }
+            Err(e) => tracing::warn!("Failed to read chunk {}: {}", i, e),
+        }
+    }
+    all_instances
 }
 
 /// Connected Studio place information
@@ -517,8 +563,8 @@ async fn handle_register(
 
         for stale_key in stale_keys {
             if let Some(info) = registry.remove(&stale_key) {
-                tracing::info!(
-                    "Removed stale session for place {}: {} (old key: {})",
+                tracing::debug!(
+                    "Replaced stale session for place {}: {} (old key: {})",
                     req.place_name,
                     info.session_id.unwrap_or_default(),
                     stale_key
@@ -638,7 +684,7 @@ async fn cleanup_stale_registrations(state: &Arc<AppState>) {
 
     for key in &stale_keys {
         if let Some(info) = registry.remove(key) {
-            tracing::info!("Removed stale registration: {} ({})", info.place_name, key);
+            tracing::debug!("Removed stale registration: {} ({})", info.place_name, key);
         }
     }
 }
@@ -1049,7 +1095,7 @@ async fn cleanup_stale_vscode_workspaces(state: &Arc<AppState>) {
 
     for key in &stale_keys {
         workspaces.remove(key);
-        tracing::info!("Removed stale VS Code workspace: {}", key);
+        tracing::debug!("Removed stale VS Code workspace: {}", key);
     }
 }
 
@@ -1238,7 +1284,7 @@ async fn handle_extract_start(
             id: session_id.clone(),
             chunks_received: 0,
             total_chunks: None,
-            data: Vec::new(),
+            output_dir: String::new(),
             finalized: false,
         });
     }
@@ -1373,8 +1419,6 @@ async fn handle_extract_chunk(
     State(state): State<Arc<AppState>>,
     Json(req): Json<ExtractChunkRequest>,
 ) -> impl IntoResponse {
-    let mut session_guard = state.extraction_session.write().await;
-
     // Determine output directory: use project_dir/src if provided, otherwise fallback
     let output_dir = if let Some(ref project_dir) = req.project_dir {
         if !project_dir.is_empty() {
@@ -1386,60 +1430,78 @@ async fn handle_extract_chunk(
         format!(".rbxsync/extract_{}", &req.session_id)
     };
 
-    // Auto-create session if plugin started extraction directly
-    if session_guard.is_none() {
-        tracing::info!("Auto-created extraction session: {} -> {}", &req.session_id, &output_dir);
+    // Hold the write lock only for session state updates, then release before disk I/O
+    let result = {
+        let mut session_guard = state.extraction_session.write().await;
 
-        // Create output directory for this session
-        let _ = std::fs::create_dir_all(&output_dir);
+        // Auto-create session if plugin started extraction directly
+        if session_guard.is_none() {
+            tracing::info!("Auto-created extraction session: {} -> {}", &req.session_id, &output_dir);
 
-        *session_guard = Some(ExtractionSession {
-            id: req.session_id.clone(),
-            chunks_received: 0,
-            total_chunks: None,
-            data: Vec::new(),
-            finalized: false,
-        });
-    }
-
-    if let Some(ref mut session) = *session_guard {
-        // Accept chunks from any session (plugin may have restarted)
-        if session.id != req.session_id {
-            tracing::info!("Session ID changed from {} to {}, resetting -> {}", session.id, &req.session_id, &output_dir);
-            session.id = req.session_id.clone();
-            session.chunks_received = 0;
-            session.data.clear();
-
-            // Create new output directory
+            // Create output directory for this session
             let _ = std::fs::create_dir_all(&output_dir);
+
+            *session_guard = Some(ExtractionSession {
+                id: req.session_id.clone(),
+                chunks_received: 0,
+                total_chunks: None,
+                output_dir: output_dir.clone(),
+                finalized: false,
+            });
         }
 
-        session.total_chunks = Some(req.total_chunks);
-        session.chunks_received += 1;
+        if let Some(ref mut session) = *session_guard {
+            // Accept chunks from any session (plugin may have restarted)
+            if session.id != req.session_id {
+                tracing::info!("Session ID changed from {} to {}, resetting -> {}", session.id, &req.session_id, &output_dir);
+                session.id = req.session_id.clone();
+                session.chunks_received = 0;
 
-        // Save chunk to disk immediately
-        let chunk_path = format!("{}/chunk_{:06}.json", output_dir, session.chunks_received);
-        if let Err(e) = std::fs::write(&chunk_path, serde_json::to_string(&req.data).unwrap_or_default()) {
-            tracing::warn!("Failed to save chunk to disk: {}", e);
+                // Create new output directory
+                let _ = std::fs::create_dir_all(&output_dir);
+            }
+
+            // Always update output_dir (may have been empty from handle_extract_start)
+            session.output_dir = output_dir.clone();
+            session.total_chunks = Some(req.total_chunks);
+            session.chunks_received += 1;
+
+            let chunk_path = format!("{}/chunk_{:06}.json", &output_dir, session.chunks_received - 1);
+            let chunks_received = session.chunks_received;
+
+            // Serialize chunk data while we still own req.data
+            let chunk_data = serde_json::to_string(&req.data).unwrap_or_default();
+
+            tracing::info!("Received chunk {}/{}", chunks_received, req.total_chunks);
+
+            Ok((chunk_path, chunk_data, chunks_received, req.total_chunks))
+        } else {
+            Err(())
         }
+        // Write lock released here
+    };
 
-        // Also keep in memory for quick access
-        session.data.push(req.data);
+    match result {
+        Ok((chunk_path, chunk_data, chunks_received, total_chunks)) => {
+            // Disk write happens outside the lock to avoid blocking other requests
+            if let Err(e) = std::fs::write(&chunk_path, &chunk_data) {
+                tracing::warn!("Failed to save chunk to disk: {}", e);
+            }
 
-        tracing::info!("Received chunk {}/{}", session.chunks_received, req.total_chunks);
-
-        (
-            StatusCode::OK,
-            Json(serde_json::json!({
-                "received": session.chunks_received,
-                "total": req.total_chunks
-            })),
-        )
-    } else {
-        (
-            StatusCode::BAD_REQUEST,
-            Json(serde_json::json!({"error": "No active extraction session"})),
-        )
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "received": chunks_received,
+                    "total": total_chunks
+                })),
+            )
+        }
+        Err(()) => {
+            (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"error": "No active extraction session"})),
+            )
+        }
     }
 }
 
@@ -1478,13 +1540,18 @@ async fn handle_extract_export(
     let session = state.extraction_session.read().await;
 
     if let Some(ref s) = *session {
-        // Flatten all chunks into a single array of instances
-        let mut all_instances = Vec::new();
-        for chunk in &s.data {
-            if let Some(instances) = chunk.as_array() {
-                all_instances.extend(instances.iter().cloned());
-            }
+        // Guard: output_dir is empty until the first chunk arrives via handle_extract_chunk
+        if s.output_dir.is_empty() {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "No chunk data available yet (output_dir not initialized)"
+                })),
+            );
         }
+
+        let all_instances = read_chunks_from_disk(&s.output_dir, s.chunks_received);
 
         tracing::info!("Exporting {} instances to {}", all_instances.len(), req.output_path);
 
@@ -1730,6 +1797,18 @@ async fn handle_extract_finalize(
     }
 
     let session = session_guard.as_ref().unwrap();
+
+    // Guard: output_dir is empty until the first chunk arrives via handle_extract_chunk
+    if session.output_dir.is_empty() {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "No chunk data available yet (output_dir not initialized)"
+            })),
+        );
+    }
+
     let src_dir = PathBuf::from(&req.project_dir).join("src");
 
     // Load project config and tree mapping
@@ -1760,6 +1839,9 @@ async fn handle_extract_finalize(
     if preserve_packages {
         tracing::info!("Package preservation enabled - Packages folder: {}", packages_folder);
     }
+
+    // Read chunk data from disk BEFORE backup/rename (chunks are stored in output_dir)
+    let all_instances = read_chunks_from_disk(&session.output_dir, session.chunks_received);
 
     // Backup existing src directory before clearing (for undo support)
     let backup_dir = PathBuf::from(&req.project_dir).join(".rbxsync-backup");
@@ -1800,14 +1882,6 @@ async fn handle_extract_finalize(
             }
         }
         tracing::info!("Backed up src to .rbxsync-backup/src");
-    }
-
-    // Flatten all chunks into a single array of instances
-    let mut all_instances: Vec<serde_json::Value> = Vec::new();
-    for chunk in &session.data {
-        if let Some(instances) = chunk.as_array() {
-            all_instances.extend(instances.iter().cloned());
-        }
     }
 
     tracing::info!("Finalizing {} instances to {}", all_instances.len(), src_dir.display());
@@ -2739,6 +2813,12 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
+                // Skip system directories (RBXSYNC-141)
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(".rbxsync") || name == ".git" {
+                        continue;
+                    }
+                }
                 if path.is_dir() {
                     walk_dir(&path, base, path_prefix, instances, scripts);
                 } else if let Some(ext) = path.extension() {
@@ -3024,6 +3104,12 @@ async fn handle_sync_incremental(
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
+                // Skip system directories (RBXSYNC-141)
+                if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
+                    if name.starts_with(".rbxsync") || name == ".git" {
+                        continue;
+                    }
+                }
                 if path.is_dir() {
                     walk_dir_incremental(&path, base, instances, scripts, last_sync, files_checked, files_modified);
                 } else if let Some(ext) = path.extension() {
@@ -4070,6 +4156,27 @@ async fn send_bot_command_via_queue(
     state: &Arc<AppState>,
     command: serde_json::Value,
 ) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
+    // Check playtest is active before queuing (avoids 30s silent timeout)
+    let is_active = state
+        .playtest_active
+        .load(std::sync::atomic::Ordering::Relaxed);
+    let heartbeat_stale = {
+        let heartbeat = state.last_bot_heartbeat.read().await;
+        heartbeat
+            .map(|h| h.elapsed().as_secs_f64() > 5.0)
+            .unwrap_or(true)
+    };
+
+    if !is_active || heartbeat_stale {
+        return Err((
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "No active playtest. Start a playtest first using run_test with background: true."
+            })),
+        ));
+    }
+
     let id = Uuid::new_v4();
 
     // Queue the command with ID
@@ -4120,62 +4227,6 @@ async fn send_bot_command_via_queue(
     }
 }
 
-/// Helper function to send a bot command to the plugin
-async fn send_bot_command(
-    state: &Arc<AppState>,
-    command: &str,
-    payload: serde_json::Value,
-) -> Result<serde_json::Value, (StatusCode, Json<serde_json::Value>)> {
-    let request_id = Uuid::new_v4();
-    let request = PluginRequest {
-        id: request_id,
-        command: command.to_string(),
-        payload,
-    };
-
-    // Create response channel
-    let (tx, mut rx) = mpsc::unbounded_channel();
-    state.response_channels.write().await.insert(request_id, tx);
-
-    // Queue the request
-    state.request_queue.lock().await.push_back(request);
-    state.trigger.send(()).ok();
-
-    // Wait for response with timeout (longer timeout for movement commands)
-    let timeout = if command == "bot:move" {
-        tokio::time::Duration::from_secs(60)
-    } else {
-        tokio::time::Duration::from_secs(30)
-    };
-
-    match tokio::time::timeout(timeout, rx.recv()).await {
-        Ok(Some(response)) => {
-            state.response_channels.write().await.remove(&request_id);
-            Ok(response.data)
-        }
-        Ok(None) => {
-            state.response_channels.write().await.remove(&request_id);
-            Err((
-                StatusCode::INTERNAL_SERVER_ERROR,
-                Json(serde_json::json!({
-                    "success": false,
-                    "error": "Channel closed"
-                })),
-            ))
-        }
-        Err(_) => {
-            state.response_channels.write().await.remove(&request_id);
-            Err((
-                StatusCode::REQUEST_TIMEOUT,
-                Json(serde_json::json!({
-                    "success": false,
-                    "error": "Bot command timeout - ensure playtest is running"
-                })),
-            ))
-        }
-    }
-}
-
 /// Handle generic bot command
 async fn handle_bot_command(
     State(state): State<Arc<AppState>>,
@@ -4212,6 +4263,18 @@ async fn handle_bot_move(
     State(state): State<Arc<AppState>>,
     Json(req): Json<BotMoveRequest>,
 ) -> impl IntoResponse {
+    // Validate: at least one of position or objectName must be provided
+    let has_object = req.object_name.is_some() || req.object.is_some();
+    if req.position.is_none() && !has_object {
+        return (
+            StatusCode::BAD_REQUEST,
+            Json(serde_json::json!({
+                "success": false,
+                "error": "Must provide either 'position' ({x, y, z}) or 'objectName' (string)"
+            })),
+        );
+    }
+
     // Format command for BotController.executeCommand()
     // BotController expects: { type, command, args }
     let command = if req.position.is_some() {

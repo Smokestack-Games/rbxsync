@@ -18,6 +18,8 @@ Thumbs.db
 
 # RbxSync temp/test directories
 .rbxsync/
+.rbxsync-trash/
+.rbxsync-backup/
 output/
 output_new/
 output_v2/

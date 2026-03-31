@@ -49,6 +49,14 @@ pub struct SyncParams {
     pub delete: Option<bool>,
 }
 
+/// Parameters for diff tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct DiffParams {
+    /// The project directory to diff
+    #[schemars(description = "Project directory to compare local files vs Studio state")]
+    pub project_dir: String,
+}
+
 /// Parameters for git_commit tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GitCommitParams {
@@ -365,6 +373,12 @@ impl RbxSyncServer {
     }
 }
 
+impl Default for RbxSyncServer {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[tool_router]
 impl RbxSyncServer {
     pub fn new() -> Self {
@@ -495,6 +509,48 @@ impl RbxSyncServer {
                 errors
             ))]))
         }
+    }
+
+    /// Compare local project files against Studio state.
+    /// Shows what instances exist locally but not in Studio (added),
+    /// what exists in Studio but not locally (removed), and unchanged count.
+    #[tool(description = "Diff local project files vs Studio state - shows added, removed, and unchanged instances")]
+    async fn diff(
+        &self,
+        Parameters(params): Parameters<DiffParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let diff = self.client
+            .get_diff(&params.project_dir)
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        let mut lines = Vec::new();
+        lines.push(format!(
+            "Diff: {} added, {} removed, {} unchanged",
+            diff.added.len(),
+            diff.removed.len(),
+            diff.unchanged
+        ));
+
+        if !diff.added.is_empty() {
+            lines.push(String::new());
+            lines.push(format!("Added ({}):", diff.added.len()));
+            for entry in &diff.added {
+                let class = entry.class_name.as_deref().unwrap_or("?");
+                lines.push(format!("  + [{}] {}", class, entry.path));
+            }
+        }
+
+        if !diff.removed.is_empty() {
+            lines.push(String::new());
+            lines.push(format!("Removed ({}):", diff.removed.len()));
+            for entry in &diff.removed {
+                let class = entry.class_name.as_deref().unwrap_or("?");
+                lines.push(format!("  - [{}] {}", class, entry.path));
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(lines.join("\n"))]))
     }
 
     /// Get the git status of a project directory.
@@ -924,6 +980,26 @@ impl RbxSyncServer {
         if let Some(msg) = self.check_playtest_active().await {
             return Ok(CallToolResult::success(vec![Content::text(msg)]));
         }
+
+        // Validate: at least one of position or objectName must be provided
+        if params.position.is_none() && params.object_name.is_none() {
+            return Ok(CallToolResult::error(vec![Content::text(
+                "Error: Must provide either 'position' ({x, y, z}) or 'objectName' (string)."
+            )]));
+        }
+
+        // Validate position format if provided
+        if let Some(ref pos) = params.position {
+            let valid = pos.get("x").and_then(|v| v.as_f64()).is_some()
+                && pos.get("y").and_then(|v| v.as_f64()).is_some()
+                && pos.get("z").and_then(|v| v.as_f64()).is_some();
+            if !valid {
+                return Ok(CallToolResult::error(vec![Content::text(
+                    "Error: position must be an object with numeric x, y, z fields. Example: {\"x\": 0, \"y\": 5, \"z\": 0}"
+                )]));
+            }
+        }
+
         let result = self.client
             .bot_move(params.position, params.object_name.as_deref())
             .await

@@ -9,7 +9,7 @@ use std::sync::Arc;
 use std::time::{Duration, Instant};
 
 use notify::{Config, Event, EventKind, RecommendedWatcher, RecursiveMode, Watcher};
-use notify::event::{ModifyKind, DataChange};
+use notify::event::{ModifyKind, DataChange, RenameMode};
 use tokio::sync::{mpsc, RwLock};
 
 use rbxsync_core::is_package_path;
@@ -28,6 +28,7 @@ pub enum FileChangeKind {
     Create,
     Modify,
     Delete,
+    Rename { from_path: PathBuf },
 }
 
 /// File watcher state
@@ -113,15 +114,95 @@ pub async fn start_file_watcher(
 
         tracing::info!("File watcher active for: {:?}", src_dir);
 
+        // Buffer for correlating rename From/To event pairs
+        let mut pending_rename_from: Option<(PathBuf, Instant)> = None;
+
+        // Helper: determine if a path should be processed based on extension/kind
+        let should_process_path = |path: &PathBuf, kind: &FileChangeKind| -> bool {
+            if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+                ext == "luau" || ext == "rbxjson"
+            } else {
+                // For deletions and renames, also handle directories (no extension)
+                let is_delete_like = matches!(kind, FileChangeKind::Delete | FileChangeKind::Rename { .. });
+                if is_delete_like {
+                    let is_inside_src = path.strip_prefix(&src_dir)
+                        .map(|rel| !rel.as_os_str().is_empty())
+                        .unwrap_or(false);
+                    is_inside_src && path.file_name()
+                        .and_then(|n| n.to_str())
+                        .map(|n| !n.contains('.'))
+                        .unwrap_or(false)
+                } else {
+                    false
+                }
+            }
+        };
+
         // Process events
         loop {
-            match rx.recv_timeout(Duration::from_secs(1)) {
+            // Flush stale pending_rename_from (if no matching To arrived within 100ms)
+            if let Some((ref from_path, ref timestamp)) = pending_rename_from {
+                if timestamp.elapsed() > Duration::from_millis(100) {
+                    let kind = FileChangeKind::Delete;
+                    let path = from_path.clone();
+                    if should_process_path(&path, &kind) {
+                        if !sync_packages && is_package_path(&path) {
+                            tracing::trace!("Skipping package path (sync_packages=false): {:?}", path);
+                        } else {
+                            let change = FileChange {
+                                path,
+                                project_dir: project_dir_clone.clone(),
+                                kind,
+                            };
+                            let state = state_clone.clone();
+                            rt.spawn(async move {
+                                let state = state.read().await;
+                                let _ = state.change_tx.send(change);
+                            });
+                        }
+                    }
+                    pending_rename_from = None;
+                }
+            }
+
+            // Reduced from 1s to 50ms to ensure timely flushing of buffered rename-from events.
+            // Trade-off: ~20 wakeups/sec idle vs 1/sec, acceptable for a file watcher.
+            match rx.recv_timeout(Duration::from_millis(50)) {
                 Ok(event) => {
+                    // Handle RenameMode::Both at event level (some platforms deliver both paths in one event)
+                    if let EventKind::Modify(ModifyKind::Name(RenameMode::Both)) = &event.kind {
+                        if event.paths.len() == 2 {
+                            let from_path = event.paths[0].clone();
+                            let to_path = event.paths[1].clone();
+                            let kind = FileChangeKind::Rename { from_path: from_path.clone() };
+
+                            // Skip package paths unless sync_packages is enabled
+                            if !sync_packages && (is_package_path(&to_path) || is_package_path(&from_path)) {
+                                tracing::trace!("Skipping package rename (sync_packages=false): {:?} -> {:?}", from_path, to_path);
+                                continue;
+                            }
+
+                            if should_process_path(&to_path, &kind) || should_process_path(&from_path, &FileChangeKind::Delete) {
+                                let change = FileChange {
+                                    path: to_path,
+                                    project_dir: project_dir_clone.clone(),
+                                    kind,
+                                };
+                                let state = state_clone.clone();
+                                rt.spawn(async move {
+                                    let state = state.read().await;
+                                    let _ = state.change_tx.send(change);
+                                });
+                            }
+                            continue;
+                        }
+                    }
+
                     // Process each path in the event with macOS-aware kind detection
                     for path in event.paths.iter() {
                         // Determine the event kind using Argon's macOS approach:
                         // - Create: only if path exists
-                        // - Modify(Name): check path existence (deletion on macOS comes as rename)
+                        // - Modify(Name): correlate From/To for renames
                         // - Modify(Data(Content)): actual content change
                         // - Remove: always delete
                         let kind = match &event.kind {
@@ -136,13 +217,69 @@ pub async fn start_file_watcher(
                             EventKind::Remove(_) => Some(FileChangeKind::Delete),
                             EventKind::Modify(modify_kind) => {
                                 match modify_kind {
-                                    // Name changes (rename/move) - check if path exists
-                                    // On macOS, deletions often come through as rename events
-                                    ModifyKind::Name(_) => {
-                                        if path.exists() {
-                                            Some(FileChangeKind::Create)
-                                        } else {
-                                            Some(FileChangeKind::Delete)
+                                    // Name changes - correlate From/To for rename detection
+                                    ModifyKind::Name(rename_mode) => {
+                                        match rename_mode {
+                                            RenameMode::From => {
+                                                // Buffer the From path; don't emit yet
+                                                pending_rename_from = Some((path.clone(), Instant::now()));
+                                                None
+                                            }
+                                            RenameMode::To => {
+                                                // Check for a buffered From within 100ms
+                                                if let Some((from_path, timestamp)) = pending_rename_from.take() {
+                                                    if timestamp.elapsed() <= Duration::from_millis(100) {
+                                                        Some(FileChangeKind::Rename { from_path })
+                                                    } else {
+                                                        // Stale From - flush as Delete, then handle To
+                                                        let delete_kind = FileChangeKind::Delete;
+                                                        if should_process_path(&from_path, &delete_kind)
+                                                            && (sync_packages || !is_package_path(&from_path))
+                                                        {
+                                                            let change = FileChange {
+                                                                path: from_path,
+                                                                project_dir: project_dir_clone.clone(),
+                                                                kind: delete_kind,
+                                                            };
+                                                            let state = state_clone.clone();
+                                                            rt.spawn(async move {
+                                                                let state = state.read().await;
+                                                                let _ = state.change_tx.send(change);
+                                                            });
+                                                        }
+                                                        // Treat To as Create
+                                                        if path.exists() {
+                                                            Some(FileChangeKind::Create)
+                                                        } else {
+                                                            None
+                                                        }
+                                                    }
+                                                } else {
+                                                    // No buffered From - fall back to existence check
+                                                    if path.exists() {
+                                                        Some(FileChangeKind::Create)
+                                                    } else {
+                                                        Some(FileChangeKind::Delete)
+                                                    }
+                                                }
+                                            }
+                                            RenameMode::Both => {
+                                                // Already handled at event level for 2-path events;
+                                                // if we get here with a single path, fall back
+                                                if path.exists() {
+                                                    Some(FileChangeKind::Create)
+                                                } else {
+                                                    Some(FileChangeKind::Delete)
+                                                }
+                                            }
+                                            // RenameMode::Any or other - fall back to existence check
+                                            _ => {
+                                                if path.exists() {
+                                                    Some(FileChangeKind::Create)
+                                                } else {
+                                                    Some(FileChangeKind::Delete)
+                                                }
+                                            }
                                         }
                                     }
                                     // Data changes - only care about content changes
@@ -175,6 +312,20 @@ pub async fn start_file_watcher(
 
                         if let Some(kind) = kind {
                             let path = path.clone();
+
+                            // Skip system directories to prevent infinite recursion (RBXSYNC-141)
+                            let is_system = path.components().any(|c| {
+                                if let std::path::Component::Normal(name) = c {
+                                    let s = name.to_string_lossy();
+                                    s.starts_with(".rbxsync") || s == ".git"
+                                } else {
+                                    false
+                                }
+                            });
+                            if is_system {
+                                continue;
+                            }
+
                             // Check if it's a directory that was created (for undo operations)
                             if kind == FileChangeKind::Create && path.is_dir() {
                                 // Scan directory for script files and send Create events for each
@@ -207,27 +358,7 @@ pub async fn start_file_watcher(
                             }
 
                             // Check if it's a file we care about
-                            let should_process = if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                                ext == "luau" || ext == "rbxjson"
-                            } else {
-                                // For deletions, also handle directories (no extension)
-                                // Check that path is inside src (has at least one segment after src)
-                                // and doesn't have a dot in the filename (not a file without extension)
-                                if kind == FileChangeKind::Delete {
-                                    // Make sure we're deleting something INSIDE src, not src itself
-                                    let is_inside_src = path.strip_prefix(&src_dir)
-                                        .map(|rel| !rel.as_os_str().is_empty())
-                                        .unwrap_or(false);
-                                    is_inside_src && path.file_name()
-                                        .and_then(|n| n.to_str())
-                                        .map(|n| !n.contains('.'))
-                                        .unwrap_or(false)
-                                } else {
-                                    false
-                                }
-                            };
-
-                            if should_process {
+                            if should_process_path(&path, &kind) {
                                 let change = FileChange {
                                     path: path.clone(),
                                     project_dir: project_dir_clone.clone(),
@@ -389,6 +520,44 @@ pub fn process_file_change(
             } else {
                 None
             }
+        }
+        FileChangeKind::Rename { ref from_path } => {
+            // Compute old instance path from from_path
+            let old_rel = match from_path.strip_prefix(&src_dir) {
+                Ok(p) => p,
+                Err(_) => return None,
+            };
+            let old_filename = from_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+            let old_inst_path = if old_filename == "_meta.rbxjson" {
+                old_rel
+                    .parent()
+                    .map(rbxsync_core::path_to_string)
+                    .unwrap_or_default()
+            } else {
+                rbxsync_core::path_to_string(old_rel)
+                    .trim_end_matches(".server.luau")
+                    .trim_end_matches(".client.luau")
+                    .trim_end_matches(".luau")
+                    .trim_end_matches(".rbxjson")
+                    .to_string()
+            };
+
+            // If the new path doesn't exist, treat as a delete of the old path
+            if !path.exists() {
+                return Some(serde_json::json!({
+                    "type": "delete",
+                    "path": old_inst_path,
+                }));
+            }
+
+            Some(serde_json::json!({
+                "type": "rename",
+                "path": inst_path,
+                "data": {
+                    "oldPath": old_inst_path,
+                    "newPath": inst_path
+                }
+            }))
         }
     }
 }

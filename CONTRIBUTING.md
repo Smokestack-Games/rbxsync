@@ -15,8 +15,8 @@ cargo build --release
 # Build VS Code extension
 cd rbxsync-vscode && npm install && npm run build
 
-# Build Studio plugin
-rojo build plugin/default.project.json -o build/RbxSync.rbxm
+# Build and install Studio plugin
+rbxsync build-plugin --install
 ```
 
 ## Project Structure

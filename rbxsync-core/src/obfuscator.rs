@@ -19,6 +19,7 @@ use serde::Deserialize;
 
 /// Configuration for the obfuscator loaded from obfuscate.toml
 #[derive(Debug, Clone, Deserialize)]
+#[derive(Default)]
 pub struct ObfuscatorConfig {
     /// Strings to encode with hex escapes
     #[serde(default)]
@@ -31,15 +32,6 @@ pub struct ObfuscatorConfig {
     pub minify: MinifyConfig,
 }
 
-impl Default for ObfuscatorConfig {
-    fn default() -> Self {
-        Self {
-            strings: StringConfig::default(),
-            debug: DebugConfig::default(),
-            minify: MinifyConfig::default(),
-        }
-    }
-}
 
 /// String encoding configuration
 #[derive(Debug, Clone, Deserialize)]
