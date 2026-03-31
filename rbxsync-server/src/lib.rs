@@ -458,6 +458,10 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/test/status", get(handle_test_status))
         .route("/test/stop", post(handle_test_stop))
         .route("/test/playtest-status", get(handle_test_playtest_status))
+        // Playtest control endpoints (HTTP-driven lifecycle management)
+        .route("/playtest/start", post(handle_playtest_start))
+        .route("/playtest/stop", post(handle_playtest_stop))
+        .route("/playtest/status", get(handle_playtest_status))
         // Bot controller endpoints (AI-powered automated gameplay testing)
         .route("/bot/command", post(handle_bot_command))
         .route("/bot/state", get(handle_bot_state).post(handle_bot_state_update))
@@ -3895,6 +3899,197 @@ async fn handle_test_playtest_status(State(state): State<Arc<AppState>>) -> impl
             "No active playtest"
         }
     }))
+}
+
+// ============================================================================
+// Playtest Control Endpoints (HTTP-driven lifecycle management)
+// ============================================================================
+
+/// Request to start a playtest
+#[derive(Debug, Deserialize)]
+struct PlaytestStartRequest {
+    /// Play mode: "Play" (solo) or "Run" (server sim). Default: "Play"
+    #[serde(default = "default_play_mode")]
+    mode: String,
+}
+
+fn default_play_mode() -> String {
+    "Play".to_string()
+}
+
+/// Start a playtest session (POST /playtest/start)
+/// Starts a play session without auto-stop timer. Caller must stop via /playtest/stop.
+async fn handle_playtest_start(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PlaytestStartRequest>,
+) -> impl IntoResponse {
+    clear_stale_playtest_state(&state).await;
+
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "playtest:start".to_string(),
+        payload: serde_json::json!({
+            "mode": req.mode
+        }),
+    };
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    let timeout = tokio::time::Duration::from_secs(30);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            if response.success {
+                state.playtest_active.store(true, std::sync::atomic::Ordering::Relaxed);
+                *state.playtest_started.write().await = Some(std::time::Instant::now());
+                *state.playtest_ended.write().await = None;
+            }
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": response.success,
+                    "message": response.data.get("message").and_then(|v| v.as_str()).unwrap_or(""),
+                    "data": response.data
+                })),
+            )
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed unexpectedly"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Plugin response timeout - make sure Studio is connected"
+                })),
+            )
+        }
+    }
+}
+
+/// Stop the current playtest (POST /playtest/stop)
+async fn handle_playtest_stop(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "playtest:stop".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    let timeout = tokio::time::Duration::from_secs(30);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            state.playtest_active.store(false, std::sync::atomic::Ordering::Relaxed);
+            *state.playtest_ended.write().await = Some(std::time::Instant::now());
+            (StatusCode::OK, Json(serde_json::json!({
+                "success": response.success,
+                "data": response.data,
+                "error": response.error
+            })))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed unexpectedly"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Plugin response timeout"
+                })),
+            )
+        }
+    }
+}
+
+/// Get playtest status (GET /playtest/status)
+async fn handle_playtest_status(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    clear_stale_playtest_state(&state).await;
+
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "playtest:status".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    let timeout = tokio::time::Duration::from_secs(10);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            // Update server-side playtest state based on plugin response
+            let running = response.data.get("running")
+                .and_then(|v| v.as_bool())
+                .unwrap_or(false);
+            state.playtest_active.store(running, std::sync::atomic::Ordering::Relaxed);
+            (StatusCode::OK, Json(serde_json::json!({
+                "success": true,
+                "data": response.data
+            })))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            // On timeout, report based on server-side state
+            let is_active = state.playtest_active.load(std::sync::atomic::Ordering::Relaxed);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": true,
+                    "data": {
+                        "running": is_active,
+                        "mode": if is_active { "unknown" } else { "edit" },
+                        "testInProgress": false,
+                        "testComplete": false,
+                        "capturing": false,
+                        "totalMessages": 0,
+                        "error": "Plugin timeout - status may be stale"
+                    }
+                })),
+            )
+        }
+    }
 }
 
 // ============================================================================

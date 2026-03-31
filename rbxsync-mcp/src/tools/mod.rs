@@ -330,6 +330,36 @@ pub struct InsertModelResponse {
     pub error: Option<String>,
 }
 
+// Playtest control types
+#[derive(Debug, Deserialize)]
+pub struct PlaytestStartResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub message: Option<String>,
+    #[serde(default)]
+    pub error: Option<String>,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlaytestStopResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct PlaytestStatusResponse {
+    pub success: bool,
+    #[serde(default)]
+    pub data: Option<serde_json::Value>,
+    #[serde(default)]
+    pub error: Option<String>,
+}
+
 #[derive(Debug, Deserialize)]
 #[allow(dead_code)]
 pub struct DiffEntry {
@@ -687,6 +717,58 @@ impl RbxSyncClient {
             .await?;
 
         send_and_parse(response, "stop_test").await
+    }
+
+    // Playtest control methods
+    pub async fn start_playtest(&self, mode: Option<&str>) -> anyhow::Result<PlaytestStartResponse> {
+        let url = format!("{}/playtest/start", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .json(&serde_json::json!({
+                "mode": mode.unwrap_or("Play")
+            }))
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await?;
+
+        let body = response.text().await?;
+        debug_log_response("start_playtest", &body);
+
+        serde_json::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse start_playtest response: {}. Body: {}", e, body))
+    }
+
+    pub async fn stop_playtest(&self) -> anyhow::Result<PlaytestStopResponse> {
+        let url = format!("{}/playtest/stop", self.base_url);
+        let response = self
+            .client
+            .post(&url)
+            .timeout(std::time::Duration::from_secs(30))
+            .send()
+            .await?;
+
+        let body = response.text().await?;
+        debug_log_response("stop_playtest", &body);
+
+        serde_json::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse stop_playtest response: {}. Body: {}", e, body))
+    }
+
+    pub async fn get_playtest_status(&self) -> anyhow::Result<PlaytestStatusResponse> {
+        let url = format!("{}/playtest/status", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await?;
+
+        let body = response.text().await?;
+        debug_log_response("get_playtest_status", &body);
+
+        serde_json::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse playtest_status response: {}. Body: {}", e, body))
     }
 
     pub async fn get_diff(&self, project_dir: &str) -> anyhow::Result<DiffResponse> {

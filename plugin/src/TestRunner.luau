@@ -519,4 +519,172 @@ function TestRunner.forceStopTest(): { success: boolean, message: string }
 	return { success = true, message = "Test force stopped" }
 end
 
+-- =============================================================================
+-- PLAYTEST CONTROL (dedicated endpoints for HTTP-driven playtest lifecycle)
+-- Unlike startBackgroundTest, these don't inject an auto-stop timer.
+-- The caller is responsible for stopping the playtest via stopPlaytest().
+-- =============================================================================
+
+-- Start a playtest session without auto-stop timer
+-- This is designed for HTTP-driven control where the caller manages the lifecycle
+function TestRunner.startPlaytest(options: TestOptions?): { success: boolean, message: string }
+	local mode = (options and options.mode) or "Play"
+
+	-- Auto-recover from stale state
+	if testInProgress and not RunService:IsRunning() then
+		warn("[TestRunner] Recovering from stale playtest state")
+		testInProgress = false
+		testComplete = false
+		testError = nil
+		testResult = nil
+		if isCapturing then
+			TestRunner.stopCapture()
+		end
+		cleanupBotScripts()
+	end
+
+	if testInProgress then
+		return { success = false, message = "Playtest already in progress" }
+	end
+
+	if RunService:IsRunning() then
+		return { success = false, message = "Game already running" }
+	end
+
+	-- Reset state
+	testInProgress = true
+	testComplete = false
+	testError = nil
+	testResult = nil
+
+	-- Start capture
+	local captureResult = TestRunner.startCapture()
+	if not captureResult.success then
+		testInProgress = false
+		return { success = false, message = captureResult.message }
+	end
+
+	-- Inject bot scripts for AI-powered testing
+	injectBotScripts()
+
+	-- Spawn the playtest (NO auto-stop script — caller manages lifecycle)
+	task.spawn(function()
+		local ok, result = pcall(function()
+			if mode == "Run" then
+				return StudioTestService:ExecuteRunModeAsync({})
+			else
+				return StudioTestService:ExecutePlayModeAsync({})
+			end
+		end)
+
+		-- Clean up injected bot scripts
+		cleanupBotScripts()
+
+		-- Playtest finished (either via stopPlaytest or manual stop)
+		task.wait(0.5) -- Let final output come through
+
+		if ok then
+			testResult = result
+		else
+			testError = tostring(result)
+		end
+
+		testComplete = true
+		testInProgress = false
+	end)
+
+	return { success = true, message = "Playtest started (mode: " .. mode .. ")" }
+end
+
+-- Stop the current playtest and return captured output
+function TestRunner.stopPlaytest(): CaptureResult
+	if not RunService:IsRunning() and not testInProgress then
+		return {
+			success = false,
+			output = {},
+			totalMessages = 0,
+			error = "No playtest running",
+		}
+	end
+
+	-- End the test
+	local stopSuccess, stopErr = pcall(function()
+		StudioTestService:EndTest({ stopped = true })
+	end)
+
+	if not stopSuccess then
+		warn("[TestRunner] Error stopping playtest: " .. tostring(stopErr))
+	end
+
+	task.wait(1) -- Let test wind down
+
+	testInProgress = false
+	cleanupBotScripts()
+
+	local result = TestRunner.stopCapture()
+	result.error = testError
+
+	-- Reset state
+	testComplete = false
+	testError = nil
+	testResult = nil
+
+	return result
+end
+
+-- Get comprehensive playtest status
+-- Combines RunService state, TestRunner state, and console capture state
+function TestRunner.getPlaytestStatus(): {
+	running: boolean,
+	mode: string,
+	testInProgress: boolean,
+	testComplete: boolean,
+	capturing: boolean,
+	totalMessages: number,
+	error: string?,
+}
+	local isRunning = RunService:IsRunning()
+	local isEdit = RunService:IsEdit()
+	local isClient = RunService:IsClient()
+	local isServer = RunService:IsServer()
+
+	local mode = "edit"
+	if isRunning then
+		if isClient and isServer then
+			mode = "play"
+		elseif isServer then
+			mode = "server"
+		elseif isClient then
+			mode = "client"
+		else
+			mode = "run"
+		end
+	end
+
+	-- Auto-recover from stale state
+	if testInProgress and not isRunning then
+		testInProgress = false
+		testComplete = true
+		testError = testError or "Playtest ended unexpectedly"
+		if isCapturing then
+			isCapturing = false
+			if logConnection then
+				logConnection:Disconnect()
+				logConnection = nil
+			end
+		end
+		cleanupBotScripts()
+	end
+
+	return {
+		running = isRunning,
+		mode = mode,
+		testInProgress = testInProgress,
+		testComplete = testComplete,
+		capturing = isCapturing,
+		totalMessages = #capturedOutput,
+		error = testError,
+	}
+end
+
 return TestRunner

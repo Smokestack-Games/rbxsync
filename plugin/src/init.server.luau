@@ -1490,6 +1490,15 @@ local function handleCommand(command: string, payload: any)
         return { success = true, running = TestRunner.isRunning() }
     elseif command == "test:forceStop" then
         return TestRunner.forceStopTest()
+
+    -- Playtest control (HTTP-driven lifecycle management)
+    elseif command == "playtest:start" then
+        return TestRunner.startPlaytest(payload)
+    elseif command == "playtest:stop" then
+        return TestRunner.stopPlaytest()
+    elseif command == "playtest:status" then
+        return TestRunner.getPlaytestStatus()
+
     elseif command == "debug:start" then
         -- Start playtest
         local RunService = game:GetService("RunService")

@@ -102,6 +102,22 @@ pub struct RunTestParams {
     pub background: Option<bool>,
 }
 
+/// Parameters for start_playtest tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StartPlaytestParams {
+    /// Play mode: "Play" for solo play, "Run" for server simulation (default: "Play")
+    #[schemars(description = "Play mode: Play (solo) or Run (server sim). Default: Play")]
+    pub mode: Option<String>,
+}
+
+/// Parameters for stop_playtest tool (no params needed)
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct StopPlaytestParams {}
+
+/// Parameters for playtest_status tool (no params needed)
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct PlaytestStatusParams {}
+
 /// Parameters for insert_model tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct InsertModelParams {
@@ -336,6 +352,24 @@ fn mcp_error(msg: impl Into<String>) -> McpError {
         code: ErrorCode(-32603),
         message: Cow::from(msg.into()),
         data: None,
+    }
+}
+
+impl RbxSyncServer {
+    /// Check if a playtest is currently running. Returns an error message if not.
+    async fn check_playtest_active(&self) -> Option<String> {
+        match self.client.get_playtest_status().await {
+            Ok(status) => {
+                if let Some(data) = &status.data {
+                    let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+                    if !running {
+                        return Some("No active playtest. Start one with start_playtest or run_test first.".to_string());
+                    }
+                }
+                None
+            }
+            Err(_) => None, // Don't block on status check failure
+        }
     }
 }
 
@@ -621,9 +655,9 @@ impl RbxSyncServer {
     /// Starts a play session, captures all prints/warnings/errors, then stops and returns output.
     /// For interactive bot testing, use background: true to start the test and return immediately,
     /// then use bot_observe/bot_move/bot_action while the test runs.
-    /// IMPORTANT: Stop playtest with stop_test before making code changes.
-    /// Changes won't take effect until you stop_test, sync, then run_test again.
-    #[tool(description = "Run automated play test in Studio and return console output. For interactive bot testing, use background: true to start test and return immediately. IMPORTANT: Stop playtest with stop_test before making code changes.")]
+    /// IMPORTANT: Stop playtest with stop_playtest before making code changes.
+    /// Changes won't take effect until you stop the playtest, sync, then run_test again.
+    #[tool(description = "Run automated play test in Studio and return console output. For interactive bot testing, use background: true to start test and return immediately. IMPORTANT: Stop playtest with stop_playtest before making code changes.")]
     async fn run_test(
         &self,
         Parameters(params): Parameters<RunTestParams>,
@@ -632,43 +666,50 @@ impl RbxSyncServer {
             return Ok(err);
         }
 
-        // Start the test
+        // Use the new playtest control endpoints for reliable lifecycle management
         let start_result = self.client
-            .start_test(params.duration, params.mode.as_deref())
+            .start_playtest(params.mode.as_deref())
             .await
             .map_err(|e| mcp_error(e.to_string()))?;
 
         if !start_result.success {
+            let error_msg = start_result.error
+                .or(start_result.message)
+                .unwrap_or_else(|| "Unknown error".to_string());
             return Ok(CallToolResult::success(vec![Content::text(format!(
-                "Failed to start test: {}",
-                start_result.message.unwrap_or_default()
+                "Failed to start test: {}", error_msg
             ))]));
         }
 
-        // Background mode: return immediately after starting the test
+        // Background mode: return immediately after starting the playtest
         if params.background.unwrap_or(false) {
             return Ok(CallToolResult::success(vec![Content::text(
                 serde_json::json!({
                     "started": true,
                     "mode": params.mode.as_deref().unwrap_or("Play"),
-                    "message": "Test started in background. Use bot_observe/bot_move/bot_action to interact."
+                    "message": "Test started in background. Use bot_observe/bot_move/bot_action to interact. Call stop_playtest when done."
                 }).to_string()
             )]));
         }
 
-        // Wait for test to complete (poll status)
+        // Wait for the specified duration, polling status to detect early termination
         let duration_secs = params.duration.unwrap_or(5);
         let poll_interval = tokio::time::Duration::from_millis(500);
-        let max_wait = tokio::time::Duration::from_secs((duration_secs + 5) as u64);
+        let max_wait = tokio::time::Duration::from_secs((duration_secs + 2) as u64);
         let start_time = tokio::time::Instant::now();
 
         loop {
             tokio::time::sleep(poll_interval).await;
 
-            let status = self.client.get_test_status().await.map_err(|e| mcp_error(e.to_string()))?;
-
-            if status.complete || !status.in_progress {
-                break;
+            // Check if playtest ended early
+            let status = self.client.get_playtest_status().await;
+            if let Ok(status) = status {
+                if let Some(data) = &status.data {
+                    let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(true);
+                    if !running {
+                        break;
+                    }
+                }
             }
 
             if start_time.elapsed() > max_wait {
@@ -676,46 +717,63 @@ impl RbxSyncServer {
             }
         }
 
-        // Finish and get results
-        let result = self.client.finish_test().await.map_err(|e| mcp_error(e.to_string()))?;
+        // Stop the playtest and collect output
+        let stop_result = self.client.stop_playtest().await.map_err(|e| mcp_error(e.to_string()))?;
 
-        // Format output
+        let elapsed = start_time.elapsed().as_secs_f64();
         let mut output_lines = vec![
-            format!("Test completed in {:.1}s", result.duration.unwrap_or(0.0)),
-            format!("Total messages: {}", result.total_messages),
-            String::new(),
+            format!("Test completed in {:.1}s", elapsed),
         ];
 
-        // Group by message type
-        let errors: Vec<_> = result.output.iter().filter(|m| m.msg_type == "MessageError").collect();
-        let warnings: Vec<_> = result.output.iter().filter(|m| m.msg_type == "MessageWarning").collect();
-        let prints: Vec<_> = result.output.iter().filter(|m| m.msg_type == "MessageOutput").collect();
-
-        if !errors.is_empty() {
-            output_lines.push(format!("=== ERRORS ({}) ===", errors.len()));
-            for msg in errors {
-                output_lines.push(format!("[{:.2}s] {}", msg.timestamp, msg.message));
-            }
+        if let Some(data) = &stop_result.data {
+            let total_messages = data.get("totalMessages").and_then(|v| v.as_i64()).unwrap_or(0);
+            output_lines.push(format!("Total messages: {}", total_messages));
             output_lines.push(String::new());
-        }
 
-        if !warnings.is_empty() {
-            output_lines.push(format!("=== WARNINGS ({}) ===", warnings.len()));
-            for msg in warnings {
-                output_lines.push(format!("[{:.2}s] {}", msg.timestamp, msg.message));
+            if let Some(messages) = data.get("output").and_then(|v| v.as_array()) {
+                let errors: Vec<_> = messages.iter()
+                    .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageError"))
+                    .collect();
+                let warnings: Vec<_> = messages.iter()
+                    .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageWarning"))
+                    .collect();
+                let prints: Vec<_> = messages.iter()
+                    .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageOutput"))
+                    .collect();
+
+                if !errors.is_empty() {
+                    output_lines.push(format!("=== ERRORS ({}) ===", errors.len()));
+                    for msg in &errors {
+                        let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                        output_lines.push(format!("[{:.2}s] {}", ts, text));
+                    }
+                    output_lines.push(String::new());
+                }
+                if !warnings.is_empty() {
+                    output_lines.push(format!("=== WARNINGS ({}) ===", warnings.len()));
+                    for msg in &warnings {
+                        let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                        output_lines.push(format!("[{:.2}s] {}", ts, text));
+                    }
+                    output_lines.push(String::new());
+                }
+                if !prints.is_empty() {
+                    output_lines.push(format!("=== OUTPUT ({}) ===", prints.len()));
+                    for msg in &prints {
+                        let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                        let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                        output_lines.push(format!("[{:.2}s] {}", ts, text));
+                    }
+                }
             }
-            output_lines.push(String::new());
-        }
 
-        if !prints.is_empty() {
-            output_lines.push(format!("=== OUTPUT ({}) ===", prints.len()));
-            for msg in prints {
-                output_lines.push(format!("[{:.2}s] {}", msg.timestamp, msg.message));
+            if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                if !err.is_empty() {
+                    output_lines.insert(0, format!("Test error: {}", err));
+                }
             }
-        }
-
-        if let Some(err) = result.error {
-            output_lines.insert(0, format!("Test error: {}", err));
         }
 
         Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))
@@ -724,16 +782,17 @@ impl RbxSyncServer {
     /// Stop any running playtest in Roblox Studio.
     /// Call this before making code changes - changes won't take effect until you stop the test,
     /// sync your changes, then run a new test.
+    /// Delegates to stop_playtest for consistent lifecycle management.
     #[tool(description = "Stop any running playtest. Call before making code changes.")]
     async fn stop_test(&self) -> Result<CallToolResult, McpError> {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
         }
-        let result = self.client.stop_test().await.map_err(|e| mcp_error(e.to_string()))?;
+        let result = self.client.stop_playtest().await.map_err(|e| mcp_error(e.to_string()))?;
 
         if result.success {
             Ok(CallToolResult::success(vec![Content::text(
-                result.message.unwrap_or_else(|| "Playtest stopped successfully.".to_string())
+                "Playtest stopped successfully.".to_string()
             )]))
         } else {
             Ok(CallToolResult::success(vec![Content::text(format!(
@@ -741,6 +800,169 @@ impl RbxSyncServer {
                 result.error.unwrap_or_else(|| "Unknown error".to_string())
             ))]))
         }
+    }
+
+    // ========================================================================
+    // Playtest Control Tools (HTTP-driven playtest lifecycle)
+    // ========================================================================
+
+    /// Start a playtest session in Roblox Studio.
+    /// Unlike run_test, this starts the playtest without an auto-stop timer.
+    /// The playtest runs until explicitly stopped via stop_playtest.
+    /// Use this for interactive testing with bot tools.
+    #[tool(description = "Start a playtest session in Studio. Runs until stop_playtest is called. Use for interactive bot testing.")]
+    async fn start_playtest(
+        &self,
+        #[allow(unused)] Parameters(params): Parameters<StartPlaytestParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .start_playtest(params.mode.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            let error_msg = result.error
+                .or(result.message.clone())
+                .or_else(|| result.data.as_ref().and_then(|d| d.get("message").and_then(|v| v.as_str()).map(|s| s.to_string())))
+                .unwrap_or_else(|| "Unknown error".to_string());
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to start playtest: {}", error_msg
+            ))]));
+        }
+
+        let mode = params.mode.as_deref().unwrap_or("Play");
+        let message = result.message
+            .or_else(|| result.data.as_ref().and_then(|d| d.get("message").and_then(|v| v.as_str()).map(|s| s.to_string())))
+            .unwrap_or_else(|| format!("Playtest started (mode: {})", mode));
+
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "{}. Use bot_observe/bot_move/bot_action to interact, then stop_playtest when done.",
+            message
+        ))]))
+    }
+
+    /// Stop the current playtest in Roblox Studio.
+    /// Returns captured console output from the playtest session.
+    #[tool(description = "Stop the current playtest and return captured console output")]
+    async fn stop_playtest(
+        &self,
+        #[allow(unused)] Parameters(_params): Parameters<StopPlaytestParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .stop_playtest()
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to stop playtest: {}",
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            ))]));
+        }
+
+        // Format captured output from the test session
+        let mut output_lines = vec!["Playtest stopped.".to_string()];
+
+        if let Some(data) = &result.data {
+            if let Some(total) = data.get("totalMessages").and_then(|v| v.as_i64()) {
+                output_lines.push(format!("Total messages captured: {}", total));
+            }
+            if let Some(duration) = data.get("duration").and_then(|v| v.as_f64()) {
+                output_lines.push(format!("Duration: {:.1}s", duration));
+            }
+            if let Some(messages) = data.get("output").and_then(|v| v.as_array()) {
+                if !messages.is_empty() {
+                    output_lines.push(String::new());
+                    let errors: Vec<_> = messages.iter()
+                        .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageError"))
+                        .collect();
+                    let warnings: Vec<_> = messages.iter()
+                        .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageWarning"))
+                        .collect();
+                    let prints: Vec<_> = messages.iter()
+                        .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageOutput"))
+                        .collect();
+
+                    if !errors.is_empty() {
+                        output_lines.push(format!("=== ERRORS ({}) ===", errors.len()));
+                        for msg in &errors {
+                            let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                            output_lines.push(format!("[{:.2}s] {}", ts, text));
+                        }
+                        output_lines.push(String::new());
+                    }
+                    if !warnings.is_empty() {
+                        output_lines.push(format!("=== WARNINGS ({}) ===", warnings.len()));
+                        for msg in &warnings {
+                            let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                            output_lines.push(format!("[{:.2}s] {}", ts, text));
+                        }
+                        output_lines.push(String::new());
+                    }
+                    if !prints.is_empty() {
+                        output_lines.push(format!("=== OUTPUT ({}) ===", prints.len()));
+                        for msg in &prints {
+                            let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                            let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                            output_lines.push(format!("[{:.2}s] {}", ts, text));
+                        }
+                    }
+                }
+            }
+            if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                if !err.is_empty() {
+                    output_lines.push(format!("\nPlaytest error: {}", err));
+                }
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))
+    }
+
+    /// Get the current playtest status.
+    /// Returns whether a playtest is running, the mode, and capture state.
+    #[tool(description = "Get current playtest status - running state, mode, capture info")]
+    async fn playtest_status(
+        &self,
+        #[allow(unused)] Parameters(_params): Parameters<PlaytestStatusParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .get_playtest_status()
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to get playtest status: {}",
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            ))]));
+        }
+
+        let mut output_lines = vec![];
+
+        if let Some(data) = &result.data {
+            let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mode = data.get("mode").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let capturing = data.get("capturing").and_then(|v| v.as_bool()).unwrap_or(false);
+            let total_messages = data.get("totalMessages").and_then(|v| v.as_i64()).unwrap_or(0);
+
+            output_lines.push(format!("Running: {}", running));
+            output_lines.push(format!("Mode: {}", mode));
+            output_lines.push(format!("Capturing: {}", capturing));
+            output_lines.push(format!("Messages captured: {}", total_messages));
+
+            if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                if !err.is_empty() {
+                    output_lines.push(format!("Error: {}", err));
+                }
+            }
+        } else {
+            output_lines.push("No status data available.".to_string());
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))
     }
 
     // ========================================================================
@@ -757,6 +979,9 @@ impl RbxSyncServer {
     ) -> Result<CallToolResult, McpError> {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
+        }
+        if let Some(msg) = self.check_playtest_active().await {
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
         }
         let result = self.client
             .bot_observe(&params.observe_type, params.radius, params.query.as_deref())
@@ -790,6 +1015,9 @@ impl RbxSyncServer {
     ) -> Result<CallToolResult, McpError> {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
+        }
+        if let Some(msg) = self.check_playtest_active().await {
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
         }
 
         // Validate: at least one of position or objectName must be provided
@@ -858,6 +1086,9 @@ impl RbxSyncServer {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
         }
+        if let Some(msg) = self.check_playtest_active().await {
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
+        }
         let result = self.client
             .bot_action(&params.action, params.name.as_deref())
             .await
@@ -893,6 +1124,9 @@ impl RbxSyncServer {
     ) -> Result<CallToolResult, McpError> {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
+        }
+        if let Some(msg) = self.check_playtest_active().await {
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
         }
         let result = self.client
             .bot_command(&params.command_type, &params.command, params.args.clone())
@@ -930,6 +1164,9 @@ impl RbxSyncServer {
     ) -> Result<CallToolResult, McpError> {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
+        }
+        if let Some(msg) = self.check_playtest_active().await {
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
         }
         // Send as a dedicated bot query server command
         let result = self.client
@@ -976,6 +1213,9 @@ impl RbxSyncServer {
     ) -> Result<CallToolResult, McpError> {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
+        }
+        if let Some(msg) = self.check_playtest_active().await {
+            return Ok(CallToolResult::success(vec![Content::text(msg)]));
         }
         let context = params.context.as_deref().unwrap_or("server");
         let command = if context == "server" { "waitForServer" } else { "waitFor" };
