@@ -1484,15 +1484,21 @@ impl RbxSyncServer {
         let navigate = luau_navigate_snippet(&params.path);
         let path_escaped = escape_luau_string(&params.path);
 
+        // Luau-side escaping: replace \ with \\ then " with \" in both keys and string values
         let code = format!(
             "{navigate}\n\
             if not target then return \"Error: Instance not found at path: {path}\" end\n\
             local attrs = target:GetAttributes()\n\
             local parts = {{}}\n\
+            local function escapeStr(s)\n\
+                s = string.gsub(s, '\\\\', '\\\\\\\\')\n\
+                s = string.gsub(s, '\"', '\\\\\"')\n\
+                return s\n\
+            end\n\
             for name, value in pairs(attrs) do\n\
                 local valStr = tostring(value)\n\
-                if type(value) == \"string\" then valStr = '\"' .. value .. '\"' end\n\
-                table.insert(parts, '\"' .. name .. '\": ' .. valStr)\n\
+                if type(value) == \"string\" then valStr = '\"' .. escapeStr(value) .. '\"' end\n\
+                table.insert(parts, '\"' .. escapeStr(name) .. '\": ' .. valStr)\n\
             end\n\
             if #parts == 0 then return \"No attributes on \" .. target:GetFullName() end\n\
             return \"Attributes on \" .. target:GetFullName() .. \":\\n{{\" .. table.concat(parts, \", \") .. \"}}\"",
@@ -1511,6 +1517,9 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<SetAttributeParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Validate attribute name to prevent Luau injection
+        validate_luau_identifier(&params.name).map_err(|e| mcp_error(format!("Invalid attribute name: {}", e)))?;
+
         let navigate = luau_navigate_snippet(&params.path);
         let path_escaped = escape_luau_string(&params.path);
         let name_escaped = escape_luau_string(&params.name);
@@ -1523,7 +1532,7 @@ impl RbxSyncServer {
                 target:SetAttribute(\"{name}\", {value})\n\
             end)\n\
             if not ok then return \"Error: \" .. tostring(err) end\n\
-            return \"Set attribute '\" .. \"{name}\" .. \"' = \" .. tostring(target:GetAttribute(\"{name}\")) .. \" on \" .. target:GetFullName()",
+            return \"Set attribute '{name}' = \" .. tostring(target:GetAttribute(\"{name}\")) .. \" on \" .. target:GetFullName()",
             navigate = navigate,
             path = path_escaped,
             name = name_escaped,
@@ -1541,6 +1550,9 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<DeleteAttributeParams>,
     ) -> Result<CallToolResult, McpError> {
+        // Validate attribute name to prevent Luau injection
+        validate_luau_identifier(&params.name).map_err(|e| mcp_error(format!("Invalid attribute name: {}", e)))?;
+
         let navigate = luau_navigate_snippet(&params.path);
         let path_escaped = escape_luau_string(&params.path);
         let name_escaped = escape_luau_string(&params.name);
