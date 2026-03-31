@@ -10,6 +10,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 pub mod luau_helpers;
 mod tools;
+use luau_helpers::{escape_luau_string, luau_navigate_snippet, validate_luau_identifier};
 use tools::RbxSyncClient;
 
 /// RbxSync MCP Server - provides tools for extracting and syncing Roblox games
@@ -387,24 +388,6 @@ pub struct GetTaggedParams {
     /// Maximum results (default: 100)
     #[schemars(description = "Max results (default: 100)")]
     pub limit: Option<u32>,
-}
-
-/// Escape a string for use inside a Luau string literal.
-fn escape_luau_string(s: &str) -> String {
-    s.replace('\\', "\\\\").replace('"', "\\\"")
-}
-
-/// Generate Luau code to navigate to an instance by path.
-fn luau_navigate_snippet() -> &'static str {
-    r#"local function navigate(path)
-    local parts = string.split(path, "/")
-    local current = game:GetService(parts[1])
-    for i = 2, #parts do
-        current = current:FindFirstChild(parts[i])
-        if not current then return nil end
-    end
-    return current
-end"#
 }
 
 fn mcp_error(msg: impl Into<String>) -> McpError {
@@ -1340,17 +1323,17 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<GetTagsParams>,
     ) -> Result<CallToolResult, McpError> {
+        let navigate = luau_navigate_snippet(&params.path);
         let path_escaped = escape_luau_string(&params.path);
 
         let code = format!(
             "{navigate}\n\
             local CollectionService = game:GetService(\"CollectionService\")\n\
-            local inst = navigate(\"{path}\")\n\
-            if not inst then return \"Error: Instance not found at path: {path}\" end\n\
-            local tags = CollectionService:GetTags(inst)\n\
-            if #tags == 0 then return \"No tags on \" .. inst:GetFullName() end\n\
-            return \"Tags on \" .. inst:GetFullName() .. \" (\" .. #tags .. \"):\\n\" .. table.concat(tags, \"\\n\")",
-            navigate = luau_navigate_snippet(),
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            local tags = CollectionService:GetTags(target)\n\
+            if #tags == 0 then return \"No tags on \" .. target:GetFullName() end\n\
+            return \"Tags on \" .. target:GetFullName() .. \" (\" .. #tags .. \"):\\n\" .. table.concat(tags, \"\\n\")",
+            navigate = navigate,
             path = path_escaped,
         );
 
@@ -1364,17 +1347,21 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<AddTagParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_luau_identifier(&params.tag).map_err(|e| {
+            mcp_error(format!("Invalid tag name: {}", e))
+        })?;
+
+        let navigate = luau_navigate_snippet(&params.path);
         let path_escaped = escape_luau_string(&params.path);
         let tag_escaped = escape_luau_string(&params.tag);
 
         let code = format!(
             "{navigate}\n\
             local CollectionService = game:GetService(\"CollectionService\")\n\
-            local inst = navigate(\"{path}\")\n\
-            if not inst then return \"Error: Instance not found at path: {path}\" end\n\
-            CollectionService:AddTag(inst, \"{tag}\")\n\
-            return \"Added tag '{tag}' to \" .. inst:GetFullName()",
-            navigate = luau_navigate_snippet(),
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            CollectionService:AddTag(target, \"{tag}\")\n\
+            return \"Added tag '{tag}' to \" .. target:GetFullName()",
+            navigate = navigate,
             path = path_escaped,
             tag = tag_escaped,
         );
@@ -1389,20 +1376,24 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<RemoveTagParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_luau_identifier(&params.tag).map_err(|e| {
+            mcp_error(format!("Invalid tag name: {}", e))
+        })?;
+
+        let navigate = luau_navigate_snippet(&params.path);
         let path_escaped = escape_luau_string(&params.path);
         let tag_escaped = escape_luau_string(&params.tag);
 
         let code = format!(
             "{navigate}\n\
             local CollectionService = game:GetService(\"CollectionService\")\n\
-            local inst = navigate(\"{path}\")\n\
-            if not inst then return \"Error: Instance not found at path: {path}\" end\n\
-            if not CollectionService:HasTag(inst, \"{tag}\") then\n\
-                return \"Tag '{tag}' not found on \" .. inst:GetFullName()\n\
+            if not target then return \"Error: Instance not found at path: {path}\" end\n\
+            if not CollectionService:HasTag(target, \"{tag}\") then\n\
+                return \"Tag '{tag}' not found on \" .. target:GetFullName()\n\
             end\n\
-            CollectionService:RemoveTag(inst, \"{tag}\")\n\
-            return \"Removed tag '{tag}' from \" .. inst:GetFullName()",
-            navigate = luau_navigate_snippet(),
+            CollectionService:RemoveTag(target, \"{tag}\")\n\
+            return \"Removed tag '{tag}' from \" .. target:GetFullName()",
+            navigate = navigate,
             path = path_escaped,
             tag = tag_escaped,
         );
@@ -1418,6 +1409,10 @@ impl RbxSyncServer {
         &self,
         Parameters(params): Parameters<GetTaggedParams>,
     ) -> Result<CallToolResult, McpError> {
+        validate_luau_identifier(&params.tag).map_err(|e| {
+            mcp_error(format!("Invalid tag name: {}", e))
+        })?;
+
         let tag_escaped = escape_luau_string(&params.tag);
         let limit = params.limit.unwrap_or(100).min(500);
 
