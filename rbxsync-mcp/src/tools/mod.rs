@@ -1,4 +1,4 @@
-use serde::{Deserialize, Serialize};
+use serde::{de::DeserializeOwned, Deserialize, Serialize};
 
 /// Check if debug mode is enabled via RBXSYNC_DEBUG env var
 fn is_debug_enabled() -> bool {
@@ -12,6 +12,40 @@ fn debug_log_response(endpoint: &str, body: &str) {
     }
 }
 
+/// Parse a JSON response body with debug logging and helpful error messages.
+/// On parse failure, includes the raw body in the error for easier debugging.
+fn parse_response<T: DeserializeOwned>(endpoint: &str, body: &str) -> anyhow::Result<T> {
+    debug_log_response(endpoint, body);
+    serde_json::from_str(body)
+        .map_err(|e| anyhow::anyhow!(
+            "Failed to parse {} response: {}. Raw body (first 500 chars): {}",
+            endpoint,
+            e,
+            &body[..body.len().min(500)]
+        ))
+}
+
+/// Send a request and parse the JSON response with debug logging.
+/// Captures the raw body before parsing so failures include context.
+/// Also checks HTTP status codes and returns clear errors for non-success responses.
+async fn send_and_parse<T: DeserializeOwned>(
+    response: reqwest::Response,
+    endpoint: &str,
+) -> anyhow::Result<T> {
+    let status = response.status();
+    let body = response.text().await?;
+    if !status.is_success() {
+        debug_log_response(endpoint, &body);
+        return Err(anyhow::anyhow!(
+            "{} returned HTTP {}: {}",
+            endpoint,
+            status,
+            &body[..body.len().min(500)]
+        ));
+    }
+    parse_response(endpoint, &body)
+}
+
 /// HTTP client for communicating with rbxsync-server
 #[derive(Debug, Clone)]
 pub struct RbxSyncClient {
@@ -20,6 +54,7 @@ pub struct RbxSyncClient {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct HealthResponse {
     #[serde(default)]
     pub status: String,
@@ -28,6 +63,7 @@ pub struct HealthResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ExtractStartResponse {
     #[serde(rename = "sessionId")]
     pub session_id: String,
@@ -35,6 +71,7 @@ pub struct ExtractStartResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ExtractStatusResponse {
     #[serde(rename = "sessionId")]
     pub session_id: String,
@@ -47,6 +84,7 @@ pub struct ExtractStatusResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct ExtractFinalizeResponse {
     pub success: bool,
     #[serde(rename = "filesWritten")]
@@ -58,12 +96,14 @@ pub struct ExtractFinalizeResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SyncReadTreeResponse {
     pub instances: Vec<serde_json::Value>,  // Raw JSON instances
     pub count: i32,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct IncrementalSyncResponse {
     pub success: bool,
     pub instances: Vec<serde_json::Value>,
@@ -96,6 +136,7 @@ pub fn build_sync_operations(instances: Vec<serde_json::Value>) -> Vec<serde_jso
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SyncBatchResult {
     pub success: bool,
     #[serde(default)]
@@ -103,6 +144,7 @@ pub struct SyncBatchResult {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SyncBatchResponseData {
     #[serde(default)]
     pub success: bool,
@@ -120,6 +162,7 @@ pub struct SyncBatchResponseData {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct SyncBatchResponse {
     pub success: bool,
     #[serde(default)]
@@ -142,6 +185,7 @@ pub struct ChangedFile {
 
 /// Git status from server (matches server's GitStatus struct)
 #[derive(Debug, Default, Deserialize)]
+#[allow(dead_code)]
 pub struct ServerGitStatus {
     pub branch: String,
     #[serde(default)]
@@ -186,6 +230,7 @@ pub struct RunCodeResponse {
 
 // Test runner types
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct TestRunParams {
     pub duration: Option<u32>,
     pub mode: Option<String>,
@@ -208,6 +253,7 @@ pub struct ConsoleMessage {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct TestStatusResponse {
     #[serde(rename = "inProgress", default)]
     pub in_progress: bool,
@@ -222,6 +268,7 @@ pub struct TestStatusResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct TestFinishResponse {
     #[serde(default)]
     pub success: bool,
@@ -248,6 +295,7 @@ pub struct TestStopResponse {
 /// Note: Server returns PluginResponse which has id, success, data, error
 /// The `data` field contains the actual response payload
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct CommandResponse<T> {
     pub success: bool,
     #[serde(default)]
@@ -261,6 +309,7 @@ pub struct CommandResponse<T> {
 
 /// Raw plugin response for flexible parsing
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct RawPluginResponse {
     pub success: bool,
     #[serde(default)]
@@ -282,12 +331,14 @@ pub struct InsertModelResponse {
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct DiffEntry {
     pub path: String,
     pub class_name: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 pub struct DiffResponse {
     pub added: Vec<DiffEntry>,
     pub removed: Vec<DiffEntry>,
@@ -303,14 +354,8 @@ impl RbxSyncClient {
     }
 
     pub async fn check_health(&self) -> anyhow::Result<bool> {
-        let url = format!("{}/health", self.base_url);
-        let response = self.client.get(&url).send().await?;
-        let body = response.text().await?;
-        debug_log_response("check_health", &body);
-
-        let resp: HealthResponse = serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse health response: {}. Body: {}", e, body))?;
-
+        let response = self.client.get(format!("{}/health", self.base_url)).send().await?;
+        let resp: HealthResponse = send_and_parse(response, "check_health").await?;
         Ok(resp.status == "ok")
     }
 
@@ -329,28 +374,24 @@ impl RbxSyncClient {
             body["services"] = serde_json::json!(services);
         }
 
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/extract/start", self.base_url))
             .json(&body)
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "start_extraction").await
     }
 
     pub async fn get_extraction_status(&self) -> anyhow::Result<ExtractStatusResponse> {
-        let resp = self
+        let response = self
             .client
             .get(format!("{}/extract/status", self.base_url))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "get_extraction_status").await
     }
 
     pub async fn finalize_extraction(
@@ -358,7 +399,7 @@ impl RbxSyncClient {
         session_id: &str,
         project_dir: &str,
     ) -> anyhow::Result<ExtractFinalizeResponse> {
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/extract/finalize", self.base_url))
             .json(&serde_json::json!({
@@ -366,42 +407,37 @@ impl RbxSyncClient {
                 "project_dir": project_dir
             }))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "finalize_extraction").await
     }
 
+    #[allow(dead_code)]
     pub async fn read_tree(&self, project_dir: &str) -> anyhow::Result<SyncReadTreeResponse> {
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/sync/read-tree", self.base_url))
             .json(&serde_json::json!({
                 "project_dir": project_dir
             }))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "read_tree").await
     }
 
     /// Read only files changed since last sync (incremental sync)
     pub async fn read_incremental(&self, project_dir: &str) -> anyhow::Result<IncrementalSyncResponse> {
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/sync/incremental", self.base_url))
             .json(&serde_json::json!({
                 "project_dir": project_dir
             }))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "read_incremental").await
     }
 
     /// Mark the project as synced (call after successful sync)
@@ -419,7 +455,7 @@ impl RbxSyncClient {
     }
 
     pub async fn sync_batch(&self, operations: &[serde_json::Value], project_dir: Option<&str>) -> anyhow::Result<SyncBatchResponse> {
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/sync/batch", self.base_url))
             .json(&serde_json::json!({
@@ -427,24 +463,22 @@ impl RbxSyncClient {
                 "projectDir": project_dir
             }))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "sync_batch").await
     }
 
     pub async fn get_git_status(&self, project_dir: &str) -> anyhow::Result<GitStatusResponse> {
-        let resp: CommandResponse<ServerGitStatus> = self
+        let response = self
             .client
             .post(format!("{}/git/status", self.base_url))
             .json(&serde_json::json!({
                 "project_dir": project_dir
             }))
             .send()
-            .await?
-            .json()
             .await?;
+
+        let resp: CommandResponse<ServerGitStatus> = send_and_parse(response, "get_git_status").await?;
 
         if !resp.success {
             // Not a git repo or other error
@@ -497,29 +531,27 @@ impl RbxSyncClient {
             body["files"] = serde_json::json!(files);
         }
 
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/git/commit", self.base_url))
             .json(&body)
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "git_commit").await
     }
 
     pub async fn run_code(&self, code: &str) -> anyhow::Result<String> {
-        let resp: RunCodeResponse = self
+        let response = self
             .client
             .post(format!("{}/run", self.base_url))
             .json(&serde_json::json!({
                 "code": code
             }))
             .send()
-            .await?
-            .json()
             .await?;
+
+        let resp: RunCodeResponse = send_and_parse(response, "run_code").await?;
 
         if resp.success {
             Ok(resp.output.unwrap_or_default())
@@ -549,12 +581,15 @@ impl RbxSyncClient {
             .send()
             .await?;
 
+        let status = response.status();
         let body = response.text().await?;
-        debug_log_response("start_test", &body);
+        if !status.is_success() {
+            debug_log_response("start_test", &body);
+            return Err(anyhow::anyhow!("start_test returned HTTP {}: {}", status, &body[..body.len().min(500)]));
+        }
 
         // Parse as raw response first, then extract data
-        let raw: RawPluginResponse = serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse start_test response: {}. Body: {}", e, body))?;
+        let raw: RawPluginResponse = parse_response("start_test", &body)?;
 
         // Try to extract TestStartResponse from data, or construct from top-level
         if raw.data.is_null() || raw.data.as_object().map(|o| o.is_empty()).unwrap_or(false) {
@@ -585,11 +620,14 @@ impl RbxSyncClient {
             .send()
             .await?;
 
+        let status = response.status();
         let body = response.text().await?;
-        debug_log_response("get_test_status", &body);
+        if !status.is_success() {
+            debug_log_response("get_test_status", &body);
+            return Err(anyhow::anyhow!("get_test_status returned HTTP {}: {}", status, &body[..body.len().min(500)]));
+        }
 
-        let raw: RawPluginResponse = serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse get_test_status response: {}. Body: {}", e, body))?;
+        let raw: RawPluginResponse = parse_response("get_test_status", &body)?;
 
         // Extract TestStatusResponse from data
         if raw.data.is_null() || raw.data.as_object().map(|o| o.is_empty()).unwrap_or(false) {
@@ -618,11 +656,14 @@ impl RbxSyncClient {
             .send()
             .await?;
 
+        let status = response.status();
         let body = response.text().await?;
-        debug_log_response("finish_test", &body);
+        if !status.is_success() {
+            debug_log_response("finish_test", &body);
+            return Err(anyhow::anyhow!("finish_test returned HTTP {}: {}", status, &body[..body.len().min(500)]));
+        }
 
-        let raw: RawPluginResponse = serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse finish_test response: {}. Body: {}", e, body))?;
+        let raw: RawPluginResponse = parse_response("finish_test", &body)?;
 
         if raw.data.is_null() || raw.data.as_object().map(|o| o.is_empty()).unwrap_or(false) {
             Ok(TestFinishResponse {
@@ -639,30 +680,26 @@ impl RbxSyncClient {
     }
 
     pub async fn stop_test(&self) -> anyhow::Result<TestStopResponse> {
-        let resp: TestStopResponse = self
+        let response = self
             .client
             .post(format!("{}/test/stop", self.base_url))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "stop_test").await
     }
 
     pub async fn get_diff(&self, project_dir: &str) -> anyhow::Result<DiffResponse> {
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/diff", self.base_url))
             .json(&serde_json::json!({
                 "project_dir": project_dir
             }))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "get_diff").await
     }
 
     // ========================================================================
@@ -689,11 +726,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("bot_observe", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse bot_observe response: {}. Body: {}", e, body))
+        send_and_parse(response, "bot_observe").await
     }
 
     /// Move character to position or object
@@ -714,11 +747,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("bot_move", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse bot_move response: {}. Body: {}", e, body))
+        send_and_parse(response, "bot_move").await
     }
 
     /// Perform character action
@@ -739,11 +768,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("bot_action", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse bot_action response: {}. Body: {}", e, body))
+        send_and_parse(response, "bot_action").await
     }
 
     /// Send generic bot command
@@ -766,11 +791,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("bot_command", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse bot_command response: {}. Body: {}", e, body))
+        send_and_parse(response, "bot_command").await
     }
 
     /// Execute Luau code on the server during playtest
@@ -789,11 +810,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("bot_query_server", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse bot_query_server response: {}. Body: {}", e, body))
+        send_and_parse(response, "bot_query_server").await
     }
 
     // ========================================================================
@@ -821,11 +838,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("harness_init", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse harness_init response: {}. Body: {}", e, body))
+        send_and_parse(response, "harness_init").await
     }
 
     /// Start a new development session
@@ -845,11 +858,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("harness_session_start", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse harness_session_start response: {}. Body: {}", e, body))
+        send_and_parse(response, "harness_session_start").await
     }
 
     /// End a development session
@@ -873,14 +882,11 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("harness_session_end", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse harness_session_end response: {}. Body: {}", e, body))
+        send_and_parse(response, "harness_session_end").await
     }
 
     /// Update or create a feature
+    #[allow(clippy::too_many_arguments)]
     pub async fn harness_feature_update(
         &self,
         project_dir: &str,
@@ -911,11 +917,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("harness_feature_update", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse harness_feature_update response: {}. Body: {}", e, body))
+        send_and_parse(response, "harness_feature_update").await
     }
 
     /// Get harness status for a project
@@ -933,11 +935,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("harness_status", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse harness_status response: {}. Body: {}", e, body))
+        send_and_parse(response, "harness_status").await
     }
 
     /// Read properties of an instance at the given path
@@ -953,11 +951,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("read_properties", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse read_properties response: {}. Body: {}", e, body))
+        send_and_parse(response, "read_properties").await
     }
 
     /// Explore the game hierarchy
@@ -978,11 +972,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("explore_hierarchy", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse explore_hierarchy response: {}. Body: {}", e, body))
+        send_and_parse(response, "explore_hierarchy").await
     }
 
     /// Find instances matching search criteria
@@ -1007,11 +997,7 @@ impl RbxSyncClient {
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("find_instances", &body);
-
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse find_instances response: {}. Body: {}", e, body))
+        send_and_parse(response, "find_instances").await
     }
 
     /// Insert a model from the Roblox marketplace by asset ID
@@ -1020,7 +1006,7 @@ impl RbxSyncClient {
         asset_id: u64,
         parent: Option<&str>,
     ) -> anyhow::Result<InsertModelResponse> {
-        let resp = self
+        let response = self
             .client
             .post(format!("{}/insert-model", self.base_url))
             .json(&serde_json::json!({
@@ -1029,11 +1015,9 @@ impl RbxSyncClient {
             }))
             .timeout(std::time::Duration::from_secs(60))
             .send()
-            .await?
-            .json()
             .await?;
 
-        Ok(resp)
+        send_and_parse(response, "insert_model").await
     }
 }
 
@@ -1141,6 +1125,7 @@ pub struct SessionSummary {
 
 /// Response with harness status
 #[derive(Debug, Deserialize)]
+#[allow(dead_code)]
 #[serde(rename_all = "camelCase")]
 pub struct HarnessStatusResponse {
     #[serde(default)]

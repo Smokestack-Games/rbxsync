@@ -725,11 +725,10 @@ async fn cmd_studio(place: Option<PathBuf>, serve: bool) -> Result<()> {
     }
 
     // Build command to launch Studio
-    let mut command = std::process::Command::new("open");
-
     #[cfg(target_os = "macos")]
-    {
-        command.arg("-a").arg(&studio_path);
+    let mut command = {
+        let mut cmd = std::process::Command::new("open");
+        cmd.arg("-a").arg(&studio_path);
         if let Some(ref place_file) = place {
             // Validate the file exists and has correct extension
             if !place_file.exists() {
@@ -742,20 +741,25 @@ async fn cmd_studio(place: Option<PathBuf>, serve: bool) -> Result<()> {
             if ext != "rbxl" && ext != "rbxlx" {
                 anyhow::bail!("Invalid place file format. Expected .rbxl or .rbxlx");
             }
-            command.arg(place_file);
+            cmd.arg(place_file);
         }
-    }
+        cmd
+    };
 
     #[cfg(target_os = "windows")]
-    {
-        command = std::process::Command::new(&studio_path);
+    let mut command = {
+        let mut cmd = std::process::Command::new(&studio_path);
         if let Some(ref place_file) = place {
             if !place_file.exists() {
                 anyhow::bail!("Place file not found: {}", place_file.display());
             }
-            command.arg(place_file);
+            cmd.arg(place_file);
         }
-    }
+        cmd
+    };
+
+    #[cfg(not(any(target_os = "macos", target_os = "windows")))]
+    let mut command = std::process::Command::new("open");
 
     println!("Launching Roblox Studio...");
     command
@@ -1188,23 +1192,6 @@ async fn stop_all_servers() -> Result<()> {
     println!("Stopping all servers is only supported on Unix systems.");
     println!("Please specify a port: rbxsync stop --port PORT");
     Ok(())
-}
-
-/// Wait for a port to be released, polling up to `timeout_ms` milliseconds
-async fn wait_for_port_release(port: u16, timeout_ms: u64) -> bool {
-    let start = std::time::Instant::now();
-    let timeout = std::time::Duration::from_millis(timeout_ms);
-
-    while start.elapsed() < timeout {
-        // Try to bind to the port - if successful, the port is free
-        match std::net::TcpListener::bind(format!("127.0.0.1:{}", port)) {
-            Ok(_) => return true,
-            Err(_) => {
-                tokio::time::sleep(tokio::time::Duration::from_millis(100)).await;
-            }
-        }
-    }
-    false
 }
 
 /// Check if a port is available
@@ -1774,10 +1761,7 @@ fn build_sourcemap_node(
     include_non_scripts: bool,
 ) -> Result<serde_json::Value> {
     let mut children = Vec::new();
-    let mut file_paths = Vec::new();
-
-    // Add the directory itself as a file path
-    file_paths.push(dir_path.to_string_lossy().to_string());
+    let file_paths = vec![dir_path.to_string_lossy().to_string()];
 
     if dir_path.exists() && dir_path.is_dir() {
         let mut entries: Vec<_> = std::fs::read_dir(dir_path)
@@ -1786,7 +1770,7 @@ fn build_sourcemap_node(
             .collect();
 
         // Sort for consistent output
-        entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+        entries.sort_by_key(|a| a.file_name());
 
         for entry in entries {
             let entry_path = entry.path();
@@ -2051,7 +2035,7 @@ fn build_dom_from_src(src_dir: &std::path::Path, is_place: bool) -> Result<WeakD
         .filter_map(|e| e.ok())
         .collect();
 
-    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    entries.sort_by_key(|a| a.file_name());
 
     for entry in entries {
         let entry_path = entry.path();
@@ -2123,7 +2107,7 @@ fn build_dom_children(
         .filter_map(|e| e.ok())
         .collect();
 
-    entries.sort_by(|a, b| a.file_name().cmp(&b.file_name()));
+    entries.sort_by_key(|a| a.file_name());
 
     // Check for init file first
     let init_files = ["init.luau", "init.server.luau", "init.client.luau"];
@@ -2441,7 +2425,7 @@ fn json_to_variant(value: &serde_json::Value) -> Option<Variant> {
             if let Some(i) = n.as_i64() {
                 Some(Variant::Int32(i as i32))
             } else {
-                n.as_f64().map(|f| Variant::Float64(f))
+                n.as_f64().map(Variant::Float64)
             }
         }
         _ => None,
@@ -2478,7 +2462,7 @@ fn cmd_fmt_project(path: Option<PathBuf>, check: bool) -> Result<()> {
 
             if path.is_dir() {
                 visit_dir(&path, check, unformatted, formatted_count)?;
-            } else if path.extension().map_or(false, |ext| ext == "rbxjson") {
+            } else if path.extension().is_some_and(|ext| ext == "rbxjson") {
                 let content = std::fs::read_to_string(&path)
                     .with_context(|| format!("Failed to read {}", path.display()))?;
 
@@ -2926,7 +2910,7 @@ fn cmd_update_from_source(vscode: bool) -> Result<()> {
             Some(dir) if dir.join("Cargo.toml").exists() && dir.join("plugin").exists() => dir,
             _ => {
                 println!("Cloning repository to ~/.rbxsync/repo...");
-                std::fs::create_dir_all(&home_dir.join(".rbxsync"))
+                std::fs::create_dir_all(home_dir.join(".rbxsync"))
                     .context("Failed to create ~/.rbxsync directory")?;
 
                 let status = std::process::Command::new("git")
@@ -3612,7 +3596,7 @@ async fn cmd_harness(action: HarnessAction) -> Result<()> {
                 let status_filter = status.as_ref().map(|s| s.to_lowercase());
 
                 println!("Features:");
-                println!("{:<36} {:<12} {:<8} {}", "ID", "Status", "Priority", "Name");
+                println!("{:<36} {:<12} {:<8} Name", "ID", "Status", "Priority");
                 println!("{}", "-".repeat(80));
 
                 for feature in features {

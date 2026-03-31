@@ -38,6 +38,27 @@ What would you like to work on?
 
 ---
 
+## Current State (as of 2026-02-13)
+
+### Sprint 2 (Feb 2 – Feb 16)
+- **Sprint 1 completed:** 83/83 issues done (v1.3.0 shipped, bug bash complete)
+- **Sprint 2 focus:** v1.4 Launch-Ready, AI Integration, Developer Experience
+- **Active priorities:**
+  - P1 Bugs: RBXSYNC-141 (trash recursion), RBXSYNC-137 (bot playtest check)
+  - P2 MCP: RBXSYNC-126 (diff tool), RBXSYNC-127 (sourcemap tool), RBXSYNC-128 (git_log tool)
+  - P2 Bugs: RBXSYNC-94 (log spam), RBXSYNC-138 (bot_move validation)
+  - P2 Improvements: RBXSYNC-97 (MCP logging), RBXSYNC-98 (run_test reliability)
+  - Docs: RBXSYNC-124 (replace rojo refs), RBXSYNC-116 (AI agent guide)
+
+### Recently Completed
+- v1.3.0 release with full extraction/sync pipeline
+- Agent Teams infrastructure (worktree workflow, quality gates)
+- Debug logging standard (TestLogger, RBXSYNC-143)
+- GitHub releases distribution (RBXSYNC-109)
+- All Sprint 1 bug bash items resolved
+
+---
+
 ## Quick Reference
 
 ### Spawning Teammates

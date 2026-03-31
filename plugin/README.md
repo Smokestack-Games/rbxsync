@@ -21,7 +21,9 @@ rbxsync build-plugin --install
 
 This builds `RbxSync.rbxm` and copies it to your Studio plugins folder.
 
-### Option 2: Manual Install
+### Option 2: Manual Install (using Rojo)
+
+If you already have [Rojo](https://rojo.space) installed, you can build manually:
 
 1. Build the plugin:
    ```bash
@@ -31,6 +33,8 @@ This builds `RbxSync.rbxm` and copies it to your Studio plugins folder.
 2. Copy `build/RbxSync.rbxm` to:
    - **macOS**: `~/Documents/Roblox/Plugins/`
    - **Windows**: `%LOCALAPPDATA%\Roblox\Plugins\`
+
+> **Note:** Option 1 (`rbxsync build-plugin --install`) is preferred — it handles building and installation in one step without requiring Rojo.
 
 ### Option 3: Creator Store
 
@@ -174,10 +178,10 @@ MyGame/
 ### Building
 
 ```bash
-# Using rbxsync CLI
+# Recommended: using rbxsync CLI
 rbxsync build-plugin
 
-# Using Rojo directly
+# Alternative: using Rojo directly (requires Rojo to be installed)
 rojo build plugin/default.project.json -o build/RbxSync.rbxm
 ```
 

@@ -5,6 +5,7 @@ import { StatusBarManager } from '../views/statusBar';
 
 let serverTerminal: vscode.Terminal | null = null;
 let terminalCloseListener: vscode.Disposable | null = null;
+let isConnecting = false;
 
 /**
  * Initialize terminal tracking - call this during extension activation.
@@ -41,42 +42,50 @@ export async function connectCommand(
   client: RbxSyncClient,
   statusBar: StatusBarManager
 ): Promise<void> {
-  let connected = await client.connect();
+  if (isConnecting) return;
+  isConnecting = true;
 
-  if (connected) {
-    if (client.projectDir) {
-      await client.registerWorkspace(client.projectDir);
-    }
-    statusBar.startPolling();
-    return;
-  }
+  try {
+    let connected = await client.connect();
 
-  vscode.window.showInformationMessage('Starting RbxSync server...');
-
-  if (!serverTerminal || serverTerminal.exitStatus !== undefined) {
-    serverTerminal = vscode.window.createTerminal({
-      name: 'RbxSync Server',
-      hideFromUser: false
-    });
-  }
-
-  serverTerminal.sendText('rbxsync serve');
-  serverTerminal.show(true);
-
-  for (let i = 0; i < 10; i++) {
-    await new Promise(resolve => setTimeout(resolve, 500));
-    connected = await client.connect();
     if (connected) {
       if (client.projectDir) {
         await client.registerWorkspace(client.projectDir);
       }
       statusBar.startPolling();
-      vscode.window.showInformationMessage('RbxSync server started');
       return;
     }
-  }
 
-  vscode.window.showErrorMessage('Failed to start server. Check the terminal for errors.');
+    vscode.window.showInformationMessage('Starting RbxSync server...');
+
+    // onDidCloseTerminal sets serverTerminal = null, so this check is sufficient
+    if (!serverTerminal) {
+      serverTerminal = vscode.window.createTerminal({
+        name: 'RbxSync Server',
+        hideFromUser: false
+      });
+    }
+
+    serverTerminal.sendText('rbxsync serve');
+    serverTerminal.show(true);
+
+    for (let i = 0; i < 10; i++) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      connected = await client.connect();
+      if (connected) {
+        if (client.projectDir) {
+          await client.registerWorkspace(client.projectDir);
+        }
+        statusBar.startPolling();
+        vscode.window.showInformationMessage('RbxSync server started');
+        return;
+      }
+    }
+
+    vscode.window.showErrorMessage('Failed to start server. Check the terminal for errors.');
+  } finally {
+    isConnecting = false;
+  }
 }
 
 export async function disconnectCommand(

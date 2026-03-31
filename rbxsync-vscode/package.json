@@ -198,8 +198,8 @@
         },
         "rbxsync.generateProjectJson": {
           "type": "boolean",
-          "default": false,
-          "description": "Generate project.json for Luau LSP compatibility"
+          "default": true,
+          "description": "Generate default.project.json for Luau LSP compatibility after extraction"
         }
       }
     },

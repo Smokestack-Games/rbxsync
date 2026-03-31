@@ -489,6 +489,12 @@ function Sync.registerCreated(path: string, instance: Instance)
     recentlyCreated[path] = instance
 end
 
+-- Remove a single path from the recently created cache
+function Sync.unregisterPath(path: string)
+    path = string.gsub(path, "\\", "/")
+    recentlyCreated[path] = nil
+end
+
 -- Clear the recently created cache
 function Sync.clearRecentlyCreated()
     table.clear(recentlyCreated)

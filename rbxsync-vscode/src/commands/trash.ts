@@ -6,6 +6,9 @@ const TRASH_FOLDER = '.rbxsync-trash';
 const TRASH_MANIFEST = 'manifest.json';
 const TRASH_RETENTION_DAYS = 7;
 
+/** Directories that should never be copied during recursive operations */
+const SKIP_DIRS = new Set(['.rbxsync-trash', '.rbxsync-backup', '.rbxsync', '.git', 'node_modules']);
+
 interface TrashEntry {
   originalPath: string;
   trashPath: string;
@@ -102,9 +105,19 @@ function copyToTrash(
 }
 
 /**
- * Recursively copy a directory
+ * Recursively copy a directory, skipping system directories and
+ * preventing circular copies (dest inside src).
  */
 function copyDirSync(src: string, dest: string): void {
+  const resolvedSrc = path.resolve(src);
+  const resolvedDest = path.resolve(dest);
+
+  // Prevent circular copy: if dest is inside src, this would recurse infinitely
+  if (resolvedDest.startsWith(resolvedSrc + path.sep)) {
+    console.warn(`[RbxSync Trash] Skipping circular copy: ${dest} is inside ${src}`);
+    return;
+  }
+
   fs.mkdirSync(dest, { recursive: true });
 
   const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -113,6 +126,7 @@ function copyDirSync(src: string, dest: string): void {
     const destPath = path.join(dest, entry.name);
 
     if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
       copyDirSync(srcPath, destPath);
     } else {
       fs.copyFileSync(srcPath, destPath);
@@ -121,9 +135,17 @@ function copyDirSync(src: string, dest: string): void {
 }
 
 /**
- * Recursively copy a directory (for restore)
+ * Recursively copy a directory (for restore), with circular copy protection.
  */
 function restoreDirSync(src: string, dest: string): void {
+  const resolvedSrc = path.resolve(src);
+  const resolvedDest = path.resolve(dest);
+
+  if (resolvedDest.startsWith(resolvedSrc + path.sep)) {
+    console.warn(`[RbxSync Trash] Skipping circular restore: ${dest} is inside ${src}`);
+    return;
+  }
+
   fs.mkdirSync(dest, { recursive: true });
 
   const entries = fs.readdirSync(src, { withFileTypes: true });
@@ -132,6 +154,7 @@ function restoreDirSync(src: string, dest: string): void {
     const destPath = path.join(dest, entry.name);
 
     if (entry.isDirectory()) {
+      if (SKIP_DIRS.has(entry.name)) continue;
       restoreDirSync(srcPath, destPath);
     } else {
       fs.copyFileSync(srcPath, destPath);

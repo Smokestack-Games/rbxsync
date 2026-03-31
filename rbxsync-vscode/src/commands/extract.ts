@@ -74,11 +74,22 @@ export async function extractCommand(
 
       // Generate tooling config files for LSP, linting, and package management (RBXSYNC-19, RBXSYNC-83)
       const config = vscode.workspace.getConfiguration('rbxsync');
-      if (config.get('generateProjectJson', true)) {
+      if (config.get<boolean>('generateProjectJson')) {
         try {
           const generated = await generateToolingFiles(projectDir);
           if (generated.projectJson) {
             await addToGitignore(projectDir);
+
+            // Point Luau LSP at the generated project file
+            const luauConfig = vscode.workspace.getConfiguration('luau-lsp.sourcemap');
+            const currentRojoProject = luauConfig.get<string>('rojoProjectFile');
+            if (!currentRojoProject) {
+              await luauConfig.update(
+                'rojoProjectFile',
+                'default.project.json',
+                vscode.ConfigurationTarget.Workspace
+              );
+            }
           }
         } catch (e) {
           console.error('Failed to generate tooling files:', e);

@@ -2091,6 +2091,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
             </div>
             \${statusHtml}
             <div class="studio-actions">
+              \${isLinked ? \`
+              <button class="studio-btn unlink" data-action="unlinkStudio" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <line x1="18" y1="6" x2="6" y2="18"/>
+                  <line x1="6" y1="6" x2="18" y2="18"/>
+                </svg>
+                Unlink
+              </button>
+              \` : \`
+              <button class="studio-btn link" data-action="linkStudio" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}">
+                <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                  <path d="M10 13a5 5 0 007.54.54l3-3a5 5 0 00-7.07-7.07l-1.72 1.71"/>
+                  <path d="M14 11a5 5 0 00-7.54-.54l-3 3a5 5 0 007.07 7.07l1.71-1.71"/>
+                </svg>
+                Link
+              </button>
+              \`}
               <button class="studio-btn sync" data-action="sync" data-dir="\${place.project_dir}" data-place-id="\${place.place_id}" data-session-id="\${place.session_id || ''}" \${isLinked ? '' : 'disabled title="Link Studio to this project first"'}>
                 <svg class="icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M21 15v4a2 2 0 01-2 2H5a2 2 0 01-2-2v-4"/>
