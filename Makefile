@@ -24,8 +24,8 @@ build-vscode:
 	cd rbxsync-vscode && npm ci && npm run build && npx vsce package
 
 # Build Roblox Studio plugin (.rbxm)
-build-plugin: build
-	./target/release/rbxsync build-plugin
+build-plugin:
+	cargo run --bin rbxsync -- build-plugin
 
 # Run all quality checks
 check: clippy test fmt
