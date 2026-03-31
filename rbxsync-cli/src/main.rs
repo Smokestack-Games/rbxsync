@@ -3129,10 +3129,20 @@ fn find_rbxsync_binaries() -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
     let mut found = Vec::new();
     let mut seen = HashSet::new();
 
+    #[cfg(target_os = "windows")]
+    let binary_name = "rbxsync.exe";
+    #[cfg(not(target_os = "windows"))]
+    let binary_name = "rbxsync";
+
     // Check all PATH entries
     if let Ok(path_var) = std::env::var("PATH") {
-        for dir in path_var.split(':') {
-            let candidate = PathBuf::from(dir).join("rbxsync");
+        #[cfg(target_os = "windows")]
+        let separator = ';';
+        #[cfg(not(target_os = "windows"))]
+        let separator = ':';
+
+        for dir in path_var.split(separator) {
+            let candidate = PathBuf::from(dir).join(binary_name);
             if candidate.exists() {
                 if let Ok(canonical) = candidate.canonicalize() {
                     if seen.insert(canonical.clone()) {
@@ -3148,12 +3158,26 @@ fn find_rbxsync_binaries() -> Vec<(PathBuf, Option<std::time::SystemTime>)> {
 
     // Check common install locations that might not be in PATH
     let home = dirs::home_dir().unwrap_or_default();
-    let extra_locations = [
+
+    #[cfg(not(target_os = "windows"))]
+    let extra_locations = vec![
         PathBuf::from("/usr/local/bin/rbxsync"),
         home.join(".cargo/bin/rbxsync"),
         home.join(".local/bin/rbxsync"),
         home.join(".rbxsync/bin/rbxsync"),
     ];
+
+    #[cfg(target_os = "windows")]
+    let extra_locations = {
+        let mut locs = vec![home.join(".cargo/bin/rbxsync.exe")];
+        if let Ok(local_app_data) = std::env::var("LOCALAPPDATA") {
+            locs.push(PathBuf::from(local_app_data).join("rbxsync").join("rbxsync.exe"));
+        }
+        if let Ok(app_data) = std::env::var("APPDATA") {
+            locs.push(PathBuf::from(app_data).join("rbxsync").join("rbxsync.exe"));
+        }
+        locs
+    };
 
     for loc in &extra_locations {
         if loc.exists() {
