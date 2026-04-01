@@ -13,6 +13,11 @@ pub struct ProjectConfig {
     /// Project name (used for display and as default place name)
     pub name: String,
 
+    /// Optional list of Roblox Place IDs that auto-link to this project.
+    /// Studio instances with matching PlaceId will auto-associate on connection.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub place_ids: Option<Vec<u64>>,
+
     /// Path to the source tree (default: "./src")
     #[serde(default = "default_tree_path")]
     pub tree: PathBuf,
@@ -55,6 +60,7 @@ impl Default for ProjectConfig {
     fn default() -> Self {
         Self {
             name: "MyGame".to_string(),
+            place_ids: None,
             tree: default_tree_path(),
             assets: default_assets_path(),
             config: ExtractionConfig::default(),
