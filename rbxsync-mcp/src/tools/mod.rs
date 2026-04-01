@@ -395,6 +395,16 @@ impl RbxSyncClient {
         services: Option<&[String]>,
         include_terrain: bool,
     ) -> anyhow::Result<ExtractStartResponse> {
+        self.start_extraction_with_session(project_dir, services, include_terrain, None).await
+    }
+
+    pub async fn start_extraction_with_session(
+        &self,
+        project_dir: &str,
+        services: Option<&[String]>,
+        include_terrain: bool,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<ExtractStartResponse> {
         let mut body = serde_json::json!({
             "project_dir": project_dir,
             "include_terrain": include_terrain
@@ -402,6 +412,10 @@ impl RbxSyncClient {
 
         if let Some(services) = services {
             body["services"] = serde_json::json!(services);
+        }
+
+        if let Some(sid) = session_id {
+            body["session_id"] = serde_json::json!(sid);
         }
 
         let response = self
@@ -485,13 +499,28 @@ impl RbxSyncClient {
     }
 
     pub async fn sync_batch(&self, operations: &[serde_json::Value], project_dir: Option<&str>) -> anyhow::Result<SyncBatchResponse> {
+        self.sync_batch_with_session(operations, project_dir, None).await
+    }
+
+    pub async fn sync_batch_with_session(
+        &self,
+        operations: &[serde_json::Value],
+        project_dir: Option<&str>,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<SyncBatchResponse> {
+        let mut body = serde_json::json!({
+            "operations": operations,
+            "projectDir": project_dir
+        });
+
+        if let Some(sid) = session_id {
+            body["session_id"] = serde_json::json!(sid);
+        }
+
         let response = self
             .client
             .post(format!("{}/sync/batch", self.base_url))
-            .json(&serde_json::json!({
-                "operations": operations,
-                "projectDir": project_dir
-            }))
+            .json(&body)
             .send()
             .await?;
 
@@ -572,12 +601,22 @@ impl RbxSyncClient {
     }
 
     pub async fn run_code(&self, code: &str) -> anyhow::Result<String> {
+        self.run_code_with_session(code, None).await
+    }
+
+    pub async fn run_code_with_session(&self, code: &str, session_id: Option<&str>) -> anyhow::Result<String> {
+        let mut body = serde_json::json!({
+            "code": code
+        });
+
+        if let Some(sid) = session_id {
+            body["session_id"] = serde_json::json!(sid);
+        }
+
         let response = self
             .client
             .post(format!("{}/run", self.base_url))
-            .json(&serde_json::json!({
-                "code": code
-            }))
+            .json(&body)
             .send()
             .await?;
 
@@ -721,22 +760,36 @@ impl RbxSyncClient {
 
     // Playtest control methods
     pub async fn start_playtest(&self, mode: Option<&str>) -> anyhow::Result<PlaytestStartResponse> {
+        self.start_playtest_with_session(mode, None).await
+    }
+
+    pub async fn start_playtest_with_session(
+        &self,
+        mode: Option<&str>,
+        session_id: Option<&str>,
+    ) -> anyhow::Result<PlaytestStartResponse> {
         let url = format!("{}/playtest/start", self.base_url);
+        let mut body = serde_json::json!({
+            "mode": mode.unwrap_or("Play")
+        });
+
+        if let Some(sid) = session_id {
+            body["session_id"] = serde_json::json!(sid);
+        }
+
         let response = self
             .client
             .post(&url)
-            .json(&serde_json::json!({
-                "mode": mode.unwrap_or("Play")
-            }))
+            .json(&body)
             .timeout(std::time::Duration::from_secs(30))
             .send()
             .await?;
 
-        let body = response.text().await?;
-        debug_log_response("start_playtest", &body);
+        let resp_body = response.text().await?;
+        debug_log_response("start_playtest", &resp_body);
 
-        serde_json::from_str(&body)
-            .map_err(|e| anyhow::anyhow!("Failed to parse start_playtest response: {}. Body: {}", e, body))
+        serde_json::from_str(&resp_body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse start_playtest response: {}. Body: {}", e, resp_body))
     }
 
     pub async fn stop_playtest(&self) -> anyhow::Result<PlaytestStopResponse> {

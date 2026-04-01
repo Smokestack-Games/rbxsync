@@ -341,6 +341,37 @@ impl AppState {
     }
 }
 
+/// Enqueue a plugin request, routing to a session-specific queue when session_id is provided,
+/// or falling back to the project directory queue (and ultimately the global queue).
+async fn enqueue_plugin_request(
+    state: &Arc<AppState>,
+    request: PluginRequest,
+    session_id: Option<&str>,
+    project_dir: Option<&str>,
+) {
+    if let Some(sid) = session_id {
+        // Route to session-specific queue
+        let key = format!("session:{}", sid);
+        let mut queues = state.project_queues.write().await;
+        let queue = queues.entry(key).or_insert_with(VecDeque::new);
+        queue.push_back(request);
+    } else if let Some(dir) = project_dir {
+        // Route to project-specific queue if it exists, otherwise global
+        let mut queues = state.project_queues.write().await;
+        if let Some(queue) = queues.get_mut(dir) {
+            queue.push_back(request);
+        } else {
+            drop(queues);
+            let mut queue = state.request_queue.lock().await;
+            queue.push_back(request);
+        }
+    } else {
+        // Fall back to global queue
+        let mut queue = state.request_queue.lock().await;
+        queue.push_back(request);
+    }
+}
+
 /// Request to send to the Studio plugin
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PluginRequest {
@@ -1178,6 +1209,9 @@ async fn handle_operation_status(
 pub struct RequestPollQuery {
     #[serde(rename = "projectDir")]
     pub project_dir: Option<String>,
+    /// Optional session ID for multi-place routing
+    #[serde(rename = "sessionId")]
+    pub session_id: Option<String>,
 }
 
 /// Long-polling endpoint for plugin to receive requests
@@ -1185,12 +1219,24 @@ async fn handle_request_poll(
     State(state): State<Arc<AppState>>,
     Query(params): Query<RequestPollQuery>,
 ) -> impl IntoResponse {
-    // Helper to check queues
+    // Helper to check queues (session-specific first, then project, then global)
     async fn try_pop_request(
         state: &Arc<AppState>,
+        session_id: &Option<String>,
         project_dir: &Option<String>,
     ) -> Option<PluginRequest> {
-        // First try project-specific queue if projectDir provided
+        // First try session-specific queue if sessionId provided
+        if let Some(ref sid) = session_id {
+            let session_key = format!("session:{}", sid);
+            let mut queues = state.project_queues.write().await;
+            if let Some(queue) = queues.get_mut(&session_key) {
+                if let Some(request) = queue.pop_front() {
+                    return Some(request);
+                }
+            }
+        }
+
+        // Then try project-specific queue if projectDir provided
         if let Some(ref dir) = project_dir {
             let mut queues = state.project_queues.write().await;
             if let Some(queue) = queues.get_mut(dir) {
@@ -1206,7 +1252,7 @@ async fn handle_request_poll(
     }
 
     // First check if there's already a request
-    if let Some(request) = try_pop_request(&state, &params.project_dir).await {
+    if let Some(request) = try_pop_request(&state, &params.session_id, &params.project_dir).await {
         return (StatusCode::OK, Json(serde_json::to_value(&request).unwrap()));
     }
 
@@ -1231,7 +1277,7 @@ async fn handle_request_poll(
         }
         _ = trigger_rx.changed() => {
             // Check if there's a request
-            if let Some(request) = try_pop_request(&state, &params.project_dir).await {
+            if let Some(request) = try_pop_request(&state, &params.session_id, &params.project_dir).await {
                 (StatusCode::OK, Json(serde_json::to_value(&request).unwrap()))
             } else {
                 (StatusCode::NO_CONTENT, Json(serde_json::json!(null)))
@@ -1267,6 +1313,9 @@ pub struct ExtractStartRequest {
     pub include_terrain: Option<bool>,
     /// Include binary assets
     pub include_assets: Option<bool>,
+    /// Optional session ID for multi-place routing
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 async fn handle_extract_start(
@@ -1381,7 +1430,7 @@ async fn handle_extract_start(
         }
     }
 
-    // Queue request to plugin
+    // Queue request to plugin (session-aware routing)
     let plugin_request = PluginRequest {
         id: session_uuid,
         command: "extract:start".to_string(),
@@ -1393,10 +1442,12 @@ async fn handle_extract_start(
         }),
     };
 
-    {
-        let mut queue = state.request_queue.lock().await;
-        queue.push_back(plugin_request);
-    }
+    enqueue_plugin_request(
+        &state,
+        plugin_request,
+        req.session_id.as_deref(),
+        req.project_dir.as_deref(),
+    ).await;
     let _ = state.trigger.send(());
 
     Json(serde_json::json!({
@@ -2368,6 +2419,9 @@ async fn handle_extract_terrain(Json(req): Json<TerrainRequest>) -> impl IntoRes
 pub struct SyncCommandRequest {
     pub command: String,
     pub payload: serde_json::Value,
+    /// Optional session ID for multi-place routing
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Handle sync command - sends to plugin and waits for response
@@ -2384,17 +2438,14 @@ async fn handle_sync_command(
         channels.insert(request_id, tx);
     }
 
-    // Queue request to plugin
+    // Queue request to plugin (session-aware routing)
     let plugin_request = PluginRequest {
         id: request_id,
         command: req.command.clone(),
         payload: req.payload,
     };
 
-    {
-        let mut queue = state.request_queue.lock().await;
-        queue.push_back(plugin_request);
-    }
+    enqueue_plugin_request(&state, plugin_request, req.session_id.as_deref(), None).await;
     let _ = state.trigger.send(());
 
     tracing::info!("Sent sync command: {} ({})", req.command, request_id);
@@ -2438,6 +2489,9 @@ pub struct SyncBatchRequest {
     /// Optional project directory for operation tracking (RBXSYNC-77)
     #[serde(rename = "projectDir")]
     pub project_dir: Option<String>,
+    /// Optional session ID for multi-place routing
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Handle sync batch - sends batch of operations to plugin
@@ -2470,7 +2524,7 @@ async fn handle_sync_batch(
         channels.insert(request_id, tx);
     }
 
-    // Queue batch request to plugin
+    // Queue batch request to plugin (session-aware routing)
     let plugin_request = PluginRequest {
         id: request_id,
         command: "sync:batch".to_string(),
@@ -2479,10 +2533,12 @@ async fn handle_sync_batch(
         }),
     };
 
-    {
-        let mut queue = state.request_queue.lock().await;
-        queue.push_back(plugin_request);
-    }
+    enqueue_plugin_request(
+        &state,
+        plugin_request,
+        req.session_id.as_deref(),
+        req.project_dir.as_deref(),
+    ).await;
     let _ = state.trigger.send(());
 
     tracing::info!("Sent sync batch with {} operations ({})", req.operations.len(), request_id);
@@ -3911,6 +3967,9 @@ struct PlaytestStartRequest {
     /// Play mode: "Play" (solo) or "Run" (server sim). Default: "Play"
     #[serde(default = "default_play_mode")]
     mode: String,
+    /// Optional session ID for multi-place routing
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 fn default_play_mode() -> String {
@@ -3936,7 +3995,7 @@ async fn handle_playtest_start(
 
     let (tx, mut rx) = mpsc::unbounded_channel();
     state.response_channels.write().await.insert(request_id, tx);
-    state.request_queue.lock().await.push_back(request);
+    enqueue_plugin_request(&state, request, req.session_id.as_deref(), None).await;
     state.trigger.send(()).ok();
 
     let timeout = tokio::time::Duration::from_secs(30);
@@ -4678,6 +4737,9 @@ async fn handle_console_subscribe(
 #[derive(Debug, Deserialize)]
 struct RunCodeRequest {
     code: String,
+    /// Optional session ID for multi-place routing
+    #[serde(default)]
+    session_id: Option<String>,
 }
 
 /// Run arbitrary Luau code in Studio (for MCP integration)
@@ -4699,13 +4761,9 @@ async fn handle_run_code(
     let (tx, mut rx) = mpsc::unbounded_channel();
     state.response_channels.write().await.insert(request_id, tx);
 
-    // Queue the request
-    let queue_len = {
-        let mut queue = state.request_queue.lock().await;
-        queue.push_back(request);
-        queue.len()
-    };
-    tracing::info!("run:code request {} - queued (queue length: {})", request_id, queue_len);
+    // Queue the request (session-aware routing)
+    enqueue_plugin_request(&state, request, req.session_id.as_deref(), None).await;
+    tracing::info!("run:code request {} - queued", request_id);
     state.trigger.send(()).ok();
 
     // Wait for response with timeout
