@@ -544,6 +544,34 @@ async fn handle_register(
     // Normalize path separators for Windows compatibility
     let project_dir = normalize_path(&req.project_dir);
 
+    // Auto-link: if project_dir is empty and place_id > 0, try to find a matching
+    // workspace via place_ids in rbxsync.json config files
+    let project_dir = if project_dir.is_empty() && req.place_id > 0 {
+        let workspaces = state.vscode_workspaces.read().await;
+        let mut auto_linked_dir = String::new();
+        for (ws_dir, _) in workspaces.iter() {
+            let config_path = PathBuf::from(ws_dir).join("rbxsync.json");
+            if let Ok(config_str) = std::fs::read_to_string(&config_path) {
+                if let Ok(config) = serde_json::from_str::<rbxsync_core::ProjectConfig>(&config_str) {
+                    if let Some(place_ids) = &config.place_ids {
+                        if place_ids.contains(&req.place_id) {
+                            tracing::info!(
+                                "Auto-linking place {} (PlaceId: {}) to project at {}",
+                                req.place_name, req.place_id, ws_dir
+                            );
+                            auto_linked_dir = ws_dir.clone();
+                            break;
+                        }
+                    }
+                }
+            }
+        }
+        drop(workspaces);
+        if auto_linked_dir.is_empty() { project_dir } else { auto_linked_dir }
+    } else {
+        project_dir
+    };
+
     let mut registry = state.place_registry.write().await;
 
     // Use session_id as unique key if provided (handles multiple unpublished places with PlaceId=0)
