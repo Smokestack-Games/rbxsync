@@ -120,6 +120,10 @@ pub struct StopPlaytestParams {}
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct PlaytestStatusParams {}
 
+/// Parameters for test_status tool (no params needed)
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct TestStatusParams {}
+
 /// Parameters for insert_model tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct InsertModelParams {
@@ -951,6 +955,17 @@ impl RbxSyncServer {
                 if let Some(data) = &status.data {
                     let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(true);
                     if !running {
+                        // Check if plugin became unresponsive
+                        let ended_reason = data.get("ended_reason")
+                            .and_then(|v| v.as_str())
+                            .unwrap_or("");
+                        if ended_reason == "plugin_unresponsive" {
+                            let elapsed = start_time.elapsed().as_secs_f64();
+                            return Ok(CallToolResult::success(vec![Content::text(format!(
+                                "Test ran for {:.1}s\n\nPlaytest ended: plugin became unresponsive. Console output may be incomplete.",
+                                elapsed
+                            ))]));
+                        }
                         break;
                     }
                 }
@@ -1204,6 +1219,112 @@ impl RbxSyncServer {
             }
         } else {
             output_lines.push("No status data available.".to_string());
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))
+    }
+
+    /// Get comprehensive test status with console output.
+    /// Returns playtest state, ended_reason, and full console output (errors, warnings, prints).
+    /// Use to check on background playtests started with run_test(background: true) or start_playtest.
+    #[tool(description = "Get comprehensive test status with console output. Use to check on background playtests.")]
+    async fn test_status(
+        &self,
+        #[allow(unused)] Parameters(_params): Parameters<TestStatusParams>,
+    ) -> Result<CallToolResult, McpError> {
+        let result = self.client
+            .get_playtest_status()
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        if !result.success {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Failed to get playtest status: {}",
+                result.error.unwrap_or_else(|| "Unknown error".to_string())
+            ))]));
+        }
+
+        let mut output_lines = vec![];
+
+        let (running, total_messages, ended_reason) = if let Some(data) = &result.data {
+            let running = data.get("running").and_then(|v| v.as_bool()).unwrap_or(false);
+            let mode = data.get("mode").and_then(|v| v.as_str()).unwrap_or("unknown");
+            let capturing = data.get("capturing").and_then(|v| v.as_bool()).unwrap_or(false);
+            let total_messages = data.get("totalMessages").and_then(|v| v.as_i64()).unwrap_or(0);
+            let ended_reason = data.get("ended_reason")
+                .and_then(|v| v.as_str())
+                .unwrap_or(if running { "running" } else { "not_started" })
+                .to_string();
+
+            output_lines.push(format!("Status: {}", ended_reason));
+            output_lines.push(format!("Running: {}", running));
+            output_lines.push(format!("Mode: {}", mode));
+            output_lines.push(format!("Capturing: {}", capturing));
+            output_lines.push(format!("Messages captured: {}", total_messages));
+
+            if let Some(err) = data.get("error").and_then(|v| v.as_str()) {
+                if !err.is_empty() {
+                    output_lines.push(format!("Error: {}", err));
+                }
+            }
+
+            (running, total_messages, ended_reason)
+        } else {
+            output_lines.push("No status data available.".to_string());
+            (false, 0, "not_started".to_string())
+        };
+
+        // Fetch console output if there are messages or playtest is/was running
+        if total_messages > 0 || running || ended_reason != "not_started" {
+            match self.client.get_test_output().await {
+                Ok(output_data) => {
+                    if let Some(data) = output_data.get("data") {
+                        if let Some(messages) = data.get("output").and_then(|v| v.as_array()) {
+                            output_lines.push(String::new());
+
+                            let errors: Vec<_> = messages.iter()
+                                .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageError"))
+                                .collect();
+                            let warnings: Vec<_> = messages.iter()
+                                .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageWarning"))
+                                .collect();
+                            let prints: Vec<_> = messages.iter()
+                                .filter(|m| m.get("type").and_then(|v| v.as_str()) == Some("MessageOutput"))
+                                .collect();
+
+                            if !errors.is_empty() {
+                                output_lines.push(format!("=== ERRORS ({}) ===", errors.len()));
+                                for msg in &errors {
+                                    let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                    let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                                    output_lines.push(format!("[{:.2}s] {}", ts, text));
+                                }
+                                output_lines.push(String::new());
+                            }
+                            if !warnings.is_empty() {
+                                output_lines.push(format!("=== WARNINGS ({}) ===", warnings.len()));
+                                for msg in &warnings {
+                                    let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                    let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                                    output_lines.push(format!("[{:.2}s] {}", ts, text));
+                                }
+                                output_lines.push(String::new());
+                            }
+                            if !prints.is_empty() {
+                                output_lines.push(format!("=== OUTPUT ({}) ===", prints.len()));
+                                for msg in &prints {
+                                    let ts = msg.get("timestamp").and_then(|v| v.as_f64()).unwrap_or(0.0);
+                                    let text = msg.get("message").and_then(|v| v.as_str()).unwrap_or("");
+                                    output_lines.push(format!("[{:.2}s] {}", ts, text));
+                                }
+                            }
+                        }
+                    }
+                }
+                Err(e) => {
+                    output_lines.push(format!("\nCould not fetch console output: {}", e));
+                }
+            }
         }
 
         Ok(CallToolResult::success(vec![Content::text(output_lines.join("\n"))]))

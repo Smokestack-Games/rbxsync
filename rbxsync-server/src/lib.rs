@@ -4063,9 +4063,24 @@ async fn handle_playtest_status(State(state): State<Arc<AppState>>) -> impl Into
                 .and_then(|v| v.as_bool())
                 .unwrap_or(false);
             state.playtest_active.store(running, std::sync::atomic::Ordering::Relaxed);
+
+            // Merge ended_reason from server state into plugin response
+            let ended_reason = state.playtest_ended_reason.read().await.clone();
+            let mut data = response.data.clone();
+            if let Some(obj) = data.as_object_mut() {
+                let reason = if running {
+                    serde_json::Value::String("running".to_string())
+                } else if let Some(ref reason) = ended_reason {
+                    serde_json::Value::String(reason.clone())
+                } else {
+                    serde_json::Value::String("not_started".to_string())
+                };
+                obj.insert("ended_reason".to_string(), reason);
+            }
+
             (StatusCode::OK, Json(serde_json::json!({
                 "success": true,
-                "data": response.data
+                "data": data
             })))
         }
         Ok(None) => {
@@ -4082,6 +4097,14 @@ async fn handle_playtest_status(State(state): State<Arc<AppState>>) -> impl Into
             state.response_channels.write().await.remove(&request_id);
             // On timeout, report based on server-side state
             let is_active = state.playtest_active.load(std::sync::atomic::Ordering::Relaxed);
+            let ended_reason = state.playtest_ended_reason.read().await.clone();
+            let reason = if is_active {
+                "running"
+            } else if let Some(ref reason) = ended_reason {
+                reason.as_str()
+            } else {
+                "not_started"
+            };
             (
                 StatusCode::OK,
                 Json(serde_json::json!({
@@ -4093,6 +4116,7 @@ async fn handle_playtest_status(State(state): State<Arc<AppState>>) -> impl Into
                         "testComplete": false,
                         "capturing": false,
                         "totalMessages": 0,
+                        "ended_reason": reason,
                         "error": "Plugin timeout - status may be stale"
                     }
                 })),

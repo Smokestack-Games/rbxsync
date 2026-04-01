@@ -771,6 +771,23 @@ impl RbxSyncClient {
             .map_err(|e| anyhow::anyhow!("Failed to parse playtest_status response: {}. Body: {}", e, body))
     }
 
+    pub async fn get_test_output(&self) -> anyhow::Result<serde_json::Value> {
+        let url = format!("{}/playtest/output", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(10))
+            .send()
+            .await?;
+
+        let body = response.text().await?;
+        debug_log_response("get_test_output", &body);
+
+        let data: serde_json::Value = serde_json::from_str(&body)
+            .map_err(|e| anyhow::anyhow!("Failed to parse test_output response: {}. Body: {}", e, body))?;
+        Ok(data)
+    }
+
     pub async fn get_diff(&self, project_dir: &str) -> anyhow::Result<DiffResponse> {
         let response = self
             .client
