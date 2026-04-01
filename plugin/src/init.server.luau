@@ -1493,11 +1493,21 @@ local function handleCommand(command: string, payload: any)
 
     -- Playtest control (HTTP-driven lifecycle management)
     elseif command == "playtest:start" then
-        return TestRunner.startPlaytest(payload)
+        local result = TestRunner.startPlaytest(payload)
+        -- Start heartbeat if playtest started successfully
+        if result and result.success then
+            TestRunner.startHeartbeat(function(heartbeatPayload)
+                httpPost("/playtest/heartbeat", heartbeatPayload)
+            end)
+        end
+        return result
     elseif command == "playtest:stop" then
+        TestRunner.stopHeartbeat()
         return TestRunner.stopPlaytest()
     elseif command == "playtest:status" then
         return TestRunner.getPlaytestStatus()
+    elseif command == "playtest:output" then
+        return TestRunner.getOutput()
 
     elseif command == "debug:start" then
         -- Start playtest

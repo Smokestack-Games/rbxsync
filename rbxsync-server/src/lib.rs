@@ -304,6 +304,9 @@ pub struct AppState {
     /// Current operation state per project (RBXSYNC-77)
     /// Allows VS Code to display server-initiated operations (CLI/MCP)
     pub operation_state: RwLock<HashMap<String, OperationInfo>>,
+
+    /// Reason the playtest ended (e.g. "completed", "stopped", "plugin_unresponsive")
+    pub playtest_ended_reason: RwLock<Option<String>>,
 }
 
 impl AppState {
@@ -337,6 +340,7 @@ impl AppState {
             playtest_started: RwLock::new(None),
             playtest_ended: RwLock::new(None),
             operation_state: RwLock::new(HashMap::new()),
+            playtest_ended_reason: RwLock::new(None),
         })
     }
 }
@@ -462,6 +466,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/playtest/start", post(handle_playtest_start))
         .route("/playtest/stop", post(handle_playtest_stop))
         .route("/playtest/status", get(handle_playtest_status))
+        .route("/playtest/heartbeat", post(handle_playtest_heartbeat))
+        .route("/playtest/output", get(handle_playtest_output))
         // Bot controller endpoints (AI-powered automated gameplay testing)
         .route("/bot/command", post(handle_bot_command))
         .route("/bot/state", get(handle_bot_state).post(handle_bot_state_update))
@@ -3698,6 +3704,7 @@ async fn clear_stale_playtest_state(state: &Arc<AppState>) -> bool {
         tracing::info!("Clearing stale playtest state (heartbeat timeout)");
         state.playtest_active.store(false, std::sync::atomic::Ordering::Relaxed);
         *state.playtest_ended.write().await = Some(std::time::Instant::now());
+        *state.playtest_ended_reason.write().await = Some("plugin_unresponsive".to_string());
         *state.bot_state.write().await = None;
         return true;
     }
@@ -3947,6 +3954,7 @@ async fn handle_playtest_start(
                 state.playtest_active.store(true, std::sync::atomic::Ordering::Relaxed);
                 *state.playtest_started.write().await = Some(std::time::Instant::now());
                 *state.playtest_ended.write().await = None;
+                *state.playtest_ended_reason.write().await = None;
             }
             (
                 StatusCode::OK,
@@ -4000,6 +4008,7 @@ async fn handle_playtest_stop(State(state): State<Arc<AppState>>) -> impl IntoRe
             state.response_channels.write().await.remove(&request_id);
             state.playtest_active.store(false, std::sync::atomic::Ordering::Relaxed);
             *state.playtest_ended.write().await = Some(std::time::Instant::now());
+            *state.playtest_ended_reason.write().await = Some("stopped".to_string());
             (StatusCode::OK, Json(serde_json::json!({
                 "success": response.success,
                 "data": response.data,
@@ -4086,6 +4095,101 @@ async fn handle_playtest_status(State(state): State<Arc<AppState>>) -> impl Into
                         "totalMessages": 0,
                         "error": "Plugin timeout - status may be stale"
                     }
+                })),
+            )
+        }
+    }
+}
+
+/// Playtest heartbeat request from plugin
+#[derive(Debug, Deserialize)]
+struct PlaytestHeartbeatRequest {
+    /// Whether the game is currently running
+    #[serde(default)]
+    running: bool,
+    /// Elapsed seconds since capture started
+    #[serde(default)]
+    elapsed: f64,
+    /// Total console messages captured so far
+    #[serde(default)]
+    #[serde(rename = "totalMessages")]
+    total_messages: u64,
+}
+
+/// Receive a playtest heartbeat from the plugin (POST /playtest/heartbeat)
+/// Keeps last_bot_heartbeat fresh during all playtests (not just bot-driven ones).
+async fn handle_playtest_heartbeat(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<PlaytestHeartbeatRequest>,
+) -> impl IntoResponse {
+    // Update the heartbeat timestamp
+    *state.last_bot_heartbeat.write().await = Some(std::time::Instant::now());
+
+    // Update playtest_active based on running field
+    let was_active = state.playtest_active.load(std::sync::atomic::Ordering::Relaxed);
+    state.playtest_active.store(req.running, std::sync::atomic::Ordering::Relaxed);
+
+    // If running transitioned to false, mark ended_reason as completed
+    if was_active && !req.running {
+        tracing::info!("Playtest heartbeat reports running=false, marking as completed");
+        *state.playtest_ended.write().await = Some(std::time::Instant::now());
+        *state.playtest_ended_reason.write().await = Some("completed".to_string());
+    }
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "success": true,
+            "elapsed": req.elapsed,
+            "totalMessages": req.total_messages,
+        })),
+    )
+}
+
+/// Get playtest console output (GET /playtest/output)
+/// Sends a playtest:output command to the plugin and returns console capture data.
+async fn handle_playtest_output(State(state): State<Arc<AppState>>) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+    let request = PluginRequest {
+        id: request_id,
+        command: "playtest:output".to_string(),
+        payload: serde_json::json!({}),
+    };
+
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+    state.request_queue.lock().await.push_back(request);
+    state.trigger.send(()).ok();
+
+    let timeout = tokio::time::Duration::from_secs(10);
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::OK,
+                Json(serde_json::json!({
+                    "success": response.success,
+                    "data": response.data,
+                })),
+            )
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed unexpectedly"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Plugin response timeout - make sure Studio is connected and a playtest is running"
                 })),
             )
         }

@@ -30,6 +30,10 @@ local capturedOutput: { ConsoleMessage } = {}
 local logConnection: RBXScriptConnection? = nil
 local captureStartTime: number = 0
 
+-- Heartbeat state
+local heartbeatThread: thread? = nil
+local heartbeatSendFn: ((payload: any) -> ())? = nil
+
 -- Start capturing console output
 -- Call this before triggering a play session to capture all output
 function TestRunner.startCapture(): { success: boolean, message: string }
@@ -685,6 +689,54 @@ function TestRunner.getPlaytestStatus(): {
 		totalMessages = #capturedOutput,
 		error = testError,
 	}
+end
+
+-- =============================================================================
+-- PLAYTEST HEARTBEAT (keeps server-side last_bot_heartbeat fresh)
+-- =============================================================================
+
+-- Start sending periodic heartbeats during an active playtest.
+-- sendFn: a function that POSTs heartbeat data to the server.
+function TestRunner.startHeartbeat(sendFn: (payload: any) -> ())
+	-- Stop any existing heartbeat first
+	TestRunner.stopHeartbeat()
+
+	heartbeatSendFn = sendFn
+
+	heartbeatThread = task.spawn(function()
+		while isCapturing do
+			local payload = {
+				running = RunService:IsRunning(),
+				elapsed = os.clock() - captureStartTime,
+				totalMessages = #capturedOutput,
+			}
+			pcall(function()
+				sendFn(payload)
+			end)
+			task.wait(2)
+		end
+
+		-- Send one final heartbeat with running = false
+		pcall(function()
+			sendFn({
+				running = false,
+				elapsed = os.clock() - captureStartTime,
+				totalMessages = #capturedOutput,
+			})
+		end)
+
+		heartbeatThread = nil
+		heartbeatSendFn = nil
+	end)
+end
+
+-- Stop the heartbeat loop.
+function TestRunner.stopHeartbeat()
+	if heartbeatThread then
+		task.cancel(heartbeatThread)
+		heartbeatThread = nil
+	end
+	heartbeatSendFn = nil
 end
 
 return TestRunner
