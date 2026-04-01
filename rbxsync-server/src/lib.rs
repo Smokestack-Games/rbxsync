@@ -756,7 +756,16 @@ async fn handle_list_places(
     cleanup_stale_registrations(&state).await;
 
     let registry = state.place_registry.read().await;
-    let places: Vec<&PlaceInfo> = registry.values().collect();
+    let places: Vec<serde_json::Value> = registry.values().map(|p| {
+        let last_heartbeat_ago = p.last_heartbeat.map(|h| h.elapsed().as_secs_f64());
+        serde_json::json!({
+            "place_id": p.place_id,
+            "place_name": p.place_name,
+            "project_dir": p.project_dir,
+            "session_id": p.session_id,
+            "last_heartbeat_ago": last_heartbeat_ago,
+        })
+    }).collect();
 
     Json(serde_json::json!({
         "places": places

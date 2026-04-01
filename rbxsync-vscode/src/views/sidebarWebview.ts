@@ -601,6 +601,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       background: var(--text-secondary);
       opacity: 0.7;
     }
+    .studio-name .badge.active {
+      background: var(--vscode-charts-blue, #4fc1ff);
+      color: #000;
+    }
     .studio-meta {
       font-size: 10px;
       color: var(--text-secondary);
@@ -2039,6 +2043,18 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       } else {
         empty.classList.add('hidden');
 
+        // Find the most recently active place (only meaningful when multiple places)
+        let activePlaceId = null;
+        if (s.places && s.places.length > 1) {
+          let smallestAgo = Infinity;
+          s.places.forEach(p => {
+            if (p.last_heartbeat_ago != null && p.last_heartbeat_ago < smallestAgo) {
+              smallestAgo = p.last_heartbeat_ago;
+              activePlaceId = p.place_id;
+            }
+          });
+        }
+
         // Sort: linked first
         const sorted = [...s.places].sort((a, b) => {
           const aLinked = a.project_dir === s.currentProjectDir;
@@ -2048,6 +2064,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
         sorted.forEach((place, idx) => {
           const isLinked = place.project_dir === s.currentProjectDir;
+          const isActive = activePlaceId !== null && place.place_id === activePlaceId;
           // Generate studioKey matching the server logic - prefer session_id
           const studioKey = place.session_id
             ? 'session_' + place.session_id
@@ -2084,6 +2101,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
                 <div class="studio-name">
                   \${place.place_name || 'Unnamed Place'}
                   \${isLinked ? '<span class="badge">Linked</span>' : '<span class="badge unlinked">Unlinked</span>'}
+                  \${isActive ? '<span class="badge active">Active</span>' : ''}
                 </div>
                 <div class="studio-meta">ID: \${place.place_id || 'Unknown'}</div>
                 <div class="studio-path" title="\${place.project_dir}">\${shortenPath(place.project_dir)}</div>

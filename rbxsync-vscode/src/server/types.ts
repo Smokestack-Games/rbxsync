@@ -141,6 +141,7 @@ export interface PlaceInfo {
   place_name: string;
   project_dir: string;
   session_id?: string;  // Unique session ID for this Studio instance
+  last_heartbeat_ago?: number | null;  // Seconds since last heartbeat, or null if never
 }
 
 export interface PlacesResponse {
