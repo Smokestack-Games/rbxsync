@@ -18,6 +18,7 @@ use tools::RbxSyncClient;
 pub struct RbxSyncServer {
     client: RbxSyncClient,
     tool_router: ToolRouter<RbxSyncServer>,
+    active_place_id: std::sync::Arc<tokio::sync::RwLock<Option<u64>>>,
 }
 
 /// Parameters for extract_game tool
@@ -33,6 +34,10 @@ pub struct ExtractParams {
     #[schemars(description = "Include terrain data (default: true)")]
     #[serde(default = "default_include_terrain")]
     pub include_terrain: bool,
+    /// Optional Place ID to target a specific Studio instance in multi-place projects
+    #[schemars(description = "Place ID to target (optional, for multi-place projects)")]
+    #[serde(default)]
+    pub place_id: Option<u64>,
 }
 
 fn default_include_terrain() -> bool {
@@ -49,6 +54,16 @@ pub struct SyncParams {
     /// If true, delete instances in Studio that don't exist in local files
     #[schemars(description = "Delete orphaned instances in Studio (optional, default: false)")]
     pub delete: Option<bool>,
+
+    /// Optional Place ID to target a specific Studio instance in multi-place projects
+    #[schemars(description = "Place ID to target (optional, for multi-place projects)")]
+    #[serde(default)]
+    pub place_id: Option<u64>,
+
+    /// Optional list of Place IDs for multi-place sync (syncs to each place sequentially)
+    #[schemars(description = "Place IDs for multi-place sync (optional, syncs to each place)")]
+    #[serde(default)]
+    pub place_ids: Option<Vec<u64>>,
 }
 
 /// Parameters for diff tool
@@ -87,6 +102,10 @@ pub struct RunCodeParams {
     /// Luau code to execute in Roblox Studio
     #[schemars(description = "Luau code to execute in Studio")]
     pub code: String,
+    /// Optional Place ID to target a specific Studio instance in multi-place projects
+    #[schemars(description = "Place ID to target (optional, for multi-place projects)")]
+    #[serde(default)]
+    pub place_id: Option<u64>,
 }
 
 /// Parameters for run_test tool
@@ -102,6 +121,10 @@ pub struct RunTestParams {
     /// Use this for interactive bot testing with bot_observe/bot_move/bot_action.
     #[schemars(description = "Run in background mode - start test and return immediately (default: false)")]
     pub background: Option<bool>,
+    /// Optional Place ID to target a specific Studio instance in multi-place projects
+    #[schemars(description = "Place ID to target (optional, for multi-place projects)")]
+    #[serde(default)]
+    pub place_id: Option<u64>,
 }
 
 /// Parameters for start_playtest tool
@@ -575,6 +598,14 @@ pub struct GetClassInfoParams {
     pub class_name: String,
 }
 
+/// Parameters for set_active_place tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct SetActivePlaceParams {
+    /// The Roblox Place ID to set as the active target
+    #[schemars(description = "The Roblox Place ID to set as the active target")]
+    pub place_id: u64,
+}
+
 /// Generate Luau code to find a scoped root from a parent path.
 fn luau_scope_snippet(parent: &Option<String>) -> String {
     match parent {
@@ -600,6 +631,17 @@ fn mcp_error(msg: impl Into<String>) -> McpError {
 }
 
 impl RbxSyncServer {
+    /// Resolve which place_id to target: explicit param > session state > None (server picks).
+    async fn resolve_place_id(&self, explicit: Option<u64>) -> Option<u64> {
+        if let Some(id) = explicit {
+            return Some(id);
+        }
+        if let Some(id) = *self.active_place_id.read().await {
+            return Some(id);
+        }
+        None // Let server pick most-recently-active
+    }
+
     /// Check if a playtest is currently running. Returns an error message if not.
     async fn check_playtest_active(&self) -> Option<String> {
         match self.client.get_playtest_status().await {
@@ -629,6 +671,7 @@ impl RbxSyncServer {
         Self {
             client: RbxSyncClient::new(44755),
             tool_router: Self::tool_router(),
+            active_place_id: std::sync::Arc::new(tokio::sync::RwLock::new(None)),
         }
     }
 
@@ -656,6 +699,20 @@ impl RbxSyncServer {
         }
     }
 
+    /// Set the active Roblox place for subsequent commands.
+    /// Use to target a specific Studio instance in multi-place projects.
+    #[tool(description = "Set the active Roblox place for subsequent commands. Use to target a specific Studio instance in multi-place projects.")]
+    async fn set_active_place(
+        &self,
+        Parameters(params): Parameters<SetActivePlaceParams>,
+    ) -> Result<CallToolResult, McpError> {
+        *self.active_place_id.write().await = Some(params.place_id);
+        Ok(CallToolResult::success(vec![Content::text(format!(
+            "Active place set to PlaceId: {}. Subsequent commands will target this place unless overridden.",
+            params.place_id
+        ))]))
+    }
+
     /// Extract a Roblox game from Studio to git-friendly files on disk.
     #[tool(description = "Extract a Roblox game from Studio to git-friendly files")]
     async fn extract_game(
@@ -666,7 +723,29 @@ impl RbxSyncServer {
             return Ok(err);
         }
 
-        // Start extraction
+        // Resolve place targeting for multi-place projects
+        let resolved_place = self.resolve_place_id(params.place_id).await;
+        let session_id = if let Some(pid) = resolved_place {
+            self.client
+                .resolve_session_for_place(pid)
+                .await
+                .map_err(|e| mcp_error(e.to_string()))?
+        } else {
+            None
+        };
+
+        // Start extraction (pass session_id for place-aware routing; server ignores until Task 4)
+        let mut extract_body = serde_json::json!({
+            "project_dir": params.project_dir,
+            "include_terrain": params.include_terrain,
+        });
+        if let Some(services) = &params.services {
+            extract_body["services"] = serde_json::json!(services);
+        }
+        if let Some(sid) = &session_id {
+            extract_body["session_id"] = serde_json::json!(sid);
+        }
+
         let session = self.client
             .start_extraction(&params.project_dir, params.services.as_deref(), params.include_terrain)
             .await
@@ -711,6 +790,66 @@ impl RbxSyncServer {
             return Ok(err);
         }
 
+        // Multi-place sync: iterate each place_id, resolve session, sync individually
+        if let Some(place_ids) = &params.place_ids {
+            let mut per_place_results = Vec::new();
+            for &pid in place_ids {
+                let session_id = self
+                    .client
+                    .resolve_session_for_place(pid)
+                    .await
+                    .map_err(|e| mcp_error(e.to_string()))?;
+
+                let incremental = self
+                    .client
+                    .read_incremental(&params.project_dir)
+                    .await
+                    .map_err(|e| mcp_error(e.to_string()))?;
+
+                let operations = tools::build_sync_operations(incremental.instances);
+                if operations.is_empty() {
+                    per_place_results.push(serde_json::json!({
+                        "place_id": pid,
+                        "session_id": session_id,
+                        "status": "no_changes",
+                    }));
+                    continue;
+                }
+
+                let result = self
+                    .client
+                    .sync_batch(&operations, Some(&params.project_dir))
+                    .await
+                    .map_err(|e| mcp_error(e.to_string()))?;
+
+                let applied = result.data.as_ref().map(|d| d.applied).unwrap_or(result.applied);
+                per_place_results.push(serde_json::json!({
+                    "place_id": pid,
+                    "session_id": session_id,
+                    "success": result.success,
+                    "applied": applied,
+                }));
+            }
+            let _ = self.client.mark_synced(&params.project_dir).await;
+            let summary = serde_json::to_string_pretty(&per_place_results)
+                .unwrap_or_else(|_| format!("{:?}", per_place_results));
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Multi-place sync complete:\n{}",
+                summary
+            ))]));
+        }
+
+        // Single-place resolution: explicit param > session state > server default
+        let resolved_place = self.resolve_place_id(params.place_id).await;
+        let _session_id = if let Some(pid) = resolved_place {
+            self.client
+                .resolve_session_for_place(pid)
+                .await
+                .map_err(|e| mcp_error(e.to_string()))?
+        } else {
+            None
+        };
+
         // Use incremental sync - only reads files modified since last sync
         let incremental = self.client.read_incremental(&params.project_dir).await.map_err(|e| mcp_error(e.to_string()))?;
 
@@ -737,6 +876,7 @@ impl RbxSyncServer {
         }
 
         // Apply changes (pass project_dir for operation tracking - RBXSYNC-77)
+        // session_id will be used by server-side routing once Task 4 lands
         let result = self.client.sync_batch(&operations, Some(&params.project_dir)).await.map_err(|e| mcp_error(e.to_string()))?;
 
         // Check if sync was skipped (disabled or extraction in progress)
@@ -891,6 +1031,19 @@ impl RbxSyncServer {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
         }
+
+        // Resolve place targeting for multi-place projects
+        let resolved_place = self.resolve_place_id(params.place_id).await;
+        let _session_id = if let Some(pid) = resolved_place {
+            self.client
+                .resolve_session_for_place(pid)
+                .await
+                .map_err(|e| mcp_error(e.to_string()))?
+        } else {
+            None
+        };
+        // session_id will be used by server-side routing once Task 4 lands
+
         let result = self.client.run_code(&params.code).await.map_err(|e| mcp_error(e.to_string()))?;
         Ok(CallToolResult::success(vec![Content::text(result)]))
     }
@@ -909,6 +1062,18 @@ impl RbxSyncServer {
         if let Some(err) = self.require_connection().await? {
             return Ok(err);
         }
+
+        // Resolve place targeting for multi-place projects
+        let resolved_place = self.resolve_place_id(params.place_id).await;
+        let _session_id = if let Some(pid) = resolved_place {
+            self.client
+                .resolve_session_for_place(pid)
+                .await
+                .map_err(|e| mcp_error(e.to_string()))?
+        } else {
+            None
+        };
+        // session_id will be used by server-side routing once Task 4 lands
 
         // Use the new playtest control endpoints for reliable lifecycle management
         let start_result = self.client

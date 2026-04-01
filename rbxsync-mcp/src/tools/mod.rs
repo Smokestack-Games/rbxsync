@@ -389,6 +389,30 @@ impl RbxSyncClient {
         Ok(resp.status == "ok")
     }
 
+    /// Resolve a session_id for a given place_id by querying the server's /status endpoint.
+    /// Returns None if no session is connected for that place.
+    pub async fn resolve_session_for_place(&self, place_id: u64) -> anyhow::Result<Option<String>> {
+        let url = format!("{}/status", self.base_url);
+        let response = self
+            .client
+            .get(&url)
+            .timeout(std::time::Duration::from_secs(5))
+            .send()
+            .await?;
+        let data: serde_json::Value = response.json().await?;
+        if let Some(places) = data.get("places").and_then(|v| v.as_array()) {
+            for place in places {
+                if place.get("place_id").and_then(|v| v.as_u64()) == Some(place_id) {
+                    return Ok(place
+                        .get("session_id")
+                        .and_then(|v| v.as_str())
+                        .map(|s| s.to_string()));
+                }
+            }
+        }
+        Ok(None)
+    }
+
     pub async fn start_extraction(
         &self,
         project_dir: &str,
