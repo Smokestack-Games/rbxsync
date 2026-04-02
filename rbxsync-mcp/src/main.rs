@@ -96,6 +96,62 @@ pub struct GitStatusParams {
     pub project_dir: String,
 }
 
+/// Parameters for verify tool (E2E testing)
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct VerifyParams {
+    /// Check type: property, count, find, children, attribute, distance, backpack, leaderstat
+    #[schemars(description = "Check type: property, count, find, children, attribute, distance, backpack, leaderstat")]
+    pub check: String,
+    /// Instance path (e.g., "Workspace.SpawnLocation")
+    #[schemars(description = "Instance path (e.g., 'Workspace.SpawnLocation')")]
+    #[serde(default)]
+    pub path: Option<String>,
+    /// Property name to check
+    #[schemars(description = "Property name to check")]
+    #[serde(default)]
+    pub property: Option<String>,
+    /// Comparison operator: eq, ne, gt, lt, gte, lte, contains, matches
+    #[schemars(description = "Comparison operator: eq, ne, gt, lt, gte, lte, contains, matches")]
+    #[serde(default)]
+    pub operator: Option<String>,
+    /// Expected value for the check
+    #[schemars(description = "Expected value for the check")]
+    #[serde(default)]
+    pub expected: Option<serde_json::Value>,
+    /// Custom message for the check result
+    #[schemars(description = "Custom message for the check result")]
+    #[serde(default)]
+    pub message: Option<String>,
+    /// Timeout in seconds for 'eventually true' polling (0 = instant check)
+    #[schemars(description = "Timeout in seconds for polling (0 = instant check)")]
+    #[serde(default)]
+    pub timeout: Option<u32>,
+    /// Tag name for CollectionService tag checks
+    #[schemars(description = "Tag name for CollectionService tag checks")]
+    #[serde(default)]
+    pub tag: Option<String>,
+    /// Class name filter for count/find checks
+    #[schemars(description = "Class name filter for count/find checks")]
+    #[serde(default)]
+    pub class: Option<String>,
+    /// Parent path for scoping count/find checks
+    #[schemars(description = "Parent path for scoping count/find checks")]
+    #[serde(default)]
+    pub parent: Option<String>,
+    /// Target path for distance checks
+    #[schemars(description = "Target path for distance checks")]
+    #[serde(default)]
+    pub target: Option<String>,
+    /// Item name for backpack checks
+    #[schemars(description = "Item name for backpack checks")]
+    #[serde(default)]
+    pub item: Option<String>,
+    /// Stat name for leaderstat checks
+    #[schemars(description = "Stat name for leaderstat checks")]
+    #[serde(default)]
+    pub stat: Option<String>,
+}
+
 /// Parameters for run_code tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct RunCodeParams {
@@ -2896,6 +2952,102 @@ return table.concat(lines, "\n")"#,
         }
 
         Ok(CallToolResult::success(vec![Content::text(output.join("\n"))]))
+    }
+
+    /// Verify game state during playtest. Check properties, counts, distances, backpack items, leaderstats.
+    /// Supports timeout for 'eventually true' conditions.
+    #[tool(description = "Verify game state during playtest. Check properties, counts, distances, backpack items, leaderstats. Supports timeout for 'eventually true' conditions.")]
+    async fn verify(
+        &self,
+        Parameters(params): Parameters<VerifyParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(err) = self.require_connection().await? {
+            return Ok(err);
+        }
+
+        // Build check_data JSON from params, only including non-None fields
+        let mut check_data = serde_json::json!({
+            "check": params.check,
+        });
+        if let Some(ref path) = params.path {
+            check_data["path"] = serde_json::json!(path);
+        }
+        if let Some(ref property) = params.property {
+            check_data["property"] = serde_json::json!(property);
+        }
+        if let Some(ref operator) = params.operator {
+            check_data["operator"] = serde_json::json!(operator);
+        }
+        if let Some(ref expected) = params.expected {
+            check_data["expected"] = expected.clone();
+        }
+        if let Some(ref message) = params.message {
+            check_data["message"] = serde_json::json!(message);
+        }
+        if let Some(timeout) = params.timeout {
+            check_data["timeout"] = serde_json::json!(timeout);
+        }
+        if let Some(ref tag) = params.tag {
+            check_data["tag"] = serde_json::json!(tag);
+        }
+        if let Some(ref class) = params.class {
+            check_data["class"] = serde_json::json!(class);
+        }
+        if let Some(ref parent) = params.parent {
+            check_data["parent"] = serde_json::json!(parent);
+        }
+        if let Some(ref target) = params.target {
+            check_data["target"] = serde_json::json!(target);
+        }
+        if let Some(ref item) = params.item {
+            check_data["item"] = serde_json::json!(item);
+        }
+        if let Some(ref stat) = params.stat {
+            check_data["stat"] = serde_json::json!(stat);
+        }
+
+        // Resolve session_id via place targeting
+        let resolved_place = self.resolve_place_id(None).await;
+        let session_id = if let Some(pid) = resolved_place {
+            self.client.resolve_session_for_place(pid).await.ok().flatten()
+        } else {
+            None
+        };
+
+        let result = self.client
+            .send_verify(check_data, session_id.as_deref())
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        // Format result as PASS/FAIL
+        let success = result.get("success").and_then(|v| v.as_bool()).unwrap_or(false);
+        let data = result.get("data").cloned().unwrap_or(serde_json::json!({}));
+        let error = result.get("error").and_then(|v| v.as_str()).map(|s| s.to_string());
+
+        let msg = data.get("message").and_then(|v| v.as_str()).unwrap_or("(no message)");
+        let elapsed = data.get("elapsed").and_then(|v| v.as_f64()).unwrap_or(0.0);
+
+        let mut output = if success {
+            format!("PASS: {}", msg)
+        } else {
+            let mut fail_msg = format!("FAIL: {}", msg);
+            if let Some(actual) = data.get("actual") {
+                fail_msg.push_str(&format!("\n  actual: {}", actual));
+            }
+            if let Some(expected) = data.get("expected") {
+                fail_msg.push_str(&format!("\n  expected: {}", expected));
+            }
+            if let Some(ref err) = error {
+                fail_msg.push_str(&format!("\n  error: {}", err));
+            }
+            fail_msg
+        };
+
+        if elapsed > 0.01 {
+            output.push_str(&format!("\n  (took {:.2}s)", elapsed));
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(output)]))
     }
 }
 

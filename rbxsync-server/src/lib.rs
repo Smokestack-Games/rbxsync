@@ -519,6 +519,8 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/console/history", get(handle_console_history))
         // Run arbitrary Luau code (for MCP)
         .route("/run", post(handle_run_code))
+        // Verify game state (for E2E testing via MCP)
+        .route("/verify", post(handle_verify))
         // Read instance properties (for MCP)
         .route("/read-properties", post(handle_read_properties))
         // Explore game hierarchy (for MCP)
@@ -4937,6 +4939,76 @@ async fn handle_run_code(
                     "success": false,
                     "output": null,
                     "error": "Plugin response timeout"
+                })),
+            )
+        }
+    }
+}
+
+// ============================================================================
+// Verify Endpoint (E2E Testing)
+// ============================================================================
+
+/// Request structure for verifying game state
+#[derive(Debug, Deserialize)]
+struct VerifyRequest {
+    data: serde_json::Value,
+    #[serde(default)]
+    session_id: Option<String>,
+}
+
+/// Verify game state in Studio (for E2E testing via MCP)
+async fn handle_verify(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<VerifyRequest>,
+) -> impl IntoResponse {
+    let request_id = Uuid::new_v4();
+    tracing::info!("verify:check request {} - queuing command", request_id);
+    let request = PluginRequest {
+        id: request_id,
+        command: "verify:check".to_string(),
+        payload: req.data.clone(),
+    };
+
+    // Create response channel
+    let (tx, mut rx) = mpsc::unbounded_channel();
+    state.response_channels.write().await.insert(request_id, tx);
+
+    // Queue the request (session-aware routing)
+    enqueue_plugin_request(&state, request, req.session_id.as_deref(), None).await;
+    tracing::info!("verify:check request {} - queued", request_id);
+    state.trigger.send(()).ok();
+
+    // Timeout = check timeout + 5s overhead
+    let check_timeout = req.data.get("timeout").and_then(|v| v.as_u64()).unwrap_or(0);
+    let timeout = tokio::time::Duration::from_secs(check_timeout + 5);
+
+    match tokio::time::timeout(timeout, rx.recv()).await {
+        Ok(Some(response)) => {
+            state.response_channels.write().await.remove(&request_id);
+            (StatusCode::OK, Json(serde_json::json!({
+                "success": response.success,
+                "data": response.data,
+                "error": response.error,
+            })))
+        }
+        Ok(None) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Channel closed"
+                })),
+            )
+        }
+        Err(_) => {
+            state.response_channels.write().await.remove(&request_id);
+            (
+                StatusCode::REQUEST_TIMEOUT,
+                Json(serde_json::json!({
+                    "success": false,
+                    "error": "Verify timed out waiting for plugin response"
                 })),
             )
         }

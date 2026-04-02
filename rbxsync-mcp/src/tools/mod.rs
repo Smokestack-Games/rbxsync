@@ -1178,6 +1178,24 @@ impl RbxSyncClient {
 
         send_and_parse(response, "insert_model").await
     }
+
+    /// Send a verify check to the server (for E2E testing)
+    pub async fn send_verify(&self, data: serde_json::Value, session_id: Option<&str>) -> anyhow::Result<serde_json::Value> {
+        let url = format!("{}/verify", self.base_url);
+        let mut body = serde_json::json!({ "data": data });
+        if let Some(sid) = session_id {
+            body["session_id"] = serde_json::Value::String(sid.to_string());
+        }
+        let response = self
+            .client
+            .post(&url)
+            .json(&body)
+            .timeout(std::time::Duration::from_secs(35))
+            .send()
+            .await?;
+        let result: serde_json::Value = response.json().await?;
+        Ok(result)
+    }
 }
 
 // ============================================================================
