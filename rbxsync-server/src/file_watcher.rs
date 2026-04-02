@@ -522,6 +522,81 @@ pub fn process_file_change(
             }
         }
         FileChangeKind::Rename { ref from_path } => {
+            // Detect temp file renames (atomic saves): editors write to .tmp then rename.
+            // The from_path won't have a valid .luau/.rbxjson extension — treat as a Modify.
+            let from_ext = from_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if from_ext != "luau" && from_ext != "rbxjson" {
+                // Temp file → real file rename = content update, not instance rename
+                if !path.exists() {
+                    return None;
+                }
+                let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if file_ext == "luau" {
+                    let source = match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!("Failed to read file {:?}: {}", path, e);
+                            return None;
+                        }
+                    };
+                    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let class_name = if filename.ends_with(".server.luau") {
+                        "Script"
+                    } else if filename.ends_with(".client.luau") {
+                        "LocalScript"
+                    } else {
+                        "ModuleScript"
+                    };
+                    let instance_name = inst_path.rsplit('/').next().unwrap_or(&inst_path);
+                    return Some(serde_json::json!({
+                        "type": "update",
+                        "path": inst_path,
+                        "data": {
+                            "className": class_name,
+                            "name": instance_name,
+                            "path": inst_path,
+                            "source": source,
+                            "properties": {
+                                "Source": {
+                                    "type": "string",
+                                    "value": source
+                                }
+                            }
+                        }
+                    }));
+                } else if file_ext == "rbxjson" {
+                    let content = match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!("Failed to read file {:?}: {}", path, e);
+                            return None;
+                        }
+                    };
+                    let mut data: serde_json::Value = match serde_json::from_str(&content) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            tracing::warn!("Failed to parse JSON {:?}: {}", path, e);
+                            return None;
+                        }
+                    };
+                    if let Some(obj) = data.as_object_mut() {
+                        obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
+                        if !obj.contains_key("name") {
+                            if let Some(name) = inst_path.rsplit('/').next() {
+                                obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                            }
+                        }
+                    }
+                    return Some(serde_json::json!({
+                        "type": "update",
+                        "path": inst_path,
+                        "data": data
+                    }));
+                } else {
+                    return None;
+                }
+            }
+
             // Compute old instance path from from_path
             let old_rel = match from_path.strip_prefix(&src_dir) {
                 Ok(p) => p,
