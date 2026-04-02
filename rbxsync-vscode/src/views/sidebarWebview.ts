@@ -31,6 +31,8 @@ interface SidebarState {
   rbxjsonHidden: boolean;
   // Cat panel visibility
   catVisible: boolean;
+  // Active mascot selection
+  activeMascot: 'sink' | 'clippy';
 }
 
 /**
@@ -74,7 +76,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     catMood: 'idle',
     catOperationType: null,
     rbxjsonHidden: true,
-    catVisible: true
+    catVisible: true,
+    activeMascot: vscode.workspace.getConfiguration('rbxsync').get<string>('mascot', 'sink') as 'sink' | 'clippy'
   };
 
   constructor(extensionUri: vscode.Uri, version?: string) {
@@ -151,6 +154,13 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           break;
       }
     });
+
+    vscode.workspace.onDidChangeConfiguration(e => {
+      if (e.affectsConfiguration('rbxsync.mascot')) {
+        this.state.activeMascot = vscode.workspace.getConfiguration('rbxsync').get<string>('mascot', 'sink') as 'sink' | 'clippy';
+        this._updateWebview();
+      }
+    });
   }
 
   public setConnectionStatus(
@@ -200,6 +210,15 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     this.state.catVisible = !this.state.catVisible;
     this._updateWebview();
     return this.state.catVisible;
+  }
+
+  public cycleMascot(): void {
+    const mascots: Array<'sink' | 'clippy'> = ['sink', 'clippy'];
+    const currentIndex = mascots.indexOf(this.state.activeMascot);
+    this.state.activeMascot = mascots[(currentIndex + 1) % mascots.length];
+    // Persist to VS Code setting
+    vscode.workspace.getConfiguration('rbxsync').update('mascot', this.state.activeMascot, vscode.ConfigurationTarget.Global);
+    this._updateWebview();
   }
 
   public setUpdateAvailable(version: string | null): void {
