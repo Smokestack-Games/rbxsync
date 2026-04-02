@@ -1003,7 +1003,39 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
     if #parentPath > 0 then
         parent = Sync.findInstanceAtPath(parentPath)
         if not parent then
-            return { success = false, error = "Parent not found: " .. parentPath }
+            -- Auto-create missing intermediate Folder instances (mkdir -p behavior)
+            -- Walk up the path to find the deepest existing ancestor, then create down
+            local segments = string.split(parentPath, "/")
+            local existingDepth = 0
+            local ancestor: Instance? = nil
+            for i = 1, #segments do
+                local partialPath = table.concat(segments, "/", 1, i)
+                local found = Sync.findInstanceAtPath(partialPath)
+                if found then
+                    ancestor = found
+                    existingDepth = i
+                else
+                    break
+                end
+            end
+
+            if existingDepth == 0 then
+                return { success = false, error = "Parent not found: " .. parentPath }
+            end
+
+            -- Create missing folders from existingDepth+1 to #segments
+            local current = ancestor :: Instance
+            for i = existingDepth + 1, #segments do
+                local folderName = segments[i]
+                local folder = Instance.new("Folder")
+                folder.Name = folderName
+                folder.Parent = current
+                -- Register in cache so subsequent operations can find it
+                local folderPath = table.concat(segments, "/", 1, i)
+                Sync.registerCreated(folderPath, folder)
+                current = folder
+            end
+            parent = current
         end
     end
 
