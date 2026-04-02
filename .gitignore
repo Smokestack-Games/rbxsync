@@ -46,6 +46,7 @@ build/*.vsix
 .claude/*
 !.claude/TEAM-LEAD-GUIDE.md
 !.claude/TEAM-LEAD-PROMPT.md
+!.claude/rbxsync-harness.md
 !.claude/hooks/
 !.claude/templates/
 !.claude/skills/
