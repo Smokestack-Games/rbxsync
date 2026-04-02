@@ -421,7 +421,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       /* Core backgrounds - theme-aware */
       --bg-base: var(--vscode-sideBar-background, #18181B);
       --bg-surface: var(--vscode-editorWidget-background, #202024);
-      --bg-elevated: var(--vscode-badge-background, #2D2D32);
+      --bg-elevated: var(--vscode-input-background, #2D2D32);
       --bg-hover: var(--vscode-list-hoverBackground, #2D2D32);
       --bg-active: var(--vscode-list-activeSelectionBackground, #373740);
 
@@ -432,7 +432,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       /* Borders - theme-aware */
       --border: var(--vscode-panel-border, #2D2D32);
-      --border-light: var(--vscode-focusBorder, #3C3C44);
+      --border-light: var(--vscode-widget-border, #3C3C44);
       --border-focus: var(--vscode-focusBorder, #3C3C44);
 
       --radius: 8px;
