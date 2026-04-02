@@ -2311,12 +2311,11 @@ end
 
 -- Unlink from workspace (keeps Studio visible but clears project_dir)
 local function unlinkFromServer()
-    local placeName = getPlaceName()
-    -- Use register with empty project_dir to stay visible but unlinked
-    local success, _ = httpPost("/rbxsync/register", {
+    -- Use the dedicated unlink endpoint to clear project_dir on the server.
+    -- This is separate from heartbeat registration so the server can distinguish
+    -- between "plugin is heartbeating" vs "plugin is explicitly unlinking".
+    local success, _ = httpPost("/rbxsync/unlink-studio", {
         place_id = game.PlaceId,
-        place_name = placeName,
-        project_dir = "",  -- Empty project_dir = unlinked but still registered
         session_id = SESSION_ID,
     })
 

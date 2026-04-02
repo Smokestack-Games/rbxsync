@@ -630,21 +630,42 @@ async fn handle_register(
 
         for stale_key in stale_keys {
             if let Some(info) = registry.remove(&stale_key) {
-                tracing::debug!(
-                    "Replaced stale session for place {}: {} (old key: {})",
+                tracing::warn!(
+                    "Replaced stale session for place {} (project_dir='{}', old key: {}, new key: {})",
                     req.place_name,
-                    info.session_id.unwrap_or_default(),
-                    stale_key
+                    info.project_dir,
+                    stale_key,
+                    key
                 );
             }
         }
     }
 
+    // If incoming project_dir is empty but an existing entry has a non-empty one
+    // (e.g., set by VS Code via /link-studio), preserve it. This prevents heartbeat
+    // requests from overwriting VS Code-initiated links.
+    let existing_project_dir = registry.get(&key).map(|info| info.project_dir.clone());
+    let final_project_dir = if project_dir.is_empty() {
+        existing_project_dir.clone()
+            .filter(|dir| !dir.is_empty())
+            .unwrap_or(project_dir.clone())
+    } else {
+        project_dir.clone()
+    };
+
+    tracing::info!(
+        "handle_register: key={}, incoming_dir='{}', existing_dir='{:?}', final_dir='{}'",
+        key,
+        project_dir,
+        existing_project_dir,
+        final_project_dir
+    );
+
     // Register/update this place (replaces any existing entry for this session)
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
         place_name: req.place_name.clone(),
-        project_dir: project_dir.clone(),
+        project_dir: final_project_dir.clone(),
         session_id: req.session_id.clone(),
         last_heartbeat: Some(Instant::now()),
     });
@@ -653,7 +674,7 @@ async fn handle_register(
     // Create project queue if it doesn't exist
     {
         let mut queues = state.project_queues.write().await;
-        queues.entry(project_dir.clone()).or_insert_with(VecDeque::new);
+        queues.entry(final_project_dir.clone()).or_insert_with(VecDeque::new);
     }
 
     // Only log once per session to prevent spam
@@ -751,7 +772,7 @@ async fn cleanup_stale_registrations(state: &Arc<AppState>) {
 
     for key in &stale_keys {
         if let Some(info) = registry.remove(key) {
-            tracing::debug!("Removed stale registration: {} ({})", info.place_name, key);
+            tracing::warn!("Removed stale registration: {} ({}) project_dir='{}'", info.place_name, key, info.project_dir);
         }
     }
 }
@@ -1030,6 +1051,8 @@ async fn handle_link_studio(
 #[derive(Debug, Deserialize)]
 pub struct UnlinkStudioRequest {
     pub place_id: u64,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Handle request to unlink a Studio from a workspace
@@ -1040,10 +1063,15 @@ async fn handle_unlink_studio(
 ) -> impl IntoResponse {
     let mut registry = state.place_registry.write().await;
 
-    // Find the entry with matching place_id (key is now session_id, not place_id)
-    let target_key = registry.iter()
-        .find(|(_, place)| place.place_id == req.place_id)
-        .map(|(key, _)| key.clone());
+    // Prefer session_id for lookup (handles unpublished places with PlaceId=0),
+    // fall back to place_id for backwards compatibility with VS Code
+    let target_key = if let Some(ref sid) = req.session_id {
+        if registry.contains_key(sid) { Some(sid.clone()) } else { None }
+    } else {
+        registry.iter()
+            .find(|(_, place)| place.place_id == req.place_id)
+            .map(|(key, _)| key.clone())
+    };
 
     if let Some(key) = target_key {
         if let Some(place_info) = registry.get_mut(&key) {
