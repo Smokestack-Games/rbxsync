@@ -36,6 +36,7 @@ local ChangeTracker = require(script.ChangeTracker)
 local TerrainHandler = require(script.TerrainHandler)
 local CSGHandler = require(script.CSGHandler)
 local BotController = require(script.BotController)
+local Verifier = require(script.Verifier)
 
 -- Initialize config with plugin reference
 Config.init(plugin)
@@ -1508,6 +1509,9 @@ local function handleCommand(command: string, payload: any)
         return TestRunner.getPlaytestStatus()
     elseif command == "playtest:output" then
         return TestRunner.getOutput()
+
+    elseif command == "verify:check" then
+        return Verifier.check(payload)
 
     elseif command == "debug:start" then
         -- Start playtest
