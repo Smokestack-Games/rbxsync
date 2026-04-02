@@ -619,6 +619,9 @@ async fn handle_register(
 
     // For published places (place_id > 0), remove any stale entries with the same place_id
     // but a different session_id. This prevents duplicates when Studio is closed and reopened.
+    // If a stale entry had a linked project_dir, carry it forward so the link survives
+    // session changes (e.g., plugin re-initialization after playtest).
+    let mut inherited_project_dir: Option<String> = None;
     if req.place_id > 0 {
         let stale_keys: Vec<String> = registry
             .iter()
@@ -630,7 +633,11 @@ async fn handle_register(
 
         for stale_key in stale_keys {
             if let Some(info) = registry.remove(&stale_key) {
-                tracing::warn!(
+                // Inherit project_dir from the removed entry if it was linked
+                if !info.project_dir.is_empty() {
+                    inherited_project_dir = Some(info.project_dir.clone());
+                }
+                tracing::info!(
                     "Replaced stale session for place {} (project_dir='{}', old key: {}, new key: {})",
                     req.place_name,
                     info.project_dir,
@@ -641,14 +648,14 @@ async fn handle_register(
         }
     }
 
-    // If incoming project_dir is empty but an existing entry has a non-empty one
-    // (e.g., set by VS Code via /link-studio), preserve it. This prevents heartbeat
-    // requests from overwriting VS Code-initiated links.
+    // Resolve final project_dir: prefer incoming non-empty > existing entry > inherited from stale > empty
     let existing_project_dir = registry.get(&key).map(|info| info.project_dir.clone());
-    let final_project_dir = if project_dir.is_empty() {
-        existing_project_dir.clone()
-            .filter(|dir| !dir.is_empty())
-            .unwrap_or(project_dir.clone())
+    let final_project_dir = if !project_dir.is_empty() {
+        project_dir.clone()
+    } else if let Some(existing) = existing_project_dir.clone().filter(|d| !d.is_empty()) {
+        existing
+    } else if let Some(inherited) = inherited_project_dir {
+        inherited
     } else {
         project_dir.clone()
     };
@@ -2930,14 +2937,15 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
 
     // Recursively read all .rbxjson files
     let mut instances: Vec<serde_json::Value> = Vec::new();
-    let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // (instance_path -> (source, original_filename)) for script files
+    let mut scripts: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new();
 
     fn walk_dir(
         dir: &std::path::Path,
         base: &std::path::Path,
         path_prefix: &str,
         instances: &mut Vec<serde_json::Value>,
-        scripts: &mut std::collections::HashMap<String, String>,
+        scripts: &mut std::collections::HashMap<String, (String, String)>,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -3025,8 +3033,9 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
 
                         // Normalize path to strip disambiguation suffixes (RBXSYNC-68)
                         let normalized_inst_path = normalize_path_for_comparison(&inst_path);
+                        let filename = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
                         if let Ok(source) = std::fs::read_to_string(&path) {
-                            scripts.insert(normalized_inst_path, source);
+                            scripts.insert(normalized_inst_path, (source, filename));
                         }
                     }
                 }
@@ -3051,9 +3060,10 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     }
 
     // Merge script sources into their instance data
+    let mut merged_scripts = std::collections::HashSet::new();
     for inst in &mut instances {
-        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
-            if let Some(source) = scripts.get(path) {
+        if let Some(path) = inst.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+            if let Some((source, _filename)) = scripts.get(&path) {
                 // Add or update Source property
                 if let Some(props) = inst.get_mut("properties") {
                     if let Some(obj) = props.as_object_mut() {
@@ -3063,11 +3073,38 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                         }));
                     }
                 }
+                merged_scripts.insert(path);
             }
         }
     }
 
-    tracing::info!("Read {} instances from {}", instances.len(), src_dir.display());
+    // Create standalone script instances for .luau files without matching .rbxjson
+    for (inst_path, (source, filename)) in &scripts {
+        if merged_scripts.contains(inst_path) {
+            continue;
+        }
+        let class_name = if filename.ends_with(".server.luau") {
+            "Script"
+        } else if filename.ends_with(".client.luau") {
+            "LocalScript"
+        } else {
+            "ModuleScript"
+        };
+        let name = inst_path.rsplit('/').next().unwrap_or(inst_path);
+        instances.push(serde_json::json!({
+            "className": class_name,
+            "name": name,
+            "path": inst_path,
+            "properties": {
+                "Source": {
+                    "type": "string",
+                    "value": source
+                }
+            }
+        }));
+    }
+
+    tracing::info!("Read {} instances ({} standalone scripts) from {}", instances.len(), scripts.len() - merged_scripts.len(), src_dir.display());
 
     (
         StatusCode::OK,
