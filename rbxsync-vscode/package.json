@@ -200,6 +200,16 @@
           "type": "boolean",
           "default": true,
           "description": "Generate default.project.json for Luau LSP compatibility after extraction"
+        },
+        "rbxsync.mascot": {
+          "type": "string",
+          "enum": ["sink", "clippy"],
+          "default": "sink",
+          "enumDescriptions": [
+            "Sink the zen cat",
+            "Clippy the helpful paperclip"
+          ],
+          "description": "Choose your RbxSync mascot companion."
         }
       }
     },
