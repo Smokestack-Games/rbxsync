@@ -31,8 +31,6 @@ interface SidebarState {
   rbxjsonHidden: boolean;
   // Cat panel visibility
   catVisible: boolean;
-  // Active mascot selection
-  activeMascot: 'sink' | 'clippy';
 }
 
 /**
@@ -76,8 +74,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     catMood: 'idle',
     catOperationType: null,
     rbxjsonHidden: true,
-    catVisible: true,
-    activeMascot: vscode.workspace.getConfiguration('rbxsync').get<string>('mascot', 'sink') as 'sink' | 'clippy'
+    catVisible: true
   };
 
   constructor(extensionUri: vscode.Uri, version?: string) {
@@ -152,22 +149,8 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           this.state.updateAvailable = null;
           this._updateWebview();
           break;
-        case 'cycleMascot':
-          this.cycleMascot();
-          break;
       }
     });
-
-    const configDisposable = vscode.workspace.onDidChangeConfiguration(e => {
-      if (e.affectsConfiguration('rbxsync.mascot')) {
-        const newMascot = vscode.workspace.getConfiguration('rbxsync').get<string>('mascot', 'sink') as 'sink' | 'clippy';
-        if (newMascot !== this.state.activeMascot) {
-          this.state.activeMascot = newMascot;
-          this._updateWebview();
-        }
-      }
-    });
-    webviewView.onDidDispose(() => configDisposable.dispose());
   }
 
   public setConnectionStatus(
@@ -217,15 +200,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     this.state.catVisible = !this.state.catVisible;
     this._updateWebview();
     return this.state.catVisible;
-  }
-
-  public cycleMascot(): void {
-    const mascots: Array<'sink' | 'clippy'> = ['sink', 'clippy'];
-    const currentIndex = mascots.indexOf(this.state.activeMascot);
-    this.state.activeMascot = mascots[(currentIndex + 1) % mascots.length];
-    // Persist to VS Code setting
-    vscode.workspace.getConfiguration('rbxsync').update('mascot', this.state.activeMascot, vscode.ConfigurationTarget.Global);
-    this._updateWebview();
   }
 
   public setUpdateAvailable(version: string | null): void {
@@ -1246,364 +1220,178 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     const vscode = acquireVsCodeApi();
     let state = null;
 
-    // ── Mascot Definition System ──
-    // Each mascot is a data object with art, messages, and quotes.
-    // The active mascot is selected by the rbxsync.mascot VS Code setting.
-
-    const MASCOTS = {
-      sink: {
-        name: 'Sink',
-        art: {
-          idle: \` /\\\\_/\\\\
+    // Zen Cat ASCII Art for different moods (detailed 4-line)
+    const CAT_ART = {
+      idle: \` /\\\\_/\\\\
 ( -.- )
  />♡<\\\\
   ~z~\`,
-          syncing: \` /\\\\_/\\\\
+      syncing: \` /\\\\_/\\\\
 ( o.o )
  />~<\\\\
   ~~~\`,
-          success: \` /\\\\_/\\\\
+      success: \` /\\\\_/\\\\
 ( ^.^ )
  />v<\\\\
 *purr*\`,
-          error: \` /\\\\_/\\\\
+      error: \` /\\\\_/\\\\
 ( >.< )
  />!<\\\\
   ?!?\`
-        },
-        talk: [
-          \` /\\\\_/\\\\
+    };
+
+    // Status indicator text for different moods
+    const CAT_STATUS = {
+      idle: ['~ Napping...', '◦ Dreaming...', '✧ Resting...', '~ Dozing...'],
+      syncing: ['✻ Working...', '◈ Syncing...', '⟳ Pushing...', '✦ Busy...'],
+      success: ['♡ Happy!', '✿ Purrfect!', '★ Done!', '❋ Yay!'],
+      error: ['⚠ Oh no...', '✕ Uh oh...', '◇ Oops...'],
+      thinking: ['✻ Thinking...', '◦ Pondering...', '✧ Hmm...'],
+      connecting: ['◈ Waking...', '✦ Starting...', '⟳ Connecting...'],
+    };
+
+    function updateCatStatus(mood) {
+      const statusEl = document.getElementById('zenCatStatus');
+      if (!statusEl) return;
+      const statuses = CAT_STATUS[mood] || CAT_STATUS.idle;
+      statusEl.textContent = statuses[Math.floor(Math.random() * statuses.length)];
+    }
+
+    // Talking cat faces for animation while typing
+    const CAT_TALK = [
+      \` /\\\\_/\\\\
 ( °o° )
  />~<\\\\
   ...\`,
-          \` /\\\\_/\\\\
+      \` /\\\\_/\\\\
 ( °-° )
  />~<\\\\
   ...\`
-        ],
-        clickFace: \` /\\\\_/\\\\
-( O.O )
- />!<\\\\
- meow!\`,
-        eventArt: {
-          connecting: \` /\\\\_/\\\\
-( o.o )
- />~<\\\\
-  ~~~\`,
-          connected: \` /\\\\_/\\\\
-( ^.^ )
- />v<\\\\
-*purr*\`,
-          disconnected: \` /\\\\_/\\\\
-( -.- )
- />♡<\\\\
-  ~z~\`,
-          studioJoined: \` /\\\\_/\\\\
-( o.o )
- />~<\\\\
-  !!!\`,
-          studioLeft: \` /\\\\_/\\\\
-( ;.; )
- />~<\\\\
-  ...\`,
-          studioLinked: \` /\\\\_/\\\\
-( ^.^ )
- />v<\\\\
- yay!\`,
-          studioUnlinked: \` /\\\\_/\\\\
-( -.- )
- />~<\\\\
-  ok~\`
-        },
-        statusMessages: {
-          idle: ['~ Napping...', '◦ Dreaming...', '✧ Resting...', '~ Dozing...'],
-          syncing: ['✻ Working...', '◈ Syncing...', '⟳ Pushing...', '✦ Busy...'],
-          success: ['♡ Happy!', '✿ Purrfect!', '★ Done!', '❋ Yay!'],
-          error: ['⚠ Oh no...', '✕ Uh oh...', '◇ Oops...'],
-          thinking: ['✻ Thinking...', '◦ Pondering...', '✧ Hmm...'],
-          connecting: ['◈ Waking...', '✦ Starting...', '⟳ Connecting...'],
-        },
-        operationMessages: {
-          sync: ["Syncing meow~", "Pushing changes...", "Almost there~", "Uploading scripts...", "Just a moment..."],
-          extract: ["Extracting meow~", "Grabbing files...", "So many instances!", "Downloading...", "Fetching data~"],
-          test: ["Testing meow~", "Running checks...", "Paws crossed!", "Executing...", "Let's see~"],
-          success: ["All done! Purr~", "Meow-velous!", "Nailed it!", "Purrfect!", "Success meow~"],
-          error: ["Oh no meow!", "Something went wrong...", "Hiss!", "Uh oh...", "Error meow!"],
-          serverStart: ["Server starting~", "Waking up...", "Stretching...", "Coming online!"],
-          serverConnected: ["Connected! Purr~", "Ready to go!", "All systems meow!", "Online and cozy~"],
-          serverStopped: ["Server stopped~", "Taking a nap...", "Zzz...", "Going offline~"],
-          studioJoined: ["New friend!", "Hello Studio~", "Welcome meow!", "A visitor!"],
-          studioLeft: ["Bye bye~", "Studio left...", "See you later!", "Gone meow..."],
-          studioLinked: ["Linked up!", "Connected meow~", "We're bonded!", "Link established!"],
-          studioUnlinked: ["Unlinked~", "Disconnected...", "Link broken", "Separated meow"]
-        },
-        greetings: [
-          "Welcome back, friend!", "Hello there! Ready to code?", "Hi! Sink is here to help~",
-          "Welcome to RbxSync!", "Hey! Let's build something!", "Good to see you!",
-          "Sink reporting for duty!", "Hello, developer!", "Ready when you are~",
-          "Let's make something cool!", "Sink is happy to see you!", "Welcome! *purrs*",
-          "Hey friend! Let's go~", "Hi hi! Ready to sync?", "Sink says hello!"
-        ],
-        clickMessages: [
-          "Meow!", "Mrrp?", "Purrr~", "*blinks slowly*", "Nya~", "*head bonk*",
-          "Pet me more!", "*kneads paws*", "Prrrrt!", "*tail swish*", "Feed me?",
-          "*chirp chirp*", "So sleepy...", "*stretches*", "Mrow!", "*flops over*",
-          "Treats?", "*ear twitch*", "Mew~", "*purrs loudly*"
-        ],
-        quotes: [
-          "Just breathe.", "Be here now.", "There is only Now.", "Breathe and let be.",
-          "Pay attention.", "Attention!", "What am I?", "Om mani padme hum",
-          "When hungry, eat.", "When tired, sleep.", "You are the sky.", "YOLO",
-          "Who is breathing?", "Focus on your breath.", "Let go of thinking.",
-          "Just be in this moment.", "Do one thing at a time.", "Do dishes, rake leaves.",
-          "Chop wood, carry water.", "What you think, you become.", "Nothing is permanent.",
-          "Seek the mind.", "You are awareness.", "There is only the Present.",
-          "Clean the floor with love.", "Drink your tea slowly.", "Attend the moment.",
-          "We have only now.", "Do not dwell in the past.", "Do not dream of the future.",
-          "My religion is love.", "Listen to your heart.", "If not now, when?",
-          "Get the inside right.", "Give your fullest attention.", "Gate, gate, paragate...",
-          "Let come what comes.", "Let go what goes.", "See what remains.",
-          "Each time for the first time.", "You need nothing more.", "I am detached.",
-          "There is only light.", "Your thoughts come and go.", "Express yourself as you are.",
-          "Breathe in deeply.", "Breathe out slowly.", "Feel what you feel now.",
-          "Put it all down.", "Let it all go.", "We're present now.",
-          "Be kind whenever possible.", "Nothing else matters now.", "Become still and alert."
-        ],
-        personalQuotes: [
-          "Sink is hungry...", "Sink believes in you~", "Sink had a nice nap.",
-          "Sink is proud of you!", "Sink loves a good sync.", "Sink feels cozy today.",
-          "Sink sends good vibes~", "Sink is happy here.", "Sink dreams of treats.",
-          "Sink is cheering you on!", "Sink's heart is full.", "Sink feels lucky today.",
-          "Sink knows you got this!", "Sink enjoys the typing.", "Sink is here for you.",
-          "Sink thinks you're great!", "Sink is contemplating...", "Sink appreciates you.",
-          "Sink is grateful~", "Sink wonders about meow.", "Sink needs more naps.",
-          "Sink likes this code.", "Sink is vibing~", "Sink says keep going!",
-          "Sink found a sunbeam."
-        ]
-      },
-      clippy: {
-        name: 'Clippy',
-        art: {
-          idle: \` __
-/  \\\\
-|  |
-@  @
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ~z~\`,
-          syncing: \` __
-/  \\\\
-|  |
-◉  ◉
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ~~~\`,
-          success: \` __
-/  \\\\
-|  |
-◠  ◠
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
-*tip*\`,
-          error: \` __
-/  \\\\
-|  |
-×  ×
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ?!?\`
-        },
-        talk: [
-          \` __
-/  \\\\
-|  |
-◔  ◔
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ...\`,
-          \` __
-/  \\\\
-|  |
-◑  ◑
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ...\`
-        ],
-        clickFace: \` __
-/  \\\\
-|  |
-⊙  ⊙
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- !!!\`,
-        eventArt: {
-          connecting: \` __
-/  \\\\
-|  |
-◉  ◉
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ~~~\`,
-          connected: \` __
-/  \\\\
-|  |
-◠  ◠
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
-*tip*\`,
-          disconnected: \` __
-/  \\\\
-|  |
-@  @
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ~z~\`,
-          studioJoined: \` __
-/  \\\\
-|  |
-◉  ◉
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- !!!\`,
-          studioLeft: \` __
-/  \\\\
-|  |
-._  _.
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- ...\`,
-          studioLinked: \` __
-/  \\\\
-|  |
-◠  ◠
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
- yay!\`,
-          studioUnlinked: \` __
-/  \\\\
-|  |
-@  @
-|| ||
-|| ||
-|\\\\_/|
-\\\\___/
-  ok~\`
-        },
-        statusMessages: {
-          idle: ['~ Organizing...', '◦ Filing...', '✧ Standing by...', '~ Waiting...'],
-          syncing: ['✻ Working...', '◈ Syncing...', '⟳ Pushing...', '✦ Busy!'],
-          success: ['♡ Nailed it!', '✿ Perfect!', '★ Done!', '❋ Filed!'],
-          error: ['⚠ Oh no...', '✕ Uh oh...', '◇ Oops...'],
-          thinking: ['✻ Thinking...', '◦ Processing...', '✧ Hmm...'],
-          connecting: ['◈ Booting...', '✦ Starting...', '⟳ Connecting...'],
-        },
-        operationMessages: {
-          sync: ["Syncing your files!", "Pushing changes~", "Almost there!", "Uploading scripts...", "Just a moment!"],
-          extract: ["Extracting files!", "Grabbing instances~", "So many files!", "Downloading...", "Fetching data!"],
-          test: ["Running checks!", "Testing 1, 2, 3...", "Fingers crossed!", "Executing...", "Let's see!"],
-          success: ["All done! Great work!", "Filed successfully!", "Gold star!", "Nailed it!", "Success!"],
-          error: ["Oh no! Let me help!", "Something went wrong...", "Don't worry, I'm on it!", "Uh oh...", "Error detected!"],
-          serverStart: ["Server starting!", "Booting up...", "Initializing...", "Coming online!"],
-          serverConnected: ["Connected! Let's go!", "Ready to assist!", "All systems go!", "Online and ready~"],
-          serverStopped: ["Server stopped~", "Taking a break...", "Powering down...", "Going offline~"],
-          studioJoined: ["New connection!", "Hello Studio!", "Welcome!", "Studio just walked in!"],
-          studioLeft: ["Goodbye~", "Studio left...", "See you later!", "Studio has left the building."],
-          studioLinked: ["Linked up! Let's go!", "Connected!", "We're in business!", "Link established!"],
-          studioUnlinked: ["Unlinked~", "Disconnected...", "Link broken", "Connection lost..."]
-        },
-        greetings: [
-          "Hi! Clippy is here to help!", "Clippy reporting for duty!", "It looks like you need an assistant!",
-          "Clippy says hello!", "Welcome! Need any help?", "Good to see you!",
-          "Clippy is ready to assist!", "Hello, developer!", "Ready when you are!",
-          "Let's get productive!", "Clippy is happy to help!", "Welcome! Let's do this!",
-          "Hey! Let's get to work!", "Hi there! Ready to sync?", "Clippy at your service!"
-        ],
-        clickMessages: [
-          "Hey! I was filing!", "Clippy is surprised!", "Watch the wire!", "Easy on the clicks!",
-          "Clippy wobbles!", "*straightens up*", "I'm a paperclip!", "*bounces*",
-          "Careful there!", "That tickles!", "Need help?", "*springs back*",
-          "Still here!", "*wiggles*", "Click!", "*adjusts glasses*",
-          "Hello again!", "*spins*", "Boing!", "*waves*"
-        ],
-        quotes: [
-          "It looks like you're writing a script!", "A clean codebase is a happy codebase!",
-          "Remember to save early, save often!", "Have you tried turning it off and on again?",
-          "Pro tip: Ctrl+Z is your best friend.", "Did you know? Semicolons are optional in Luau!",
-          "A well-named variable is worth a thousand comments.", "Time for a code review?",
-          "Keep calm and keep coding!", "Don't forget to commit your work!",
-          "You're on a roll today!", "Remember: tabs vs spaces is a personal journey.",
-          "Your code is looking sharp today!", "The best code is no code at all.",
-          "Ship it!", "Have you considered a design pattern?",
-          "Refactor early, refactor often.", "Comments should explain why, not what.",
-          "Test your edge cases!", "Good code reads like prose.",
-          "Version control is your safety net.", "Small commits, clear messages.",
-          "Code is read more than it is written.", "Simplicity is the ultimate sophistication.",
-          "When in doubt, print it out.", "Rubber duck debugging works!",
-          "Take breaks. Your brain needs them.", "Documentation is a love letter to your future self.",
-          "Make it work, make it right, make it fast.", "Every bug is a lesson learned.",
-          "Stay curious, keep learning.", "There's always a simpler way.",
-          "The compiler is your friend.", "Don't repeat yourself!",
-          "Indent consistently.", "Read the error message carefully.",
-          "Coffee and code go hand in hand.", "Measure twice, code once.",
-          "Progress, not perfection.", "One function, one purpose.",
-          "Keep your dependencies tidy.", "Naming things is one of the hardest problems.",
-          "Let the tests guide you.", "You're doing great, keep it up!",
-          "Every expert was once a beginner.", "Automate the boring stuff.",
-          "Code review is a gift.", "Sleep on it. The answer will come.",
-          "Trust the process.", "Build for today, design for tomorrow."
-        ],
-        personalQuotes: [
-          "Clippy believes in your code~", "Clippy filed that under 'awesome'!",
-          "Clippy is organizing your paperwork...", "Clippy recommends a coffee break.",
-          "Clippy is proud of your progress!", "Clippy has been reviewing your files~",
-          "Clippy suggests: have you tried a for loop?", "Clippy is standing by for your next sync.",
-          "Clippy thinks your project structure is neat!", "Clippy noticed you haven't saved in a while...",
-          "Clippy appreciates good documentation.", "Clippy is impressed!",
-          "Clippy gives you a gold star.", "Clippy is watching and learning~",
-          "Clippy filed a bug report... just kidding!", "Clippy is optimizing...",
-          "Clippy says: ship it!", "Clippy found a syntax error... not really!",
-          "Clippy is vibing~", "Clippy is your #1 fan!",
-          "Clippy loves clean code.", "Clippy is here for you.",
-          "Clippy says keep going!", "Clippy found a coffee cup.",
-          "Clippy is feeling productive!"
-        ]
-      }
+    ];
+
+    // Contextual cat messages by operation type
+    const CAT_MESSAGES = {
+      sync: [
+        "Syncing meow~",
+        "Pushing changes...",
+        "Almost there~",
+        "Uploading scripts...",
+        "Just a moment..."
+      ],
+      extract: [
+        "Extracting meow~",
+        "Grabbing files...",
+        "So many instances!",
+        "Downloading...",
+        "Fetching data~"
+      ],
+      test: [
+        "Testing meow~",
+        "Running checks...",
+        "Paws crossed!",
+        "Executing...",
+        "Let's see~"
+      ],
+      success: [
+        "All done! Purr~",
+        "Meow-velous!",
+        "Nailed it!",
+        "Purrfect!",
+        "Success meow~"
+      ],
+      error: [
+        "Oh no meow!",
+        "Something went wrong...",
+        "Hiss!",
+        "Uh oh...",
+        "Error meow!"
+      ],
+      serverStart: [
+        "Server starting~",
+        "Waking up...",
+        "Stretching...",
+        "Coming online!"
+      ],
+      serverConnected: [
+        "Connected! Purr~",
+        "Ready to go!",
+        "All systems meow!",
+        "Online and cozy~"
+      ],
+      serverStopped: [
+        "Server stopped~",
+        "Taking a nap...",
+        "Zzz...",
+        "Going offline~"
+      ],
+      studioJoined: [
+        "New friend!",
+        "Hello Studio~",
+        "Welcome meow!",
+        "A visitor!"
+      ],
+      studioLeft: [
+        "Bye bye~",
+        "Studio left...",
+        "See you later!",
+        "Gone meow..."
+      ],
+      studioLinked: [
+        "Linked up!",
+        "Connected meow~",
+        "We're bonded!",
+        "Link established!"
+      ],
+      studioUnlinked: [
+        "Unlinked~",
+        "Disconnected...",
+        "Link broken",
+        "Separated meow"
+      ]
     };
 
-    // Active mascot - will be set from VS Code setting
-    let activeMascotKey = 'sink';
-    let mascot = MASCOTS[activeMascotKey];
+    // Greeting messages for first launch - high priority welcome
+    const CAT_GREETINGS = [
+      "Welcome back, friend!",
+      "Hello there! Ready to code?",
+      "Hi! Sink is here to help~",
+      "Welcome to RbxSync!",
+      "Hey! Let's build something!",
+      "Good to see you!",
+      "Sink reporting for duty!",
+      "Hello, developer!",
+      "Ready when you are~",
+      "Let's make something cool!",
+      "Sink is happy to see you!",
+      "Welcome! *purrs*",
+      "Hey friend! Let's go~",
+      "Hi hi! Ready to sync?",
+      "Sink says hello!"
+    ];
 
-    // Helper to get all quotes (general + personal) for active mascot
-    function getAllQuotes() {
-      return [...mascot.quotes, ...mascot.personalQuotes];
-    }
+    // Cat click reactions - fun cat things to say
+    const CAT_CLICK_MESSAGES = [
+      "Meow!",
+      "Mrrp?",
+      "Purrr~",
+      "*blinks slowly*",
+      "Nya~",
+      "*head bonk*",
+      "Pet me more!",
+      "*kneads paws*",
+      "Prrrrt!",
+      "*tail swish*",
+      "Feed me?",
+      "*chirp chirp*",
+      "So sleepy...",
+      "*stretches*",
+      "Mrow!",
+      "*flops over*",
+      "Treats?",
+      "*ear twitch*",
+      "Mew~",
+      "*purrs loudly*"
+    ];
 
     // Fun colors for cat clicks
     const CAT_CLICK_COLORS = [
@@ -1617,13 +1405,95 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       '#2dd4bf', // teal
     ];
 
-    function updateCatStatus(mood) {
-      const statusEl = document.getElementById('zenCatStatus');
-      if (!statusEl) return;
-      const statuses = mascot.statusMessages[mood] || mascot.statusMessages.idle;
-      statusEl.textContent = statuses[Math.floor(Math.random() * statuses.length)];
-    }
+    // Zen wisdom quotes (short - max 2 lines)
+    const ZEN_QUOTES = [
+      "Just breathe.",
+      "Be here now.",
+      "There is only Now.",
+      "Breathe and let be.",
+      "Pay attention.",
+      "Attention!",
+      "What am I?",
+      "Om mani padme hum",
+      "When hungry, eat.",
+      "When tired, sleep.",
+      "You are the sky.",
+      "YOLO",
+      "Who is breathing?",
+      "Focus on your breath.",
+      "Let go of thinking.",
+      "Just be in this moment.",
+      "Do one thing at a time.",
+      "Do dishes, rake leaves.",
+      "Chop wood, carry water.",
+      "What you think, you become.",
+      "Nothing is permanent.",
+      "Seek the mind.",
+      "You are awareness.",
+      "There is only the Present.",
+      "Clean the floor with love.",
+      "Drink your tea slowly.",
+      "Attend the moment.",
+      "We have only now.",
+      "Do not dwell in the past.",
+      "Do not dream of the future.",
+      "My religion is love.",
+      "Listen to your heart.",
+      "If not now, when?",
+      "Get the inside right.",
+      "Give your fullest attention.",
+      "Gate, gate, paragate...",
+      "Let come what comes.",
+      "Let go what goes.",
+      "See what remains.",
+      "Each time for the first time.",
+      "You need nothing more.",
+      "I am detached.",
+      "There is only light.",
+      "Your thoughts come and go.",
+      "Express yourself as you are.",
+      "Breathe in deeply.",
+      "Breathe out slowly.",
+      "Feel what you feel now.",
+      "Put it all down.",
+      "Let it all go.",
+      "We're present now.",
+      "Be kind whenever possible.",
+      "Nothing else matters now.",
+      "Become still and alert."
+    ];
 
+    // Sink's personal thoughts (short - max 2 lines)
+    const SINK_QUOTES = [
+      "Sink is hungry...",
+      "Sink believes in you~",
+      "Sink had a nice nap.",
+      "Sink is proud of you!",
+      "Sink loves a good sync.",
+      "Sink feels cozy today.",
+      "Sink sends good vibes~",
+      "Sink is happy here.",
+      "Sink dreams of treats.",
+      "Sink is cheering you on!",
+      "Sink's heart is full.",
+      "Sink feels lucky today.",
+      "Sink knows you got this!",
+      "Sink enjoys the typing.",
+      "Sink is here for you.",
+      "Sink thinks you're great!",
+      "Sink is contemplating...",
+      "Sink appreciates you.",
+      "Sink is grateful~",
+      "Sink wonders about meow.",
+      "Sink needs more naps.",
+      "Sink likes this code.",
+      "Sink is vibing~",
+      "Sink says keep going!",
+      "Sink found a sunbeam."
+    ];
+
+    // Combine all quotes
+    const ALL_QUOTES = [...ZEN_QUOTES, ...SINK_QUOTES];
 
     // Initialize zen cat quote feed
     let quoteIndex = 0;
@@ -1704,7 +1574,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       let talkFrame = 0;
       if (catEl && !isClickAnimating) {
         talkInterval = setInterval(() => {
-          catEl.textContent = mascot.talk[talkFrame % 2];
+          catEl.textContent = CAT_TALK[talkFrame % 2];
           talkFrame++;
         }, 150);
       }
@@ -1715,9 +1585,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       function typeChar() {
         if (i < text.length && currentTypewriterText === text) {
           displayText += text.charAt(i);
-          // Highlight mascot name with cat's color, add cursor at end
+          // Highlight "Sink" with cat's color, add cursor at end
           const catColor = getCatColor();
-          const highlighted = displayText.replace(new RegExp(mascot.name, 'g'), '<span class="sink-name" style="color:' + catColor + '">' + mascot.name + '</span>');
+          const highlighted = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
           element.innerHTML = highlighted + '<span class="typing-cursor">|</span>';
           i++;
           typewriterTimeout = setTimeout(typeChar, speed);
@@ -1726,7 +1596,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           element.classList.remove('typing');
           // Remove cursor when done, show final text
           const catColor = getCatColor();
-          element.innerHTML = displayText.replace(new RegExp(mascot.name, 'g'), '<span class="sink-name" style="color:' + catColor + '">' + mascot.name + '</span>');
+          element.innerHTML = displayText.replace(/Sink/g, '<span class="sink-name" style="color:' + catColor + '">Sink</span>');
           // Stop talking animation and restore cat
           if (talkInterval) {
             clearInterval(talkInterval);
@@ -1742,7 +1612,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     // Get random message for operation type
     function getOperationMessage(opType) {
-      const messages = mascot.operationMessages[opType];
+      const messages = CAT_MESSAGES[opType];
       if (!messages || messages.length === 0) return '';
       return messages[Math.floor(Math.random() * messages.length)];
     }
@@ -1772,12 +1642,12 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       if (!quoteEl) return;
 
       // Shuffle quotes for variety (mix zen + Sink quotes)
-      shuffledQuotes = [...getAllQuotes()].sort(() => Math.random() - 0.5);
+      shuffledQuotes = [...ALL_QUOTES].sort(() => Math.random() - 0.5);
 
       // Show greeting on first launch with high priority (8 seconds)
       // Also set greetingUntil to block server status messages during greeting
       if (isFirstLaunch) {
-        const greeting = mascot.greetings[Math.floor(Math.random() * mascot.greetings.length)];
+        const greeting = CAT_GREETINGS[Math.floor(Math.random() * CAT_GREETINGS.length)];
         greetingUntil = Date.now() + 8000;
         showPriorityMessage(greeting, quoteEl, 8000);
         isFirstLaunch = false;
@@ -1811,7 +1681,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       const catEl = document.getElementById('zenCatArt');
       if (!catEl) return;
 
-      catEl.textContent = mascot.art[mood] || mascot.art.idle;
+      catEl.textContent = CAT_ART[mood] || CAT_ART.idle;
       catEl.className = 'zen-cat ' + mood;
       updateCatStatus(mood);
     }
@@ -1829,8 +1699,11 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       // Pick random color
       const randomColor = CAT_CLICK_COLORS[Math.floor(Math.random() * CAT_CLICK_COLORS.length)];
 
-      // Show surprised face
-      catEl.textContent = mascot.clickFace;
+      // Show surprised face (4-line version)
+      catEl.textContent = \` /\\\\_/\\\\
+( O.O )
+ />!<\\\\
+ meow!\`;
       catEl.style.color = randomColor;
 
       // Add wiggle animation to container, color to speech bubble
@@ -1845,7 +1718,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
       // Show cat message with priority
       if (quoteEl) {
-        const catMsg = mascot.clickMessages[Math.floor(Math.random() * mascot.clickMessages.length)];
+        const catMsg = CAT_CLICK_MESSAGES[Math.floor(Math.random() * CAT_CLICK_MESSAGES.length)];
         showPriorityMessage(catMsg, quoteEl, 4000);
       }
 
@@ -1869,22 +1742,7 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     initZenCat();
 
     // Add click handler to cat
-    let clickTimeout = null;
-    document.getElementById('zenCat')?.addEventListener('click', () => {
-      if (clickTimeout) return; // second click of a dblclick
-      clickTimeout = setTimeout(() => {
-        clickTimeout = null;
-        onCatClick();
-      }, 250);
-    });
-    document.getElementById('zenCat')?.addEventListener('dblclick', (e) => {
-      if (clickTimeout) {
-        clearTimeout(clickTimeout);
-        clickTimeout = null;
-      }
-      e.preventDefault();
-      vscode.postMessage({ command: 'cycleMascot' });
-    });
+    document.getElementById('zenCat')?.addEventListener('click', onCatClick);
 
     window.addEventListener('message', e => {
       if (e.data.type === 'stateUpdate') {
@@ -1894,23 +1752,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     function render(s) {
-      // Switch active mascot if setting changed
-      const newMascotKey = s.activeMascot || 'sink';
-      if (newMascotKey !== activeMascotKey) {
-        activeMascotKey = newMascotKey;
-        mascot = MASCOTS[activeMascotKey];
-        // Re-shuffle quotes for new mascot
-        shuffledQuotes = [...getAllQuotes()].sort(() => Math.random() - 0.5);
-        quoteIndex = 0;
-        // Show greeting from new mascot
-        const quoteEl2 = document.getElementById('zenQuote');
-        if (quoteEl2) {
-          const greeting = mascot.greetings[Math.floor(Math.random() * mascot.greetings.length)];
-          showPriorityMessage(greeting, quoteEl2, 5000);
-        }
-        // Update the displayed art immediately
-        updateCatMood(s.catMood || 'idle');
-      }
       // Update zen cat mood and message
       const catMood = s.catMood || 'idle';
       const opType = s.catOperationType;
@@ -1924,7 +1765,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (connStatus === 'connecting' && lastConnectionStatus !== 'connecting') {
           // Server starting - show alert cat with animation
           if (catEl) {
-            catEl.textContent = mascot.eventArt.connecting;
+            catEl.textContent = \` /\\\\_/\\\\
+( o.o )
+ />~<\\\\
+  ~~~\`;
             catEl.style.color = '#facc15';
           }
           updateCatStatus('connecting');
@@ -1941,7 +1785,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         } else if (connStatus === 'connected' && lastConnectionStatus !== 'connected') {
           // Server connected - show happy cat
           if (catEl) {
-            catEl.textContent = mascot.eventArt.connected;
+            catEl.textContent = \` /\\\\_/\\\\
+( ^.^ )
+ />v<\\\\
+*purr*\`;
             catEl.style.color = '#4ade80';
           }
           updateCatStatus('success');
@@ -1970,7 +1817,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         } else if (connStatus === 'disconnected' && lastConnectionStatus && lastConnectionStatus !== 'disconnected') {
           // Server stopped - show sleepy cat
           if (catEl) {
-            catEl.textContent = mascot.eventArt.disconnected;
+            catEl.textContent = \` /\\\\_/\\\\
+( -.- )
+ />♡<\\\\
+  ~z~\`;
             catEl.style.color = '#a78bfa';
           }
           if (container) {
@@ -2008,7 +1858,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         if (currentPlaceCount > lastPlaceCount && lastPlaceCount > 0) {
           // New studio joined
           if (catEl) {
-            catEl.textContent = mascot.eventArt.studioJoined;
+            catEl.textContent = \` /\\\\_/\\\\
+( o.o )
+ />~<\\\\
+  !!!\`;
             catEl.style.color = '#60a5fa';
           }
           if (quoteEl) {
@@ -2029,7 +1882,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
         } else if (currentPlaceCount < lastPlaceCount) {
           // Studio left
           if (catEl) {
-            catEl.textContent = mascot.eventArt.studioLeft;
+            catEl.textContent = \` /\\\\_/\\\\
+( ;.; )
+ />~<\\\\
+  ...\`;
             catEl.style.color = '#a78bfa';
           }
           if (quoteEl) {
@@ -2066,7 +1922,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       for (const id of currentLinkedIds) {
         if (!lastLinkedPlaceIds.has(id) && lastLinkedPlaceIds.size > 0 || (lastLinkedPlaceIds.size === 0 && currentLinkedIds.size > 0 && lastPlaceCount > 0)) {
           if (catEl) {
-            catEl.textContent = mascot.eventArt.studioLinked;
+            catEl.textContent = \` /\\\\_/\\\\
+( ^.^ )
+ />v<\\\\
+ yay!\`;
             catEl.style.color = '#4ade80';
           }
           if (quoteEl) {
@@ -2091,7 +1950,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       for (const id of lastLinkedPlaceIds) {
         if (!currentLinkedIds.has(id)) {
           if (catEl) {
-            catEl.textContent = mascot.eventArt.studioUnlinked;
+            catEl.textContent = \` /\\\\_/\\\\
+( -.- )
+ />~<\\\\
+  ok~\`;
             catEl.style.color = '#facc15';
           }
           if (quoteEl) {
