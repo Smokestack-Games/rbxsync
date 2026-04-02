@@ -152,6 +152,9 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
           this.state.updateAvailable = null;
           this._updateWebview();
           break;
+        case 'cycleMascot':
+          this.cycleMascot();
+          break;
       }
     });
 
@@ -1863,6 +1866,10 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
 
     // Add click handler to cat
     document.getElementById('zenCat')?.addEventListener('click', onCatClick);
+    document.getElementById('zenCat')?.addEventListener('dblclick', (e) => {
+      e.preventDefault();
+      vscode.postMessage({ command: 'cycleMascot' });
+    });
 
     window.addEventListener('message', e => {
       if (e.data.type === 'stateUpdate') {
@@ -1872,6 +1879,23 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     });
 
     function render(s) {
+      // Switch active mascot if setting changed
+      const newMascotKey = s.activeMascot || 'sink';
+      if (newMascotKey !== activeMascotKey) {
+        activeMascotKey = newMascotKey;
+        mascot = MASCOTS[activeMascotKey];
+        // Re-shuffle quotes for new mascot
+        shuffledQuotes = [...getAllQuotes()].sort(() => Math.random() - 0.5);
+        quoteIndex = 0;
+        // Show greeting from new mascot
+        const quoteEl2 = document.getElementById('zenQuote');
+        if (quoteEl2) {
+          const greeting = mascot.greetings[Math.floor(Math.random() * mascot.greetings.length)];
+          showPriorityMessage(greeting, quoteEl2, 5000);
+        }
+        // Update the displayed art immediately
+        updateCatMood(s.catMood || 'idle');
+      }
       // Update zen cat mood and message
       const catMood = s.catMood || 'idle';
       const opType = s.catOperationType;
