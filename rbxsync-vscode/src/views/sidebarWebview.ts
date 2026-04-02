@@ -418,22 +418,22 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       --purple: #8b5cf6;
       --purple-soft: rgba(139, 92, 246, 0.15);
 
-      /* Core backgrounds - unified with Studio plugin */
-      --bg-base: #18181B;
-      --bg-surface: #202024;
-      --bg-elevated: #2D2D32;
-      --bg-hover: #2D2D32;
-      --bg-active: #373740;
+      /* Core backgrounds - theme-aware */
+      --bg-base: var(--vscode-sideBar-background, #18181B);
+      --bg-surface: var(--vscode-editorWidget-background, #202024);
+      --bg-elevated: var(--vscode-badge-background, #2D2D32);
+      --bg-hover: var(--vscode-list-hoverBackground, #2D2D32);
+      --bg-active: var(--vscode-list-activeSelectionBackground, #373740);
 
-      /* Text hierarchy - unified */
-      --text-primary: #F4F4F5;
-      --text-secondary: #A1A1AA;
-      --text-muted: #71717A;
+      /* Text hierarchy - theme-aware */
+      --text-primary: var(--vscode-foreground, #F4F4F5);
+      --text-secondary: var(--vscode-descriptionForeground, #A1A1AA);
+      --text-muted: var(--vscode-disabledForeground, #71717A);
 
-      /* Borders - unified */
-      --border: #2D2D32;
-      --border-light: #3C3C44;
-      --border-focus: #3C3C44;
+      /* Borders - theme-aware */
+      --border: var(--vscode-panel-border, #2D2D32);
+      --border-light: var(--vscode-focusBorder, #3C3C44);
+      --border-focus: var(--vscode-focusBorder, #3C3C44);
 
       --radius: 8px;
       --radius-sm: 6px;
@@ -449,8 +449,6 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       background: var(--bg-base);
       padding: 4px 12px 12px 12px;
       line-height: 1.5;
-      /* Override VS Code theme for consistent look */
-      --vscode-sideBar-background: var(--bg-base);
     }
     body.cat-hidden {
       padding-bottom: 12px;
