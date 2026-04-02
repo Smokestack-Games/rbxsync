@@ -158,12 +158,16 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
       }
     });
 
-    vscode.workspace.onDidChangeConfiguration(e => {
+    const configDisposable = vscode.workspace.onDidChangeConfiguration(e => {
       if (e.affectsConfiguration('rbxsync.mascot')) {
-        this.state.activeMascot = vscode.workspace.getConfiguration('rbxsync').get<string>('mascot', 'sink') as 'sink' | 'clippy';
-        this._updateWebview();
+        const newMascot = vscode.workspace.getConfiguration('rbxsync').get<string>('mascot', 'sink') as 'sink' | 'clippy';
+        if (newMascot !== this.state.activeMascot) {
+          this.state.activeMascot = newMascot;
+          this._updateWebview();
+        }
       }
     });
+    webviewView.onDidDispose(() => configDisposable.dispose());
   }
 
   public setConnectionStatus(
@@ -1865,8 +1869,19 @@ export class SidebarWebviewProvider implements vscode.WebviewViewProvider {
     initZenCat();
 
     // Add click handler to cat
-    document.getElementById('zenCat')?.addEventListener('click', onCatClick);
+    let clickTimeout = null;
+    document.getElementById('zenCat')?.addEventListener('click', () => {
+      if (clickTimeout) return; // second click of a dblclick
+      clickTimeout = setTimeout(() => {
+        clickTimeout = null;
+        onCatClick();
+      }, 250);
+    });
     document.getElementById('zenCat')?.addEventListener('dblclick', (e) => {
+      if (clickTimeout) {
+        clearTimeout(clickTimeout);
+        clickTimeout = null;
+      }
       e.preventDefault();
       vscode.postMessage({ command: 'cycleMascot' });
     });
