@@ -44,32 +44,6 @@ fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
     None
 }
 
-/// Apply tree mapping to convert DataModel path to filesystem path
-fn apply_tree_mapping(datamodel_path: &str, tree_mapping: &HashMap<String, String>) -> String {
-    // Try to find longest matching prefix
-    let mut best_match: Option<(&str, &str)> = None;
-    let mut best_len = 0;
-
-    for (dm_prefix, fs_prefix) in tree_mapping {
-        if (datamodel_path == dm_prefix || datamodel_path.starts_with(&format!("{}/", dm_prefix)))
-            && dm_prefix.len() > best_len {
-                best_match = Some((dm_prefix.as_str(), fs_prefix.as_str()));
-                best_len = dm_prefix.len();
-            }
-    }
-
-    if let Some((dm_prefix, fs_prefix)) = best_match {
-        if datamodel_path == dm_prefix {
-            fs_prefix.to_string()
-        } else {
-            let suffix = &datamodel_path[dm_prefix.len() + 1..]; // Skip the '/'
-            format!("{}/{}", fs_prefix, suffix)
-        }
-    } else {
-        datamodel_path.to_string()
-    }
-}
-
 /// Directories to skip during recursive copy operations
 const SKIP_DIRS: &[&str] = &[".rbxsync-trash", ".rbxsync-backup", ".rbxsync", ".git", "node_modules"];
 
@@ -101,47 +75,6 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
         }
     }
     Ok(())
-}
-
-/// Apply reverse tree mapping to convert filesystem path to DataModel path
-#[allow(dead_code)]
-fn apply_reverse_tree_mapping(fs_path: &str, tree_mapping: &HashMap<String, String>) -> String {
-    // Try to find longest matching prefix (reverse lookup)
-    let mut best_match: Option<(&str, &str)> = None;
-    let mut best_len = 0;
-
-    for (dm_prefix, fs_prefix) in tree_mapping {
-        if (fs_path == fs_prefix || fs_path.starts_with(&format!("{}/", fs_prefix)))
-            && fs_prefix.len() > best_len {
-                best_match = Some((dm_prefix.as_str(), fs_prefix.as_str()));
-                best_len = fs_prefix.len();
-            }
-    }
-
-    if let Some((dm_prefix, fs_prefix)) = best_match {
-        if fs_path == fs_prefix {
-            dm_prefix.to_string()
-        } else {
-            let suffix = &fs_path[fs_prefix.len() + 1..]; // Skip the '/'
-            format!("{}/{}", dm_prefix, suffix)
-        }
-    } else {
-        fs_path.to_string()
-    }
-}
-
-/// Extract tree_mapping from config JSON
-fn get_tree_mapping(config: &Option<serde_json::Value>) -> HashMap<String, String> {
-    config
-        .as_ref()
-        .and_then(|c| c.get("treeMapping"))
-        .and_then(|m| m.as_object())
-        .map(|obj| {
-            obj.iter()
-                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
-                .collect()
-        })
-        .unwrap_or_default()
 }
 
 /// Strip disambiguation suffix from a path segment (RBXSYNC-68)
@@ -393,6 +326,8 @@ pub struct PluginResponse {
     pub data: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
 }
 
 /// Active extraction session state
@@ -619,6 +554,9 @@ async fn handle_register(
 
     // For published places (place_id > 0), remove any stale entries with the same place_id
     // but a different session_id. This prevents duplicates when Studio is closed and reopened.
+    // If a stale entry had a linked project_dir, carry it forward so the link survives
+    // session changes (e.g., plugin re-initialization after playtest).
+    let mut inherited_project_dir: Option<String> = None;
     if req.place_id > 0 {
         let stale_keys: Vec<String> = registry
             .iter()
@@ -630,21 +568,46 @@ async fn handle_register(
 
         for stale_key in stale_keys {
             if let Some(info) = registry.remove(&stale_key) {
-                tracing::debug!(
-                    "Replaced stale session for place {}: {} (old key: {})",
+                // Inherit project_dir from the removed entry if it was linked
+                if !info.project_dir.is_empty() {
+                    inherited_project_dir = Some(info.project_dir.clone());
+                }
+                tracing::info!(
+                    "Replaced stale session for place {} (project_dir='{}', old key: {}, new key: {})",
                     req.place_name,
-                    info.session_id.unwrap_or_default(),
-                    stale_key
+                    info.project_dir,
+                    stale_key,
+                    key
                 );
             }
         }
     }
 
+    // Resolve final project_dir: prefer incoming non-empty > existing entry > inherited from stale > empty
+    let existing_project_dir = registry.get(&key).map(|info| info.project_dir.clone());
+    let final_project_dir = if !project_dir.is_empty() {
+        project_dir.clone()
+    } else if let Some(existing) = existing_project_dir.clone().filter(|d| !d.is_empty()) {
+        existing
+    } else if let Some(inherited) = inherited_project_dir {
+        inherited
+    } else {
+        project_dir.clone()
+    };
+
+    tracing::info!(
+        "handle_register: key={}, incoming_dir='{}', existing_dir='{:?}', final_dir='{}'",
+        key,
+        project_dir,
+        existing_project_dir,
+        final_project_dir
+    );
+
     // Register/update this place (replaces any existing entry for this session)
     registry.insert(key.clone(), PlaceInfo {
         place_id: req.place_id,
         place_name: req.place_name.clone(),
-        project_dir: project_dir.clone(),
+        project_dir: final_project_dir.clone(),
         session_id: req.session_id.clone(),
         last_heartbeat: Some(Instant::now()),
     });
@@ -653,7 +616,7 @@ async fn handle_register(
     // Create project queue if it doesn't exist
     {
         let mut queues = state.project_queues.write().await;
-        queues.entry(project_dir.clone()).or_insert_with(VecDeque::new);
+        queues.entry(final_project_dir.clone()).or_insert_with(VecDeque::new);
     }
 
     // Only log once per session to prevent spam
@@ -751,7 +714,7 @@ async fn cleanup_stale_registrations(state: &Arc<AppState>) {
 
     for key in &stale_keys {
         if let Some(info) = registry.remove(key) {
-            tracing::debug!("Removed stale registration: {} ({})", info.place_name, key);
+            tracing::warn!("Removed stale registration: {} ({}) project_dir='{}'", info.place_name, key, info.project_dir);
         }
     }
 }
@@ -1030,6 +993,8 @@ async fn handle_link_studio(
 #[derive(Debug, Deserialize)]
 pub struct UnlinkStudioRequest {
     pub place_id: u64,
+    #[serde(default)]
+    pub session_id: Option<String>,
 }
 
 /// Handle request to unlink a Studio from a workspace
@@ -1040,10 +1005,15 @@ async fn handle_unlink_studio(
 ) -> impl IntoResponse {
     let mut registry = state.place_registry.write().await;
 
-    // Find the entry with matching place_id (key is now session_id, not place_id)
-    let target_key = registry.iter()
-        .find(|(_, place)| place.place_id == req.place_id)
-        .map(|(key, _)| key.clone());
+    // Prefer session_id for lookup (handles unpublished places with PlaceId=0),
+    // fall back to place_id for backwards compatibility with VS Code
+    let target_key = if let Some(ref sid) = req.session_id {
+        if registry.contains_key(sid) { Some(sid.clone()) } else { None }
+    } else {
+        registry.iter()
+            .find(|(_, place)| place.place_id == req.place_id)
+            .map(|(key, _)| key.clone())
+    };
 
     if let Some(key) = target_key {
         if let Some(place_info) = registry.get_mut(&key) {
@@ -1337,6 +1307,14 @@ async fn handle_response(
     Json(response): Json<PluginResponse>,
 ) -> impl IntoResponse {
     tracing::info!("Received response for request {}: success={}", response.id, response.success);
+    if !response.success {
+        if !response.errors.is_empty() {
+            tracing::warn!("Sync errors for {}: {:?}", response.id, response.errors);
+        }
+        if let Some(ref err) = response.error {
+            tracing::warn!("Sync error for {}: {}", response.id, err);
+        }
+    }
     let channels = state.response_channels.read().await;
     if let Some(sender) = channels.get(&response.id) {
         tracing::info!("Found channel for request {}, sending response", response.id);
@@ -1909,7 +1887,7 @@ async fn handle_extract_finalize(
 
     // Load project config and tree mapping
     let config = load_project_config(&req.project_dir);
-    let tree_mapping = get_tree_mapping(&config);
+    let tree_mapping = rbxsync_core::tree_mapping_from_config(config.as_ref());
     tracing::info!("Tree mapping loaded: {:?}", tree_mapping);
 
     // Check package preservation settings from config JSON
@@ -2108,7 +2086,7 @@ async fn handle_extract_finalize(
         let inst_path = normalize_path(inst_path);
 
         // Apply tree mapping to convert DataModel path to filesystem path
-        let fs_path = apply_tree_mapping(&inst_path, &tree_mapping);
+        let fs_path = rbxsync_core::apply_tree_mapping(&inst_path, &tree_mapping);
 
         // Use mapped path for filesystem operations
         let full_path = src_dir.join(&fs_path);
@@ -2663,7 +2641,7 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
 
     // Load project config and tree mapping
     let config = load_project_config(&req.project_dir);
-    let tree_mapping = get_tree_mapping(&config);
+    let tree_mapping = rbxsync_core::tree_mapping_from_config(config.as_ref());
 
     let mut files_written = 0;
     let mut errors: Vec<String> = Vec::new();
@@ -2671,13 +2649,13 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
     for op in &req.operations {
         // Convert instance path to file path with tree mapping
         let inst_path = &op.path;
-        let fs_path = apply_tree_mapping(inst_path, &tree_mapping);
+        let fs_path = rbxsync_core::apply_tree_mapping(inst_path, &tree_mapping);
         let full_path = src_dir.join(&fs_path);
 
         match op.change_type.as_str() {
             "delete" => {
                 // Try to delete both .luau and .rbxjson files
-                let luau_extensions = [".server.luau", ".client.luau", ".luau"];
+                let luau_extensions = [".server.luau", ".client.luau", ".luau", ".server.lua", ".client.lua", ".lua"];
                 let mut deleted_any = false;
                 for ext in luau_extensions {
                     let script_path = rbxsync_core::path_with_suffix(&full_path, ext);
@@ -2710,8 +2688,8 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                     let new_inst_path = data.get("newPath").and_then(|v| v.as_str());
 
                     if let (Some(old_path), Some(new_path)) = (old_inst_path, new_inst_path) {
-                        let old_fs_path = apply_tree_mapping(old_path, &tree_mapping);
-                        let new_fs_path = apply_tree_mapping(new_path, &tree_mapping);
+                        let old_fs_path = rbxsync_core::apply_tree_mapping(old_path, &tree_mapping);
+                        let new_fs_path = rbxsync_core::apply_tree_mapping(new_path, &tree_mapping);
                         let old_full_path = src_dir.join(&old_fs_path);
                         let new_full_path = src_dir.join(&new_fs_path);
 
@@ -2735,7 +2713,7 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                             }
                         } else {
                             // Rename script files (try all extensions)
-                            let extensions = [".server.luau", ".client.luau", ".luau", ".rbxjson"];
+                            let extensions = [".server.luau", ".client.luau", ".luau", ".server.lua", ".client.lua", ".lua", ".rbxjson"];
                             let mut renamed_any = false;
                             for ext in extensions {
                                 let old_file_str = rbxsync_core::path_with_suffix(&old_full_path, ext);
@@ -2879,6 +2857,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
 
     // Load project config for package settings
     let config = load_project_config(&req.project_dir);
+    let tree_mapping = rbxsync_core::tree_mapping_from_config(config.as_ref());
     let packages_config = config.as_ref().and_then(|c| c.get("packages"));
     let packages_folder = packages_config
         .and_then(|p| p.get("packagesFolder"))
@@ -2902,14 +2881,16 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
 
     // Recursively read all .rbxjson files
     let mut instances: Vec<serde_json::Value> = Vec::new();
-    let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // (instance_path -> (source, original_filename)) for script files
+    let mut scripts: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new();
 
     fn walk_dir(
         dir: &std::path::Path,
         base: &std::path::Path,
         path_prefix: &str,
         instances: &mut Vec<serde_json::Value>,
-        scripts: &mut std::collections::HashMap<String, String>,
+        scripts: &mut std::collections::HashMap<String, (String, String)>,
+        tree_mapping: &std::collections::HashMap<String, String>,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -2921,7 +2902,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                     }
                 }
                 if path.is_dir() {
-                    walk_dir(&path, base, path_prefix, instances, scripts);
+                    walk_dir(&path, base, path_prefix, instances, scripts, tree_mapping);
                 } else if let Some(ext) = path.extension() {
                     if ext == "rbxjson" {
                         // Skip terrain.rbxjson - it has different format (terrain chunk data, not instance data)
@@ -2935,17 +2916,12 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 // Derive path from file system if not present in JSON
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rbxsync_core::path_to_string(rel_path);
                                 // Convert file path to instance path:
                                 // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
                                 // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
-                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let rel_inst_path = if is_meta {
-                                    // _meta.rbxjson represents the parent folder
-                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                } else {
-                                    path_str.replace(".rbxjson", "")
-                                };
+                                // e.g., "Workspace/Model/init.rbxjson" -> "Workspace/Model"
+                                let rel_inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
+                                let rel_inst_path = rbxsync_core::apply_reverse_tree_mapping(&rel_inst_path, tree_mapping);
 
                                 // Apply path prefix (for packages mapping to DataModel paths)
                                 let inst_path = if path_prefix.is_empty() {
@@ -2953,10 +2929,6 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                                 } else {
                                     format!("{}/{}", path_prefix, rel_inst_path)
                                 };
-
-                                if path_str.contains("_meta") {
-                                    tracing::info!("DEBUG: path_str='{}', is_meta={}, inst_path='{}'", path_str, is_meta, inst_path);
-                                }
 
                                 // Set path from file location (used for tracking, not naming)
                                 // Normalize path to strip disambiguation suffixes (RBXSYNC-68)
@@ -2976,17 +2948,15 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                                 instances.push(inst);
                             }
                         }
-                    } else if ext == "luau" {
+                    } else if ext == "luau" || ext == "lua" {
                         // Read script source
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                        let path_str = rbxsync_core::path_to_string(rel_path);
-                        // Keep '/' as delimiter (matches instance path format)
-                        // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService/MyScript"
-                        let rel_inst_path = path_str
-                            .trim_end_matches(".server.luau")
-                            .trim_end_matches(".client.luau")
-                            .trim_end_matches(".luau")
-                            .to_string();
+                        let filename_str = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+
+                        // Handle init.* convention: init.server.luau, init.client.luau, init.luau
+                        // represent the parent directory as a script instance
+                        let rel_inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
+                        let rel_inst_path = rbxsync_core::apply_reverse_tree_mapping(&rel_inst_path, tree_mapping);
 
                         // Apply path prefix (for packages mapping to DataModel paths)
                         let inst_path = if path_prefix.is_empty() {
@@ -2998,7 +2968,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                         // Normalize path to strip disambiguation suffixes (RBXSYNC-68)
                         let normalized_inst_path = normalize_path_for_comparison(&inst_path);
                         if let Ok(source) = std::fs::read_to_string(&path) {
-                            scripts.insert(normalized_inst_path, source);
+                            scripts.insert(normalized_inst_path, (source, filename_str));
                         }
                     }
                 }
@@ -3007,25 +2977,26 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     }
 
     // Walk the main src directory (no prefix - paths map directly to DataModel)
-    walk_dir(&src_dir, &src_dir, "", &mut instances, &mut scripts);
+    walk_dir(&src_dir, &src_dir, "", &mut instances, &mut scripts, &tree_mapping);
 
     // Walk packages directory if enabled (packages_dir already validated when packages_enabled was set)
     if packages_enabled {
         tracing::info!("Reading Wally packages from {} -> {}", packages_folder, shared_packages_path);
-        walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut instances, &mut scripts);
+        walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut instances, &mut scripts, &std::collections::HashMap::new());
 
         // Also check for server packages subdirectory
         let server_pkg_dir = packages_dir.join("ServerPackages");
         if server_pkg_dir.exists() && server_pkg_dir.is_dir() {
             tracing::info!("Reading server packages from ServerPackages -> {}", server_packages_path);
-            walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut instances, &mut scripts);
+            walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut instances, &mut scripts, &std::collections::HashMap::new());
         }
     }
 
     // Merge script sources into their instance data
+    let mut merged_scripts = std::collections::HashSet::new();
     for inst in &mut instances {
-        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
-            if let Some(source) = scripts.get(path) {
+        if let Some(path) = inst.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()) {
+            if let Some((source, _filename)) = scripts.get(&path) {
                 // Add or update Source property
                 if let Some(props) = inst.get_mut("properties") {
                     if let Some(obj) = props.as_object_mut() {
@@ -3035,11 +3006,32 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                         }));
                     }
                 }
+                merged_scripts.insert(path);
             }
         }
     }
 
-    tracing::info!("Read {} instances from {}", instances.len(), src_dir.display());
+    // Create standalone script instances for .luau files without matching .rbxjson
+    for (inst_path, (source, filename)) in &scripts {
+        if merged_scripts.contains(inst_path) {
+            continue;
+        }
+        let class_name = rbxsync_core::script_class_from_filename(filename);
+        let name = inst_path.rsplit('/').next().unwrap_or(inst_path);
+        instances.push(serde_json::json!({
+            "className": class_name,
+            "name": name,
+            "path": inst_path,
+            "properties": {
+                "Source": {
+                    "type": "string",
+                    "value": source
+                }
+            }
+        }));
+    }
+
+    tracing::info!("Read {} instances ({} standalone scripts) from {}", instances.len(), scripts.len() - merged_scripts.len(), src_dir.display());
 
     (
         StatusCode::OK,
@@ -3188,19 +3180,23 @@ async fn handle_sync_incremental(
     }
 
     // Recursively read files, filtering by modification time
+    let tree_mapping = rbxsync_core::load_tree_mapping(std::path::Path::new(&req.project_dir));
     let mut instances: Vec<serde_json::Value> = Vec::new();
-    let mut scripts: std::collections::HashMap<String, String> = std::collections::HashMap::new();
+    // (inst_path -> (source, original_filename)) for class detection
+    let mut scripts: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new();
     let mut files_checked = 0usize;
     let mut files_modified = 0usize;
 
+    #[allow(clippy::too_many_arguments)]
     fn walk_dir_incremental(
         dir: &std::path::Path,
         base: &std::path::Path,
         instances: &mut Vec<serde_json::Value>,
-        scripts: &mut std::collections::HashMap<String, String>,
+        scripts: &mut std::collections::HashMap<String, (String, String)>,
         last_sync: Option<std::time::SystemTime>,
         files_checked: &mut usize,
         files_modified: &mut usize,
+        tree_mapping: &std::collections::HashMap<String, String>,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
@@ -3212,7 +3208,7 @@ async fn handle_sync_incremental(
                     }
                 }
                 if path.is_dir() {
-                    walk_dir_incremental(&path, base, instances, scripts, last_sync, files_checked, files_modified);
+                    walk_dir_incremental(&path, base, instances, scripts, last_sync, files_checked, files_modified, tree_mapping);
                 } else if let Some(ext) = path.extension() {
                     *files_checked += 1;
 
@@ -3246,13 +3242,8 @@ async fn handle_sync_incremental(
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rbxsync_core::path_to_string(rel_path);
-                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let inst_path = if is_meta {
-                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                } else {
-                                    path_str.replace(".rbxjson", "")
-                                };
+                                let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
+                                let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, tree_mapping);
 
                                 if let Some(obj) = inst.as_object_mut() {
                                     obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
@@ -3265,16 +3256,16 @@ async fn handle_sync_incremental(
                                 instances.push(inst);
                             }
                         }
-                    } else if ext == "luau" {
+                    } else if ext == "luau" || ext == "lua" {
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                        let path_str = rbxsync_core::path_to_string(rel_path);
-                        let inst_path = path_str
-                            .trim_end_matches(".server.luau")
-                            .trim_end_matches(".client.luau")
-                            .trim_end_matches(".luau")
-                            .to_string();
+                        let filename_str = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
+
+                        // Handle init.* convention: init file represents the parent directory
+                        let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
+                        let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, tree_mapping);
+
                         if let Ok(source) = std::fs::read_to_string(&path) {
-                            scripts.insert(inst_path, source);
+                            scripts.insert(inst_path, (source, filename_str));
                         }
                     }
                 }
@@ -3282,12 +3273,12 @@ async fn handle_sync_incremental(
         }
     }
 
-    walk_dir_incremental(&src_dir, &src_dir, &mut instances, &mut scripts, last_sync, &mut files_checked, &mut files_modified);
+    walk_dir_incremental(&src_dir, &src_dir, &mut instances, &mut scripts, last_sync, &mut files_checked, &mut files_modified, &tree_mapping);
 
     // Merge script sources into their instance data
     for inst in &mut instances {
         if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
-            if let Some(source) = scripts.get(path) {
+            if let Some((source, _filename)) = scripts.get(path) {
                 if let Some(props) = inst.get_mut("properties") {
                     if let Some(obj) = props.as_object_mut() {
                         obj.insert("Source".to_string(), serde_json::json!({
@@ -3305,16 +3296,10 @@ async fn handle_sync_incremental(
         .filter_map(|inst| inst.get("path").and_then(|v| v.as_str()).map(String::from))
         .collect();
 
-    for (script_path, source) in &scripts {
+    for (script_path, (source, filename)) in &scripts {
         if !instance_paths.contains(script_path) {
-            // Determine script type from path
-            let class_name = if script_path.ends_with(".server") || script_path.contains(".server/") {
-                "Script"
-            } else if script_path.ends_with(".client") || script_path.contains(".client/") {
-                "LocalScript"
-            } else {
-                "ModuleScript"
-            };
+            // Determine script type from original filename (not the trimmed path)
+            let class_name = rbxsync_core::script_class_from_filename(filename);
 
             let instance_name = script_path.rsplit('/').next().unwrap_or(script_path);
 
@@ -3481,6 +3466,7 @@ async fn handle_diff(
     }
 
     // Collect file paths
+    let tree_mapping = rbxsync_core::load_tree_mapping(std::path::Path::new(&req.project_dir));
     let mut file_paths: HashSet<String> = HashSet::new();
     let mut file_classes: HashMap<String, String> = HashMap::new();
 
@@ -3489,26 +3475,20 @@ async fn handle_diff(
         base: &std::path::Path,
         paths: &mut HashSet<String>,
         classes: &mut HashMap<String, String>,
+        tree_mapping: &HashMap<String, String>,
     ) {
         if let Ok(entries) = std::fs::read_dir(dir) {
             for entry in entries.flatten() {
                 let path = entry.path();
                 if path.is_dir() {
-                    collect_file_paths(&path, base, paths, classes);
+                    collect_file_paths(&path, base, paths, classes, tree_mapping);
                 } else if let Some(ext) = path.extension() {
                     if ext == "rbxjson" {
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rbxsync_core::path_to_string(rel_path);
-                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let inst_path = if is_meta {
-                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                } else {
-                                    path_str.replace(".rbxjson", "")
-                                };
-                                // Normalize path separators
-                                let inst_path = inst_path.replace('\\', "/");
+                                let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
+                                let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, tree_mapping);
                                 // Strip disambiguation suffixes for comparison with Studio paths
                                 // (RBXSYNC-68: extract adds _refId suffixes, Studio paths don't have them)
                                 let normalized_path = normalize_path_for_comparison(&inst_path);
@@ -3524,7 +3504,7 @@ async fn handle_diff(
         }
     }
 
-    collect_file_paths(&src_dir, &src_dir, &mut file_paths, &mut file_classes);
+    collect_file_paths(&src_dir, &src_dir, &mut file_paths, &mut file_classes, &tree_mapping);
     tracing::info!("Read {} file paths from {}", file_paths.len(), src_dir.display());
 
     // 2. Get Studio paths via plugin

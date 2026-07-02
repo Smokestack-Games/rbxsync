@@ -4,7 +4,7 @@
 //! This module defines how we serialize instances to JSON.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use super::{AttributeValue, PropertyValue};
@@ -23,12 +23,12 @@ pub struct Instance {
     pub reference_id: Uuid,
 
     /// Instance properties (excluding Name which is stored separately)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub properties: HashMap<String, PropertyValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, PropertyValue>,
 
     /// Instance attributes (custom user-defined values)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub attributes: HashMap<String, AttributeValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, AttributeValue>,
 
     /// CollectionService tags
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -50,8 +50,8 @@ impl Instance {
             class_name: class_name.into(),
             name: name.into(),
             reference_id: Uuid::new_v4(),
-            properties: HashMap::new(),
-            attributes: HashMap::new(),
+            properties: BTreeMap::new(),
+            attributes: BTreeMap::new(),
             tags: Vec::new(),
             children: Vec::new(),
             source_file: None,
@@ -134,12 +134,12 @@ pub struct InstanceMeta {
     pub reference_id: Uuid,
 
     /// Properties for this instance
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub properties: HashMap<String, PropertyValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, PropertyValue>,
 
     /// Attributes
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub attributes: HashMap<String, AttributeValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, AttributeValue>,
 
     /// Tags
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -253,5 +253,49 @@ mod tests {
             Instance::new("ModuleScript", "Utils").script_extension(),
             Some(".luau")
         );
+    }
+
+    #[test]
+    fn test_nested_tree_rbxjson_round_trip() {
+        use crate::types::AttributeValue;
+
+        let mut root = Instance::new("Model", "Root");
+        root.set_property("Anchored", PropertyValue::Bool(true));
+        root.set_attribute("Version", AttributeValue::Number(2.0));
+        root.set_attribute("Owner", AttributeValue::String("ben".to_string()));
+        root.add_tag("Spawn");
+
+        let mut child = Instance::new("Part", "Child");
+        child.set_property(
+            "Size",
+            PropertyValue::Vector3(Vector3 { x: 1.0, y: 2.0, z: 3.0 }),
+        );
+
+        let mut runner = Instance::new("Script", "Runner");
+        runner.source_file = Some("Runner.server.luau".to_string());
+        runner.set_property("Source", PropertyValue::String("print('run')".to_string()));
+
+        child.add_child(runner);
+        root.add_child(child);
+
+        let json = serde_json::to_string_pretty(&root).unwrap();
+        let back: Instance = serde_json::from_str(&json).unwrap();
+        let rejson = serde_json::to_string_pretty(&back).unwrap();
+
+        // Serialization is stable across a round trip
+        assert_eq!(json, rejson);
+
+        // Structure survives
+        assert_eq!(back.class_name, "Model");
+        assert_eq!(back.tags, vec!["Spawn".to_string()]);
+        assert_eq!(back.attributes.len(), 2);
+        assert_eq!(back.children.len(), 1);
+        let child_back = &back.children[0];
+        assert_eq!(child_back.class_name, "Part");
+        assert_eq!(child_back.children.len(), 1);
+        let runner_back = &child_back.children[0];
+        assert_eq!(runner_back.class_name, "Script");
+        assert_eq!(runner_back.source_file.as_deref(), Some("Runner.server.luau"));
+        assert!(runner_back.is_script());
     }
 }

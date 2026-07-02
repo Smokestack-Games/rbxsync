@@ -1003,7 +1003,39 @@ local function syncCreate(payload: any): {success: boolean, error: string?, skip
     if #parentPath > 0 then
         parent = Sync.findInstanceAtPath(parentPath)
         if not parent then
-            return { success = false, error = "Parent not found: " .. parentPath }
+            -- Auto-create missing intermediate Folder instances (mkdir -p behavior)
+            -- Walk up the path to find the deepest existing ancestor, then create down
+            local segments = string.split(parentPath, "/")
+            local existingDepth = 0
+            local ancestor: Instance? = nil
+            for i = 1, #segments do
+                local partialPath = table.concat(segments, "/", 1, i)
+                local found = Sync.findInstanceAtPath(partialPath)
+                if found then
+                    ancestor = found
+                    existingDepth = i
+                else
+                    break
+                end
+            end
+
+            if existingDepth == 0 then
+                return { success = false, error = "Parent not found: " .. parentPath }
+            end
+
+            -- Create missing folders from existingDepth+1 to #segments
+            local current = ancestor :: Instance
+            for i = existingDepth + 1, #segments do
+                local folderName = segments[i]
+                local folder = Instance.new("Folder")
+                folder.Name = folderName
+                folder.Parent = current
+                -- Register in cache so subsequent operations can find it
+                local folderPath = table.concat(segments, "/", 1, i)
+                Sync.registerCreated(folderPath, folder)
+                current = folder
+            end
+            parent = current
         end
     end
 
@@ -1373,14 +1405,19 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     isSyncing = false
     ChangeTracker.setSyncingFromServer(false)
 
-    -- If sync errored out, report it and cancel the recording
+    -- If sync errored out, still commit any changes that were applied
     if not syncOk then
         warn("[RbxSync] Sync error: " .. tostring(syncErr))
         setStatus("Sync error occurred", Colors.error, 10)
         if recordingId then
-            ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Cancel)
+            if appliedCount > 0 then
+                -- Commit partial progress rather than discarding all successful changes
+                ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Commit)
+            else
+                ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Cancel)
+            end
         end
-        return { success = false, results = results, applied = appliedCount, skipped = skippedCount }
+        return { success = false, results = results, applied = appliedCount, skipped = skippedCount, errors = { tostring(syncErr) } }
     end
 
     -- Print detailed changes (only things that actually changed)
@@ -1423,7 +1460,15 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         end
     end
 
-    return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount }
+    -- Collect error messages from failed operations
+    local errors = {}
+    for _, result in results do
+        if not result.success and result.error then
+            table.insert(errors, result.error)
+        end
+    end
+
+    return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount, errors = errors }
 end
 
 -- Handle incoming commands from server (silent dispatch)
@@ -2246,6 +2291,7 @@ local function pollLoop()
                                 success = ok and (result == nil or result.success ~= false),
                                 data = ok and (result and result.data or result) or {},  -- Extract data field if present, otherwise return full result
                                 error = (not ok and tostring(result)) or (result and result.error) or nil,
+                                errors = ok and result and result.errors or nil,
                             }
                             print("[RbxSync Debug] Sending response for:", response.command, "id:", response.id)
                             local postOk, postErr = httpPost("/rbxsync/response", responseData)
@@ -2311,12 +2357,11 @@ end
 
 -- Unlink from workspace (keeps Studio visible but clears project_dir)
 local function unlinkFromServer()
-    local placeName = getPlaceName()
-    -- Use register with empty project_dir to stay visible but unlinked
-    local success, _ = httpPost("/rbxsync/register", {
+    -- Use the dedicated unlink endpoint to clear project_dir on the server.
+    -- This is separate from heartbeat registration so the server can distinguish
+    -- between "plugin is heartbeating" vs "plugin is explicitly unlinking".
+    local success, _ = httpPost("/rbxsync/unlink-studio", {
         place_id = game.PlaceId,
-        place_name = placeName,
-        project_dir = "",  -- Empty project_dir = unlinked but still registered
         session_id = SESSION_ID,
     })
 

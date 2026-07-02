@@ -96,6 +96,12 @@ local function decodeValue(encoded: any): any
         return nil
     end
 
+    -- Handle raw primitives (e.g. from .rbxjson files that use plain values)
+    local encodedType = type(encoded)
+    if encodedType == "boolean" or encodedType == "number" or encodedType == "string" then
+        return encoded
+    end
+
     local valueType = encoded.type
     local value = encoded.value
 
@@ -1060,10 +1066,16 @@ function Sync.deleteInstance(path: string): boolean
     path = string.gsub(path, "\\", "/")
     local instance = Sync.findInstanceAtPath(path)
     if instance then
-        instance.Parent = nil
-        -- Mark path as recently applied for 50ms deduplication (prevents echo)
-        ChangeTracker.markPathApplied(path)
-        return true
+        local ok = pcall(function()
+            instance.Parent = nil
+        end)
+        if ok then
+            -- Mark path as recently applied for 50ms deduplication (prevents echo)
+            ChangeTracker.markPathApplied(path)
+            return true
+        end
+        -- Parent change failed (immutable instance like StarterCharacterScripts)
+        return false
     end
     return false
 end

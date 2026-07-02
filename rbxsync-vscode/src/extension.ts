@@ -131,6 +131,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('rbxsync.extract', async () => {
+      if (isE2EMode()) { await openConsole(client); }
       statusBar.setBusy('Extracting');
       // Get placeId and sessionId from connected place if available
       const place = client.connectionState.place;
@@ -147,6 +148,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('rbxsync.sync', async () => {
+      if (isE2EMode()) { await openConsole(client); }
       statusBar.setBusy('Syncing');
       // Get placeId and sessionId from connected place if available
       const place = client.connectionState.place;
@@ -170,6 +172,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('rbxsync.runTest', async () => {
+      if (isE2EMode()) { await openConsole(client); }
       statusBar.setBusy('Testing');
       // Get placeId and sessionId from connected place if available
       const place = client.connectionState.place;
@@ -194,6 +197,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
     // Per-studio commands (take projectDir, placeId, and sessionId as arguments)
     vscode.commands.registerCommand('rbxsync.syncTo', async (projectDir: string, placeId?: number, sessionId?: string | null) => {
+      if (isE2EMode()) { await openConsole(client); }
       statusBar.setBusy('Syncing');
       if (placeId !== undefined) {
         sidebarView.startStudioOperation(placeId, 'sync', sessionId);
@@ -212,6 +216,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('rbxsync.extractFrom', async (projectDir: string, placeId?: number, sessionId?: string | null) => {
+      if (isE2EMode()) { await openConsole(client); }
       statusBar.setBusy('Extracting');
       if (placeId !== undefined) {
         sidebarView.startStudioOperation(placeId, 'extract', sessionId);
@@ -228,6 +233,7 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
     }),
 
     vscode.commands.registerCommand('rbxsync.runTestOn', async (projectDir: string, placeId?: number, sessionId?: string | null) => {
+      if (isE2EMode()) { await openConsole(client); }
       statusBar.setBusy('Testing');
       if (placeId !== undefined) {
         sidebarView.startStudioOperation(placeId, 'test', sessionId);

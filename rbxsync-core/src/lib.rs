@@ -9,6 +9,7 @@
 //! - Luau obfuscation for build-time transforms
 
 pub mod obfuscator;
+pub mod path_mapping;
 pub mod path_utils;
 pub mod plugin_builder;
 pub mod rojo;
@@ -29,5 +30,9 @@ pub use types::{
     // Harness system for multi-session AI development
     Feature, FeaturePriority, FeatureStatus, FeaturesFile, GameDefinition,
     HarnessState, SessionLog, SessionLogEntry,
+};
+pub use path_mapping::{
+    apply_reverse_tree_mapping, apply_tree_mapping, file_to_instance_path, load_tree_mapping,
+    script_class_from_filename, tree_mapping_from_config, MappedPath,
 };
 pub use path_utils::{normalize_path, path_to_string, path_with_suffix, pathbuf_with_suffix, sanitize_filename};

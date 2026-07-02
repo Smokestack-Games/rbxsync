@@ -120,7 +120,7 @@ pub async fn start_file_watcher(
         // Helper: determine if a path should be processed based on extension/kind
         let should_process_path = |path: &PathBuf, kind: &FileChangeKind| -> bool {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                ext == "luau" || ext == "rbxjson"
+                ext == "luau" || ext == "lua" || ext == "rbxjson"
             } else {
                 // For deletions and renames, also handle directories (no extension)
                 let is_delete_like = matches!(kind, FileChangeKind::Delete | FileChangeKind::Rename { .. });
@@ -333,7 +333,7 @@ pub async fn start_file_watcher(
                                     for entry in entries.flatten() {
                                         let entry_path = entry.path();
                                         if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
-                                            if ext == "luau" || ext == "rbxjson" {
+                                            if ext == "luau" || ext == "lua" || ext == "rbxjson" {
                                                 let change = FileChange {
                                                     path: entry_path,
                                                     project_dir: project_dir_clone.clone(),
@@ -404,22 +404,10 @@ pub fn process_file_change(
     };
 
     // Convert to instance path (e.g., "ServerScriptService/MyScript")
-    // Handle _meta.rbxjson specially - it represents the parent folder
-    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let inst_path = if filename == "_meta.rbxjson" {
-        // _meta.rbxjson represents the parent folder
-        rel_path
-            .parent()
-            .map(rbxsync_core::path_to_string)
-            .unwrap_or_default()
-    } else {
-        rbxsync_core::path_to_string(rel_path)
-            .trim_end_matches(".server.luau")
-            .trim_end_matches(".client.luau")
-            .trim_end_matches(".luau")
-            .trim_end_matches(".rbxjson")
-            .to_string()
-    };
+    let mapped = rbxsync_core::file_to_instance_path(rel_path);
+    let inst_path = mapped.instance_path;
+    let tree_mapping = rbxsync_core::load_tree_mapping(&project_dir);
+    let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, &tree_mapping);
 
     match change.kind {
         FileChangeKind::Delete => {
@@ -444,7 +432,7 @@ pub fn process_file_change(
             // Read the file content
             let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-            if file_ext == "luau" {
+            if file_ext == "luau" || file_ext == "lua" {
                 // Script file
                 let source = match std::fs::read_to_string(path) {
                     Ok(s) => s,
@@ -456,13 +444,7 @@ pub fn process_file_change(
 
                 // Determine script type from filename
                 let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let class_name = if filename.ends_with(".server.luau") {
-                    "Script"
-                } else if filename.ends_with(".client.luau") {
-                    "LocalScript"
-                } else {
-                    "ModuleScript"
-                };
+                let class_name = rbxsync_core::script_class_from_filename(filename);
 
                 // Extract instance name from path (last segment)
                 let instance_name = inst_path.rsplit('/').next().unwrap_or(&inst_path);
@@ -522,25 +504,82 @@ pub fn process_file_change(
             }
         }
         FileChangeKind::Rename { ref from_path } => {
+            // Detect temp file renames (atomic saves): editors write to .tmp then rename.
+            // The from_path won't have a valid .luau/.lua/.rbxjson extension — treat as a Modify.
+            let from_ext = from_path.extension().and_then(|e| e.to_str()).unwrap_or("");
+            if from_ext != "luau" && from_ext != "lua" && from_ext != "rbxjson" {
+                // Temp file → real file rename = content update, not instance rename
+                if !path.exists() {
+                    return None;
+                }
+                let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
+                if file_ext == "luau" || file_ext == "lua" {
+                    let source = match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!("Failed to read file {:?}: {}", path, e);
+                            return None;
+                        }
+                    };
+                    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
+                    let class_name = rbxsync_core::script_class_from_filename(filename);
+                    let instance_name = inst_path.rsplit('/').next().unwrap_or(&inst_path);
+                    return Some(serde_json::json!({
+                        "type": "update",
+                        "path": inst_path,
+                        "data": {
+                            "className": class_name,
+                            "name": instance_name,
+                            "path": inst_path,
+                            "source": source,
+                            "properties": {
+                                "Source": {
+                                    "type": "string",
+                                    "value": source
+                                }
+                            }
+                        }
+                    }));
+                } else if file_ext == "rbxjson" {
+                    let content = match std::fs::read_to_string(path) {
+                        Ok(s) => s,
+                        Err(e) => {
+                            tracing::warn!("Failed to read file {:?}: {}", path, e);
+                            return None;
+                        }
+                    };
+                    let mut data: serde_json::Value = match serde_json::from_str(&content) {
+                        Ok(d) => d,
+                        Err(e) => {
+                            tracing::warn!("Failed to parse JSON {:?}: {}", path, e);
+                            return None;
+                        }
+                    };
+                    if let Some(obj) = data.as_object_mut() {
+                        obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
+                        if !obj.contains_key("name") {
+                            if let Some(name) = inst_path.rsplit('/').next() {
+                                obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
+                            }
+                        }
+                    }
+                    return Some(serde_json::json!({
+                        "type": "update",
+                        "path": inst_path,
+                        "data": data
+                    }));
+                } else {
+                    return None;
+                }
+            }
+
             // Compute old instance path from from_path
             let old_rel = match from_path.strip_prefix(&src_dir) {
                 Ok(p) => p,
                 Err(_) => return None,
             };
-            let old_filename = from_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let old_inst_path = if old_filename == "_meta.rbxjson" {
-                old_rel
-                    .parent()
-                    .map(rbxsync_core::path_to_string)
-                    .unwrap_or_default()
-            } else {
-                rbxsync_core::path_to_string(old_rel)
-                    .trim_end_matches(".server.luau")
-                    .trim_end_matches(".client.luau")
-                    .trim_end_matches(".luau")
-                    .trim_end_matches(".rbxjson")
-                    .to_string()
-            };
+            let old_inst_path = rbxsync_core::file_to_instance_path(old_rel).instance_path;
+            let old_inst_path = rbxsync_core::apply_reverse_tree_mapping(&old_inst_path, &tree_mapping);
 
             // If the new path doesn't exist, treat as a delete of the old path
             if !path.exists() {
@@ -559,5 +598,216 @@ pub fn process_file_change(
                 }
             }))
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_project() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    fn write_src(dir: &tempfile::TempDir, rel: &str, content: &str) -> PathBuf {
+        let p = dir.path().join("src").join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, content).unwrap();
+        p
+    }
+
+    fn src_path(dir: &tempfile::TempDir, rel: &str) -> PathBuf {
+        dir.path().join("src").join(rel)
+    }
+
+    fn change(dir: &tempfile::TempDir, path: PathBuf, kind: FileChangeKind) -> FileChange {
+        FileChange {
+            path,
+            project_dir: dir.path().to_string_lossy().to_string(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn test_tree_mapping_applies_to_watcher_paths() {
+        let dir = temp_project();
+        std::fs::write(
+            dir.path().join("rbxsync.json"),
+            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
+        )
+        .unwrap();
+        let p = write_src(&dir, "shared/Util.luau", "return {}");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["path"], "ReplicatedStorage/Shared/Util");
+    }
+
+    #[test]
+    fn test_create_server_script() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ServerScriptService/Main.server.luau", "print('hi')");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["type"], "create");
+        assert_eq!(op["path"], "ServerScriptService/Main");
+        assert_eq!(op["data"]["className"], "Script");
+        assert_eq!(op["data"]["name"], "Main");
+        assert_eq!(op["data"]["properties"]["Source"]["value"], "print('hi')");
+    }
+
+    #[test]
+    fn test_modify_client_lua() {
+        let dir = temp_project();
+        let p = write_src(&dir, "StarterPlayer/Ctl.client.lua", "-- c");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
+        assert_eq!(op["type"], "update");
+        assert_eq!(op["path"], "StarterPlayer/Ctl");
+        assert_eq!(op["data"]["className"], "LocalScript");
+    }
+
+    #[test]
+    fn test_module_script() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ReplicatedStorage/Utils.luau", "return {}");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["data"]["className"], "ModuleScript");
+        assert_eq!(op["path"], "ReplicatedStorage/Utils");
+    }
+
+    #[test]
+    fn test_rbxjson_sets_path_and_derives_name() {
+        let dir = temp_project();
+        let p = write_src(&dir, "Workspace/Part.rbxjson", r#"{"className":"Part"}"#);
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["type"], "create");
+        assert_eq!(op["path"], "Workspace/Part");
+        assert_eq!(op["data"]["path"], "Workspace/Part");
+        assert_eq!(op["data"]["name"], "Part");
+        assert_eq!(op["data"]["className"], "Part");
+    }
+
+    #[test]
+    fn test_meta_rbxjson_maps_to_parent() {
+        let dir = temp_project();
+        let p = write_src(&dir, "Workspace/Container/_meta.rbxjson", r#"{"className":"Model","name":"Container"}"#);
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
+        assert_eq!(op["path"], "Workspace/Container");
+    }
+
+    #[test]
+    fn test_init_server_luau_maps_to_parent() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ServerScriptService/Svc/init.server.luau", "-- s");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["path"], "ServerScriptService/Svc");
+        assert_eq!(op["data"]["className"], "Script");
+    }
+
+    #[test]
+    fn test_delete_file() {
+        let dir = temp_project();
+        let p = src_path(&dir, "ServerScriptService/Gone.server.luau");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Delete)).unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "ServerScriptService/Gone");
+        assert_eq!(op["isFolder"], false);
+    }
+
+    #[test]
+    fn test_delete_directory() {
+        let dir = temp_project();
+        let p = src_path(&dir, "Workspace/SomeFolder");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Delete)).unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "Workspace/SomeFolder");
+        assert_eq!(op["isFolder"], true);
+    }
+
+    #[test]
+    fn test_modify_missing_file_becomes_delete() {
+        let dir = temp_project();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        let p = src_path(&dir, "Workspace/Ghost.luau");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "Workspace/Ghost");
+    }
+
+    #[test]
+    fn test_unknown_extension_is_skipped() {
+        let dir = temp_project();
+        let p = write_src(&dir, "Workspace/notes.txt", "x");
+        assert!(process_file_change(&change(&dir, p, FileChangeKind::Create)).is_none());
+    }
+
+    #[test]
+    fn test_outside_src_is_skipped() {
+        let dir = temp_project();
+        let p = dir.path().join("other").join("Main.server.luau");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "x").unwrap();
+        assert!(process_file_change(&change(&dir, p, FileChangeKind::Create)).is_none());
+    }
+
+    #[test]
+    fn test_atomic_save_rename_is_update() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ServerScriptService/Main.server.luau", "print('v2')");
+        let tmp = src_path(&dir, "ServerScriptService/Main.server.luau.tmp");
+        let op = process_file_change(&change(
+            &dir,
+            p,
+            FileChangeKind::Rename { from_path: tmp },
+        ))
+        .unwrap();
+        assert_eq!(op["type"], "update");
+        assert_eq!(op["path"], "ServerScriptService/Main");
+        assert_eq!(op["data"]["properties"]["Source"]["value"], "print('v2')");
+    }
+
+    #[test]
+    fn test_rename_script() {
+        let dir = temp_project();
+        let new_p = write_src(&dir, "ServerScriptService/After.server.luau", "x");
+        let old_p = src_path(&dir, "ServerScriptService/Before.server.luau");
+        let op = process_file_change(&change(
+            &dir,
+            new_p,
+            FileChangeKind::Rename { from_path: old_p },
+        ))
+        .unwrap();
+        assert_eq!(op["type"], "rename");
+        assert_eq!(op["path"], "ServerScriptService/After");
+        assert_eq!(op["data"]["oldPath"], "ServerScriptService/Before");
+        assert_eq!(op["data"]["newPath"], "ServerScriptService/After");
+    }
+
+    #[test]
+    fn test_rename_target_missing_is_delete_of_old() {
+        let dir = temp_project();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        let new_p = src_path(&dir, "ServerScriptService/After.server.luau");
+        let old_p = src_path(&dir, "ServerScriptService/Before.server.luau");
+        let op = process_file_change(&change(
+            &dir,
+            new_p,
+            FileChangeKind::Rename { from_path: old_p },
+        ))
+        .unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "ServerScriptService/Before");
+    }
+
+    #[test]
+    fn test_rename_lua_old_path_is_stripped() {
+        let dir = temp_project();
+        let new_p = write_src(&dir, "ServerScriptService/After.server.lua", "x");
+        let old_p = src_path(&dir, "ServerScriptService/Before.server.lua");
+        let op = process_file_change(&change(
+            &dir,
+            new_p,
+            FileChangeKind::Rename { from_path: old_p },
+        ))
+        .unwrap();
+        assert_eq!(op["data"]["oldPath"], "ServerScriptService/Before");
+        assert_eq!(op["data"]["newPath"], "ServerScriptService/After");
     }
 }
