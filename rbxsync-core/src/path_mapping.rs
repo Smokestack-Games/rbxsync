@@ -114,6 +114,19 @@ pub fn apply_reverse_tree_mapping(fs_path: &str, tree_mapping: &HashMap<String, 
     }
 }
 
+/// Read the treeMapping from a project's rbxsync.json
+/// (DataModel path prefix -> src-relative filesystem prefix)
+pub fn load_tree_mapping(project_dir: &Path) -> HashMap<String, String> {
+    let config_path = project_dir.join("rbxsync.json");
+    let Ok(content) = std::fs::read_to_string(&config_path) else {
+        return HashMap::new();
+    };
+    let Ok(config) = serde_json::from_str::<serde_json::Value>(&content) else {
+        return HashMap::new();
+    };
+    tree_mapping_from_config(Some(&config))
+}
+
 /// Extract treeMapping from a project config JSON value
 pub fn tree_mapping_from_config(config: Option<&serde_json::Value>) -> HashMap<String, String> {
     config
@@ -162,6 +175,21 @@ mod tests {
         assert_eq!(apply_reverse_tree_mapping("shared/Util", &m), "ReplicatedStorage/Shared/Util");
         assert_eq!(apply_reverse_tree_mapping("net/Rpc", &m), "ReplicatedStorage/Shared/Net/Rpc");
         assert_eq!(apply_reverse_tree_mapping("Workspace/Part", &m), "Workspace/Part");
+    }
+
+    #[test]
+    fn test_load_tree_mapping() {
+        let dir = tempfile::tempdir().unwrap();
+        std::fs::write(
+            dir.path().join("rbxsync.json"),
+            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
+        )
+        .unwrap();
+        let m = load_tree_mapping(dir.path());
+        assert_eq!(m.get("ReplicatedStorage/Shared").map(String::as_str), Some("shared"));
+        // Missing config file yields an empty mapping
+        let empty_dir = tempfile::tempdir().unwrap();
+        assert!(load_tree_mapping(empty_dir.path()).is_empty());
     }
 
     #[test]

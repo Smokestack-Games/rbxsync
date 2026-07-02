@@ -32,7 +32,7 @@ pub use types::{
     HarnessState, SessionLog, SessionLogEntry,
 };
 pub use path_mapping::{
-    apply_reverse_tree_mapping, apply_tree_mapping, file_to_instance_path,
+    apply_reverse_tree_mapping, apply_tree_mapping, file_to_instance_path, load_tree_mapping,
     script_class_from_filename, tree_mapping_from_config, MappedPath,
 };
 pub use path_utils::{normalize_path, path_to_string, path_with_suffix, pathbuf_with_suffix, sanitize_filename};
