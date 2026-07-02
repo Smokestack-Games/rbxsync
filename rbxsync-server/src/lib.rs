@@ -77,6 +77,40 @@ fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
     Ok(())
 }
 
+/// True if the directory tree contains any script source file
+fn dir_contains_script(dir: &std::path::Path) -> bool {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            if dir_contains_script(&path) {
+                return true;
+            }
+        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("luau") | Some("lua")) {
+            return true;
+        }
+    }
+    false
+}
+
+/// Delete instance data files (.rbxjson, including _meta.rbxjson) under `dir`
+/// and remove directories left empty; script source files are preserved.
+fn clear_instance_files(dir: &std::path::Path) -> std::io::Result<()> {
+    for entry in std::fs::read_dir(dir)?.flatten() {
+        let path = entry.path();
+        if path.is_dir() {
+            let _ = clear_instance_files(&path);
+            // Succeeds only when empty; non-empty directories are kept
+            let _ = std::fs::remove_dir(&path);
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rbxjson") {
+            let _ = std::fs::remove_file(&path);
+        }
+    }
+    Ok(())
+}
+
 /// Strip disambiguation suffix from a path segment (RBXSYNC-68)
 /// Extraction adds `_{8 hex chars}` suffix for duplicates
 /// e.g., "Part_a1b2c3d4" -> "Part", "MyModel" -> "MyModel"
@@ -2654,28 +2688,26 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
 
         match op.change_type.as_str() {
             "delete" => {
-                // Try to delete both .luau and .rbxjson files
-                let luau_extensions = [".server.luau", ".client.luau", ".luau", ".server.lua", ".client.lua", ".lua"];
+                // Scripts are managed on disk; only instance data is removed
                 let mut deleted_any = false;
-                for ext in luau_extensions {
-                    let script_path = rbxsync_core::path_with_suffix(&full_path, ext);
-                    if std::fs::remove_file(&script_path).is_ok() {
-                        deleted_any = true;
-                        tracing::info!("Studio sync: deleted {}", script_path);
-                    }
-                }
                 let json_path = rbxsync_core::path_with_suffix(&full_path, ".rbxjson");
                 if std::fs::remove_file(&json_path).is_ok() {
                     deleted_any = true;
                     tracing::info!("Studio sync: deleted {}", json_path);
                 }
 
-                // Try to delete as a directory (for Folder instances)
-                if full_path.is_dir()
-                    && std::fs::remove_dir_all(&full_path).is_ok() {
+                if full_path.is_dir() {
+                    if dir_contains_script(&full_path) {
+                        // Remove instance data within, keep the directory and its scripts
+                        if clear_instance_files(&full_path).is_ok() {
+                            deleted_any = true;
+                            tracing::info!("Studio sync: cleared instance files in {:?}, scripts preserved", full_path);
+                        }
+                    } else if std::fs::remove_dir_all(&full_path).is_ok() {
                         deleted_any = true;
                         tracing::info!("Studio sync: deleted folder {:?}", full_path);
                     }
+                }
 
                 if deleted_any {
                     files_written += 1;
@@ -2700,40 +2732,37 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                             let _ = std::fs::create_dir_all(parent);
                         }
 
-                        // Try to rename directory (for folders with children)
                         if old_full_path.is_dir() {
-                            match std::fs::rename(&old_full_path, &new_full_path) {
-                                Ok(_) => {
-                                    tracing::info!("Studio sync: renamed folder {:?} -> {:?}", old_full_path, new_full_path);
-                                    files_written += 1;
-                                }
-                                Err(e) => {
-                                    errors.push(format!("Failed to rename folder {:?}: {}", old_full_path, e));
-                                }
-                            }
-                        } else {
-                            // Rename script files (try all extensions)
-                            let extensions = [".server.luau", ".client.luau", ".luau", ".server.lua", ".client.lua", ".lua", ".rbxjson"];
-                            let mut renamed_any = false;
-                            for ext in extensions {
-                                let old_file_str = rbxsync_core::path_with_suffix(&old_full_path, ext);
-                                let new_file_str = rbxsync_core::path_with_suffix(&new_full_path, ext);
-                                let old_file = PathBuf::from(&old_file_str);
-                                let new_file = PathBuf::from(&new_file_str);
-                                if old_file.exists() {
-                                    match std::fs::rename(&old_file, &new_file) {
-                                        Ok(_) => {
-                                            tracing::info!("Studio sync: renamed {:?} -> {:?}", old_file, new_file);
-                                            renamed_any = true;
-                                        }
-                                        Err(e) => {
-                                            errors.push(format!("Failed to rename {:?}: {}", old_file, e));
-                                        }
+                            if dir_contains_script(&old_full_path) {
+                                errors.push(format!(
+                                    "Skipped folder rename {:?}: contains scripts managed on disk",
+                                    old_full_path
+                                ));
+                            } else {
+                                match std::fs::rename(&old_full_path, &new_full_path) {
+                                    Ok(_) => {
+                                        tracing::info!("Studio sync: renamed folder {:?} -> {:?}", old_full_path, new_full_path);
+                                        files_written += 1;
+                                    }
+                                    Err(e) => {
+                                        errors.push(format!("Failed to rename folder {:?}: {}", old_full_path, e));
                                     }
                                 }
                             }
-                            if renamed_any {
-                                files_written += 1;
+                        } else {
+                            // Rename instance data only; scripts are managed on disk
+                            let old_file = PathBuf::from(rbxsync_core::path_with_suffix(&old_full_path, ".rbxjson"));
+                            let new_file = PathBuf::from(rbxsync_core::path_with_suffix(&new_full_path, ".rbxjson"));
+                            if old_file.exists() {
+                                match std::fs::rename(&old_file, &new_file) {
+                                    Ok(_) => {
+                                        tracing::info!("Studio sync: renamed {:?} -> {:?}", old_file, new_file);
+                                        files_written += 1;
+                                    }
+                                    Err(e) => {
+                                        errors.push(format!("Failed to rename {:?}: {}", old_file, e));
+                                    }
+                                }
                             }
                         }
                     } else {
@@ -2748,47 +2777,12 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                         let _ = std::fs::create_dir_all(parent);
                     }
 
-                    // Check if this is a script with source
+                    // Scripts have their source stripped from the sidecar
                     let class_name = op.class_name.as_deref()
                         .or_else(|| data.get("className").and_then(|v| v.as_str()))
                         .unwrap_or("");
 
                     let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
-                    tracing::info!("Processing {} - class_name: '{}', is_script: {}, data: {:?}", inst_path, class_name, is_script, data);
-
-                    if is_script {
-                        // Extract script source - try multiple formats
-                        // Format 1: data.source (from ChangeTracker)
-                        // Format 2: data.properties.Source.value (from full extraction)
-                        let source = data.get("source")
-                            .and_then(|v| v.as_str())
-                            .or_else(|| {
-                                data.get("properties")
-                                    .and_then(|p| p.get("Source"))
-                                    .and_then(|s| s.get("value"))
-                                    .and_then(|v| v.as_str())
-                            });
-
-                        tracing::debug!("Source extraction result: {:?}", source.map(|s| s.len()));
-                        if let Some(source) = source {
-                            let extension = match class_name {
-                                "Script" => ".server.luau",
-                                "LocalScript" => ".client.luau",
-                                _ => ".luau",
-                            };
-                            let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
-
-                            match std::fs::write(&script_path, source) {
-                                Ok(_) => {
-                                    tracing::info!("Studio sync: wrote {}", script_path);
-                                    files_written += 1;
-                                }
-                                Err(e) => {
-                                    errors.push(format!("Failed to write {}: {}", script_path, e));
-                                }
-                            }
-                        }
-                    }
 
                     // Write .rbxjson for non-source properties
                     let mut clean_data = data.clone();

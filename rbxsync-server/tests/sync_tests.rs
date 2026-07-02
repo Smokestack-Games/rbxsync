@@ -385,6 +385,9 @@ mod from_studio {
             assert!(!p.exists(), "no script file may be created: {p:?}");
         }
         assert!(dir.path().join("src/ServerScriptService/Fresh.rbxjson").exists());
+        let sidecar = std::fs::read_to_string(dir.path().join("src/ServerScriptService/Fresh.rbxjson")).unwrap();
+        assert!(!sidecar.contains("made in studio"), "sidecar must not carry source: {sidecar}");
+        assert!(!sidecar.contains("\"Source\""));
     }
 
     #[tokio::test]
