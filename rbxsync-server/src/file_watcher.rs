@@ -406,6 +406,8 @@ pub fn process_file_change(
     // Convert to instance path (e.g., "ServerScriptService/MyScript")
     let mapped = rbxsync_core::file_to_instance_path(rel_path);
     let inst_path = mapped.instance_path;
+    let tree_mapping = rbxsync_core::load_tree_mapping(&project_dir);
+    let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, &tree_mapping);
 
     match change.kind {
         FileChangeKind::Delete => {
@@ -577,6 +579,7 @@ pub fn process_file_change(
                 Err(_) => return None,
             };
             let old_inst_path = rbxsync_core::file_to_instance_path(old_rel).instance_path;
+            let old_inst_path = rbxsync_core::apply_reverse_tree_mapping(&old_inst_path, &tree_mapping);
 
             // If the new path doesn't exist, treat as a delete of the old path
             if !path.exists() {
@@ -623,6 +626,19 @@ mod tests {
             project_dir: dir.path().to_string_lossy().to_string(),
             kind,
         }
+    }
+
+    #[test]
+    fn test_tree_mapping_applies_to_watcher_paths() {
+        let dir = temp_project();
+        std::fs::write(
+            dir.path().join("rbxsync.json"),
+            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
+        )
+        .unwrap();
+        let p = write_src(&dir, "shared/Util.luau", "return {}");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["path"], "ReplicatedStorage/Shared/Util");
     }
 
     #[test]

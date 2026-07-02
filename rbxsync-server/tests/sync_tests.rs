@@ -179,6 +179,34 @@ mod batch {
     }
 }
 
+mod tree_mapping {
+    use super::*;
+
+    #[tokio::test]
+    async fn test_read_tree_applies_reverse_mapping() {
+        let server = create_test_server();
+        let project = fixture_project();
+        std::fs::write(
+            project.path().join("rbxsync.json"),
+            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
+        )
+        .unwrap();
+        write(&project.path().join("src"), "shared/Util.luau", "return {}");
+
+        let response = server
+            .post("/sync/read-tree")
+            .json(&json!({"project_dir": project.path().to_string_lossy()}))
+            .await;
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        let instances = body["instances"].as_array().unwrap();
+        let util = find_instance(instances, "ReplicatedStorage/Shared/Util");
+        assert_eq!(util["className"], "ModuleScript");
+        // Unmapped paths are untouched
+        find_instance(instances, "ServerScriptService/Main");
+    }
+}
+
 mod diff {
     use super::*;
 
