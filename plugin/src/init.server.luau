@@ -516,9 +516,53 @@ local function httpPost(endpoint: string, data: any): (boolean, any)
     return false, result
 end
 
+-- HttpService allows ~500 requests/minute; pace extraction posts under that
+-- ceiling so large games don't trip "Number of requests exceeded limit".
+local httpBudget = {
+    tokens = 40,
+    max = 40,
+    refillPerSec = 7, -- ~420/min, leaving headroom for polling and heartbeats
+    last = tick(),
+}
+
+local function acquireHttpToken()
+    while true do
+        local now = tick()
+        httpBudget.tokens = math.min(httpBudget.max, httpBudget.tokens + (now - httpBudget.last) * httpBudget.refillPerSec)
+        httpBudget.last = now
+        if httpBudget.tokens >= 1 then
+            httpBudget.tokens = httpBudget.tokens - 1
+            return
+        end
+        task.wait(0.05)
+    end
+end
+
+local function isRateLimited(result: any): boolean
+    return type(result) == "string" and result:find("exceeded limit") ~= nil
+end
+
+-- Post a single chunk payload, pausing to recover if the request rate limit is hit
+local function postChunkBody(body: any): (boolean, any)
+    for _ = 1, 4 do
+        acquireHttpToken()
+        local success, result = httpPost("/extract/chunk", body)
+        if success then
+            return true, result
+        end
+        if isRateLimited(result) then
+            -- Request budget exhausted for this minute; wait for it to refill
+            task.wait(5)
+        else
+            return false, result
+        end
+    end
+    return false, "rate limit did not clear after retries"
+end
+
 -- Send extraction chunk with retry logic for oversized chunks
 local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: number, instances: {any}, projectDir: string): boolean
-    local success, result = httpPost("/extract/chunk", {
+    local success, result = postChunkBody({
         session_id = sessionId,
         chunk_index = chunkIndex,
         total_chunks = totalChunks,
@@ -534,7 +578,7 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
     if type(result) == "string" and result:find("too large") then
         -- Try sending instances one at a time (silent)
         for i, inst in ipairs(instances) do
-            local singleSuccess, singleResult = httpPost("/extract/chunk", {
+            local singleSuccess, singleResult = postChunkBody({
                 session_id = sessionId,
                 chunk_index = chunkIndex,
                 total_chunks = totalChunks,
