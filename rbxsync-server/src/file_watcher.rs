@@ -404,32 +404,8 @@ pub fn process_file_change(
     };
 
     // Convert to instance path (e.g., "ServerScriptService/MyScript")
-    // Handle _meta.rbxjson and init.* files specially - they represent the parent folder
-    let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-    let inst_path = if filename == "_meta.rbxjson" {
-        // _meta.rbxjson represents the parent folder
-        rel_path
-            .parent()
-            .map(rbxsync_core::path_to_string)
-            .unwrap_or_default()
-    } else if filename.starts_with("init.") {
-        // Rojo-style init convention: init.server.luau, init.client.luau, init.luau,
-        // init.rbxjson all represent the parent directory as a script/instance
-        rel_path
-            .parent()
-            .map(rbxsync_core::path_to_string)
-            .unwrap_or_default()
-    } else {
-        rbxsync_core::path_to_string(rel_path)
-            .trim_end_matches(".server.luau")
-            .trim_end_matches(".client.luau")
-            .trim_end_matches(".server.lua")
-            .trim_end_matches(".client.lua")
-            .trim_end_matches(".luau")
-            .trim_end_matches(".lua")
-            .trim_end_matches(".rbxjson")
-            .to_string()
-    };
+    let mapped = rbxsync_core::file_to_instance_path(rel_path);
+    let inst_path = mapped.instance_path;
 
     match change.kind {
         FileChangeKind::Delete => {
@@ -466,13 +442,7 @@ pub fn process_file_change(
 
                 // Determine script type from filename
                 let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let class_name = if filename.ends_with(".server.luau") || filename.ends_with(".server.lua") {
-                    "Script"
-                } else if filename.ends_with(".client.luau") || filename.ends_with(".client.lua") {
-                    "LocalScript"
-                } else {
-                    "ModuleScript"
-                };
+                let class_name = rbxsync_core::script_class_from_filename(filename);
 
                 // Extract instance name from path (last segment)
                 let instance_name = inst_path.rsplit('/').next().unwrap_or(&inst_path);
@@ -533,9 +503,9 @@ pub fn process_file_change(
         }
         FileChangeKind::Rename { ref from_path } => {
             // Detect temp file renames (atomic saves): editors write to .tmp then rename.
-            // The from_path won't have a valid .luau/.rbxjson extension — treat as a Modify.
+            // The from_path won't have a valid .luau/.lua/.rbxjson extension — treat as a Modify.
             let from_ext = from_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if from_ext != "luau" && from_ext != "rbxjson" {
+            if from_ext != "luau" && from_ext != "lua" && from_ext != "rbxjson" {
                 // Temp file → real file rename = content update, not instance rename
                 if !path.exists() {
                     return None;
@@ -550,13 +520,7 @@ pub fn process_file_change(
                         }
                     };
                     let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    let class_name = if filename.ends_with(".server.luau") || filename.ends_with(".server.lua") {
-                        "Script"
-                    } else if filename.ends_with(".client.luau") || filename.ends_with(".client.lua") {
-                        "LocalScript"
-                    } else {
-                        "ModuleScript"
-                    };
+                    let class_name = rbxsync_core::script_class_from_filename(filename);
                     let instance_name = inst_path.rsplit('/').next().unwrap_or(&inst_path);
                     return Some(serde_json::json!({
                         "type": "update",
@@ -612,21 +576,7 @@ pub fn process_file_change(
                 Ok(p) => p,
                 Err(_) => return None,
             };
-            let old_filename = from_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let old_inst_path = if old_filename == "_meta.rbxjson" || old_filename.starts_with("init.") {
-                // _meta.rbxjson and init.* files represent the parent folder
-                old_rel
-                    .parent()
-                    .map(rbxsync_core::path_to_string)
-                    .unwrap_or_default()
-            } else {
-                rbxsync_core::path_to_string(old_rel)
-                    .trim_end_matches(".server.luau")
-                    .trim_end_matches(".client.luau")
-                    .trim_end_matches(".luau")
-                    .trim_end_matches(".rbxjson")
-                    .to_string()
-            };
+            let old_inst_path = rbxsync_core::file_to_instance_path(old_rel).instance_path;
 
             // If the new path doesn't exist, treat as a delete of the old path
             if !path.exists() {
@@ -828,5 +778,20 @@ mod tests {
         .unwrap();
         assert_eq!(op["type"], "delete");
         assert_eq!(op["path"], "ServerScriptService/Before");
+    }
+
+    #[test]
+    fn test_rename_lua_old_path_is_stripped() {
+        let dir = temp_project();
+        let new_p = write_src(&dir, "ServerScriptService/After.server.lua", "x");
+        let old_p = src_path(&dir, "ServerScriptService/Before.server.lua");
+        let op = process_file_change(&change(
+            &dir,
+            new_p,
+            FileChangeKind::Rename { from_path: old_p },
+        ))
+        .unwrap();
+        assert_eq!(op["data"]["oldPath"], "ServerScriptService/Before");
+        assert_eq!(op["data"]["newPath"], "ServerScriptService/After");
     }
 }
