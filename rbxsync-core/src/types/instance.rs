@@ -254,4 +254,48 @@ mod tests {
             Some(".luau")
         );
     }
+
+    #[test]
+    fn test_nested_tree_rbxjson_round_trip() {
+        use crate::types::AttributeValue;
+
+        let mut root = Instance::new("Model", "Root");
+        root.set_property("Anchored", PropertyValue::Bool(true));
+        root.set_attribute("Version", AttributeValue::Number(2.0));
+        root.set_attribute("Owner", AttributeValue::String("ben".to_string()));
+        root.add_tag("Spawn");
+
+        let mut child = Instance::new("Part", "Child");
+        child.set_property(
+            "Size",
+            PropertyValue::Vector3(Vector3 { x: 1.0, y: 2.0, z: 3.0 }),
+        );
+
+        let mut runner = Instance::new("Script", "Runner");
+        runner.source_file = Some("Runner.server.luau".to_string());
+        runner.set_property("Source", PropertyValue::String("print('run')".to_string()));
+
+        child.add_child(runner);
+        root.add_child(child);
+
+        let json = serde_json::to_string_pretty(&root).unwrap();
+        let back: Instance = serde_json::from_str(&json).unwrap();
+        let rejson = serde_json::to_string_pretty(&back).unwrap();
+
+        // Serialization is stable across a round trip
+        assert_eq!(json, rejson);
+
+        // Structure survives
+        assert_eq!(back.class_name, "Model");
+        assert_eq!(back.tags, vec!["Spawn".to_string()]);
+        assert_eq!(back.attributes.len(), 2);
+        assert_eq!(back.children.len(), 1);
+        let child_back = &back.children[0];
+        assert_eq!(child_back.class_name, "Part");
+        assert_eq!(child_back.children.len(), 1);
+        let runner_back = &child_back.children[0];
+        assert_eq!(runner_back.class_name, "Script");
+        assert_eq!(runner_back.source_file.as_deref(), Some("Runner.server.luau"));
+        assert!(runner_back.is_script());
+    }
 }
