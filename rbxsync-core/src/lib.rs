@@ -9,6 +9,7 @@
 //! - Luau obfuscation for build-time transforms
 
 pub mod obfuscator;
+pub mod path_mapping;
 pub mod path_utils;
 pub mod plugin_builder;
 pub mod rojo;
@@ -30,4 +31,5 @@ pub use types::{
     Feature, FeaturePriority, FeatureStatus, FeaturesFile, GameDefinition,
     HarnessState, SessionLog, SessionLogEntry,
 };
+pub use path_mapping::{file_to_instance_path, script_class_from_filename, MappedPath};
 pub use path_utils::{normalize_path, path_to_string, path_with_suffix, pathbuf_with_suffix, sanitize_filename};
