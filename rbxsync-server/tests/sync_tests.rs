@@ -377,7 +377,8 @@ mod from_studio {
             "type": "create",
             "path": "ServerScriptService/Fresh",
             "className": "Script",
-            "data": {"className": "Script", "source": "print('made in studio')"}
+            "data": {"className": "Script", "source": "print('made in studio')",
+                     "properties": {"Source": {"type": "string", "value": "print('made in studio')"}}}
         }])).await;
 
         for suffix in rbxsync_core::SCRIPT_FILE_SUFFIXES {
@@ -453,5 +454,83 @@ mod from_studio {
         assert!(dir.path().join("src/Workspace/Stuff/Runner.server.luau").exists());
         assert!(!dir.path().join("src/Workspace/Moved").exists());
         assert!(!body["errors"].as_array().unwrap().is_empty(), "skip must be reported");
+    }
+
+    fn create_test_server_with_state() -> (TestServer, std::sync::Arc<rbxsync_server::AppState>) {
+        let state = AppState::new();
+        let server = TestServer::new(create_router(state.clone())).unwrap();
+        (server, state)
+    }
+
+    #[tokio::test]
+    async fn test_from_studio_marks_written_paths_recently_synced() {
+        let (server, state) = create_test_server_with_state();
+        let dir = script_project();
+        let response = server
+            .post("/sync/from-studio")
+            .json(&json!({"operations": json!([{
+                "type": "modify",
+                "path": "ServerScriptService/Main",
+                "className": "Script",
+                "data": {"className": "Script", "properties": {"Name": {"type": "string", "value": "Main"}}}
+            }]), "projectDir": dir.path().to_string_lossy()}))
+            .await;
+        response.assert_status_ok();
+
+        let json_path = dir.path().join("src/ServerScriptService/Main.rbxjson");
+        assert!(state.is_recently_synced(&json_path).await, "written sidecar must be marked");
+        assert!(!state.is_recently_synced(&dir.path().join("src/Other.rbxjson")).await);
+    }
+
+    #[tokio::test]
+    async fn test_from_studio_updates_freshness_only_when_files_written() {
+        let (server, _state) = create_test_server_with_state();
+        let dir = script_project();
+        let meta = dir.path().join(".rbxsync/snapshot.json");
+
+        // Delete of a nonexistent path writes nothing
+        server.post("/sync/from-studio").json(&json!({"operations": json!([{
+            "type": "delete", "path": "Workspace/DoesNotExist", "className": "Part", "data": {}
+        }]), "projectDir": dir.path().to_string_lossy()})).await.assert_status_ok();
+        assert!(!meta.exists(), "no-op batch must not stamp freshness");
+
+        // A real write stamps lastLiveUpdate
+        server.post("/sync/from-studio").json(&json!({"operations": json!([{
+            "type": "modify", "path": "Workspace/Part", "className": "Part",
+            "data": {"className": "Part", "properties": {}}
+        }]), "projectDir": dir.path().to_string_lossy()})).await.assert_status_ok();
+        let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&meta).unwrap()).unwrap();
+        assert!(doc["lastLiveUpdate"].as_u64().unwrap() > 0);
+        // Live updates never create a baseline
+        assert!(doc.get("lastFullExtract").and_then(|v| v.as_u64()).is_none());
+    }
+
+    #[tokio::test]
+    async fn test_delete_of_script_only_folder_counts_nothing() {
+        let (server, _state) = create_test_server_with_state();
+        let dir = script_project();
+        let scripts_only = dir.path().join("src/Workspace/ScriptsOnly");
+        std::fs::create_dir_all(&scripts_only).unwrap();
+        std::fs::write(scripts_only.join("A.server.luau"), "print('a')").unwrap();
+
+        let body = post_ops(&server, &dir, json!([{
+            "type": "delete", "path": "Workspace/ScriptsOnly", "className": "Folder", "data": {}
+        }])).await;
+        assert_eq!(body["filesWritten"], 0, "clearing a script-only folder removes nothing");
+        assert!(scripts_only.join("A.server.luau").exists());
+    }
+
+    #[tokio::test]
+    async fn test_recently_synced_ttl_evicts() {
+        let (_server, state) = create_test_server_with_state();
+        let p = std::path::PathBuf::from("Workspace_ttl_probe.rbxjson");
+        state.mark_recently_synced(p.clone()).await;
+        assert!(state.is_recently_synced(&p).await);
+
+        // An entry older than the TTL is evicted on the next check
+        if let Some(old) = std::time::Instant::now().checked_sub(std::time::Duration::from_secs(3)) {
+            state.recently_synced.write().await.insert(p.clone(), old);
+            assert!(!state.is_recently_synced(&p).await);
+        }
     }
 }

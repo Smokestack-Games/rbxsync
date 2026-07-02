@@ -97,18 +97,24 @@ fn dir_contains_script(dir: &std::path::Path) -> bool {
 
 /// Delete instance data files (.rbxjson, including _meta.rbxjson) under `dir`
 /// and remove directories left empty; script source files are preserved.
-fn clear_instance_files(dir: &std::path::Path) -> std::io::Result<()> {
+/// Returns the absolute paths of the files removed.
+fn clear_instance_files(dir: &std::path::Path) -> std::io::Result<Vec<PathBuf>> {
+    let mut removed = Vec::new();
     for entry in std::fs::read_dir(dir)?.flatten() {
         let path = entry.path();
         if path.is_dir() {
-            let _ = clear_instance_files(&path);
+            if let Ok(mut inner) = clear_instance_files(&path) {
+                removed.append(&mut inner);
+            }
             // Succeeds only when empty; non-empty directories are kept
             let _ = std::fs::remove_dir(&path);
         } else if path.extension().and_then(|e| e.to_str()) == Some("rbxjson") {
-            let _ = std::fs::remove_file(&path);
+            if std::fs::remove_file(&path).is_ok() {
+                removed.push(path);
+            }
         }
     }
-    Ok(())
+    Ok(removed)
 }
 
 /// Back up src to .rbxsync-backup/src and clear instance data files,
@@ -302,6 +308,10 @@ pub struct AppState {
     /// Sync state per project (project_dir -> last_sync_time)
     pub sync_state: RwLock<HashMap<String, std::time::SystemTime>>,
 
+    /// Sidecar paths recently written by /sync/from-studio; the file watcher
+    /// skips these to avoid echoing server writes back to Studio
+    pub recently_synced: RwLock<HashMap<PathBuf, std::time::Instant>>,
+
     /// Bot command queue for AI-controlled playtesting
     pub bot_command_queue: Mutex<VecDeque<serde_json::Value>>,
 
@@ -354,6 +364,7 @@ impl AppState {
             console_buffer: RwLock::new(VecDeque::with_capacity(CONSOLE_BUFFER_SIZE)),
             console_tx,
             sync_state: RwLock::new(HashMap::new()),
+            recently_synced: RwLock::new(HashMap::new()),
             bot_command_queue: Mutex::new(VecDeque::new()),
             bot_state: RwLock::new(None),
             bot_command_results: RwLock::new(HashMap::new()),
@@ -364,6 +375,19 @@ impl AppState {
             operation_state: RwLock::new(HashMap::new()),
             playtest_ended_reason: RwLock::new(None),
         })
+    }
+
+    pub async fn mark_recently_synced(&self, path: PathBuf) {
+        self.recently_synced.write().await.insert(path, std::time::Instant::now());
+    }
+
+    /// True if the path was written by from-studio within the suppression TTL.
+    /// Expired entries are evicted on each call.
+    pub async fn is_recently_synced(&self, path: &std::path::Path) -> bool {
+        const TTL: std::time::Duration = std::time::Duration::from_secs(2);
+        let mut map = self.recently_synced.write().await;
+        map.retain(|_, t| t.elapsed() < TTL);
+        map.contains_key(path)
     }
 }
 
@@ -2716,7 +2740,10 @@ pub struct StudioChangeOperation {
 }
 
 /// Handle changes from Studio and write them to files
-async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl IntoResponse {
+async fn handle_sync_from_studio(
+    State(state): State<Arc<AppState>>,
+    Json(req): Json<SyncFromStudioRequest>,
+) -> impl IntoResponse {
     tracing::info!("handle_sync_from_studio called with {} operations", req.operations.len());
     for (i, op) in req.operations.iter().enumerate() {
         tracing::info!("  Op {}: type={}, path={}, className={:?}, has_data={}",
@@ -2754,15 +2781,21 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                 let json_path = rbxsync_core::path_with_suffix(&full_path, ".rbxjson");
                 if std::fs::remove_file(&json_path).is_ok() {
                     deleted_any = true;
+                    state.mark_recently_synced(PathBuf::from(&json_path)).await;
                     tracing::info!("Studio sync: deleted {}", json_path);
                 }
 
                 if full_path.is_dir() {
                     if dir_contains_script(&full_path) {
                         // Remove instance data within, keep the directory and its scripts
-                        if clear_instance_files(&full_path).is_ok() {
-                            deleted_any = true;
-                            tracing::info!("Studio sync: cleared instance files in {:?}, scripts preserved", full_path);
+                        if let Ok(removed) = clear_instance_files(&full_path) {
+                            if !removed.is_empty() {
+                                deleted_any = true;
+                                tracing::info!("Studio sync: cleared {} instance files in {:?}, scripts preserved", removed.len(), full_path);
+                            }
+                            for p in removed {
+                                state.mark_recently_synced(p).await;
+                            }
                         }
                     } else if std::fs::remove_dir_all(&full_path).is_ok() {
                         deleted_any = true;
@@ -2818,6 +2851,8 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                                 match std::fs::rename(&old_file, &new_file) {
                                     Ok(_) => {
                                         tracing::info!("Studio sync: renamed {:?} -> {:?}", old_file, new_file);
+                                        state.mark_recently_synced(old_file.clone()).await;
+                                        state.mark_recently_synced(new_file.clone()).await;
                                         files_written += 1;
                                     }
                                     Err(e) => {
@@ -2863,6 +2898,7 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                     if let Ok(json) = serde_json::to_string_pretty(&clean_data) {
                         match std::fs::write(&json_path, json) {
                             Ok(_) => {
+                                state.mark_recently_synced(PathBuf::from(&json_path)).await;
                                 files_written += 1;
                             }
                             Err(e) => {
@@ -5475,6 +5511,10 @@ async fn process_file_changes(state: Arc<AppState>) {
             let mut operations = Vec::new();
 
             for change in &ready_changes {
+                if state.is_recently_synced(&change.path).await {
+                    tracing::debug!("Skipping echo of server-written path {:?}", change.path);
+                    continue;
+                }
                 if let Some(op) = file_watcher::process_file_change(change) {
                     tracing::info!("Live sync: {:?} -> {:?}", change.kind, change.path);
                     operations.push(op);
