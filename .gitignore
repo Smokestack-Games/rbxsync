@@ -56,6 +56,11 @@ build/*.vsix
 !.claude/reports/TPS-*.md
 .claude/settings.local.json
 
+# Local agent scratch
+.superpowers/
+docs/superpowers/
+Saved/
+
 # Experimental
 flux-agent/
 .vercel
