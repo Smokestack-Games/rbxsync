@@ -322,3 +322,133 @@ mod diff {
         assert_eq!(body["common"], 1);
     }
 }
+
+mod from_studio {
+    use super::*;
+
+    fn script_project() -> TempDir {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        write(&src, "ServerScriptService/Main.server.luau", "print('disk truth')");
+        write(&src, "ServerScriptService/Main.rbxjson", r#"{"className":"Script","name":"Main"}"#);
+        write(&src, "Workspace/Stuff/_meta.rbxjson", r#"{"className":"Folder","name":"Stuff"}"#);
+        write(&src, "Workspace/Stuff/Runner.server.luau", "print('runner')");
+        write(&src, "Workspace/Stuff/Runner.rbxjson", r#"{"className":"Script","name":"Runner"}"#);
+        write(&src, "Workspace/Empty/_meta.rbxjson", r#"{"className":"Folder","name":"Empty"}"#);
+        dir
+    }
+
+    async fn post_ops(server: &TestServer, dir: &TempDir, ops: serde_json::Value) -> serde_json::Value {
+        let response = server
+            .post("/sync/from-studio")
+            .json(&json!({"operations": ops, "projectDir": dir.path().to_string_lossy()}))
+            .await;
+        response.assert_status_ok();
+        response.json()
+    }
+
+    #[tokio::test]
+    async fn test_modify_never_writes_script_source() {
+        let server = create_test_server();
+        let dir = script_project();
+        post_ops(&server, &dir, json!([{
+            "type": "modify",
+            "path": "ServerScriptService/Main",
+            "className": "Script",
+            "data": {
+                "className": "Script",
+                "source": "print('studio edit')",
+                "properties": {"Source": {"type": "string", "value": "print('studio edit')"}, "Name": {"type": "string", "value": "Main"}}
+            }
+        }])).await;
+
+        let script = dir.path().join("src/ServerScriptService/Main.server.luau");
+        assert_eq!(std::fs::read_to_string(&script).unwrap(), "print('disk truth')");
+        let sidecar = std::fs::read_to_string(dir.path().join("src/ServerScriptService/Main.rbxjson")).unwrap();
+        assert!(!sidecar.contains("studio edit"), "sidecar must not carry source: {sidecar}");
+        assert!(!sidecar.contains("\"Source\""));
+    }
+
+    #[tokio::test]
+    async fn test_create_never_writes_script_source() {
+        let server = create_test_server();
+        let dir = script_project();
+        post_ops(&server, &dir, json!([{
+            "type": "create",
+            "path": "ServerScriptService/Fresh",
+            "className": "Script",
+            "data": {"className": "Script", "source": "print('made in studio')"}
+        }])).await;
+
+        for suffix in rbxsync_core::SCRIPT_FILE_SUFFIXES {
+            let p = dir.path().join(format!("src/ServerScriptService/Fresh{suffix}"));
+            assert!(!p.exists(), "no script file may be created: {p:?}");
+        }
+        assert!(dir.path().join("src/ServerScriptService/Fresh.rbxjson").exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_preserves_script_file() {
+        let server = create_test_server();
+        let dir = script_project();
+        post_ops(&server, &dir, json!([{
+            "type": "delete", "path": "ServerScriptService/Main", "className": "Script", "data": {}
+        }])).await;
+
+        assert!(dir.path().join("src/ServerScriptService/Main.server.luau").exists());
+        assert!(!dir.path().join("src/ServerScriptService/Main.rbxjson").exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_folder_with_scripts_preserves_them() {
+        let server = create_test_server();
+        let dir = script_project();
+        post_ops(&server, &dir, json!([{
+            "type": "delete", "path": "Workspace/Stuff", "className": "Folder", "data": {}
+        }])).await;
+
+        assert!(dir.path().join("src/Workspace/Stuff/Runner.server.luau").exists());
+        assert!(!dir.path().join("src/Workspace/Stuff/_meta.rbxjson").exists());
+        assert!(!dir.path().join("src/Workspace/Stuff/Runner.rbxjson").exists());
+    }
+
+    #[tokio::test]
+    async fn test_delete_scriptfree_folder_removed() {
+        let server = create_test_server();
+        let dir = script_project();
+        post_ops(&server, &dir, json!([{
+            "type": "delete", "path": "Workspace/Empty", "className": "Folder", "data": {}
+        }])).await;
+
+        assert!(!dir.path().join("src/Workspace/Empty").exists());
+    }
+
+    #[tokio::test]
+    async fn test_rename_preserves_script_file() {
+        let server = create_test_server();
+        let dir = script_project();
+        post_ops(&server, &dir, json!([{
+            "type": "rename", "path": "ServerScriptService/Renamed", "className": "Script",
+            "data": {"oldPath": "ServerScriptService/Main", "newPath": "ServerScriptService/Renamed"}
+        }])).await;
+
+        assert!(dir.path().join("src/ServerScriptService/Main.server.luau").exists(), "script file must not be renamed");
+        assert!(!dir.path().join("src/ServerScriptService/Renamed.server.luau").exists());
+        assert!(dir.path().join("src/ServerScriptService/Renamed.rbxjson").exists());
+        assert!(!dir.path().join("src/ServerScriptService/Main.rbxjson").exists());
+    }
+
+    #[tokio::test]
+    async fn test_rename_folder_with_scripts_skipped() {
+        let server = create_test_server();
+        let dir = script_project();
+        let body = post_ops(&server, &dir, json!([{
+            "type": "rename", "path": "Workspace/Moved", "className": "Folder",
+            "data": {"oldPath": "Workspace/Stuff", "newPath": "Workspace/Moved"}
+        }])).await;
+
+        assert!(dir.path().join("src/Workspace/Stuff/Runner.server.luau").exists());
+        assert!(!dir.path().join("src/Workspace/Moved").exists());
+        assert!(!body["errors"].as_array().unwrap().is_empty(), "skip must be reported");
+    }
+}

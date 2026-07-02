@@ -31,6 +31,16 @@ pub struct MappedPath {
     pub script_class: Option<&'static str>,
 }
 
+/// Script source file suffixes, most specific first
+pub const SCRIPT_FILE_SUFFIXES: [&str; 6] = [
+    ".server.luau",
+    ".client.luau",
+    ".luau",
+    ".server.lua",
+    ".client.lua",
+    ".lua",
+];
+
 /// Map a src-relative file path to its DataModel instance path.
 ///
 /// `_meta.rbxjson` and `init.*` files represent their parent directory.
@@ -307,5 +317,13 @@ mod tests {
         // Non-trailing occurrences are untouched
         let m = map("Workspace/Part.rbxjson.bak");
         assert_eq!(m.instance_path, "Workspace/Part.rbxjson.bak");
+    }
+
+    #[test]
+    fn test_script_file_suffixes_order() {
+        assert_eq!(SCRIPT_FILE_SUFFIXES.len(), 6);
+        // Most specific first so suffix matching never truncates partially
+        assert_eq!(SCRIPT_FILE_SUFFIXES[0], ".server.luau");
+        assert_eq!(SCRIPT_FILE_SUFFIXES[5], ".lua");
     }
 }
