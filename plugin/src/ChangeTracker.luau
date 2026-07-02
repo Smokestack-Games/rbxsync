@@ -593,28 +593,8 @@ end
 
 -- Start tracking changes
 function ChangeTracker.start()
-    if isTracking then
-        return
-    end
-
-    isTracking = true
-    print("[RbxSync] Auto-extract enabled")
-
-    -- Set up tracking for all services
-    for _, serviceName in trackedServices do
-        local service = game:FindFirstChild(serviceName)
-        if service then
-            setupServiceTracking(service)
-        end
-    end
-
-    -- Start background task to send changes
-    task.spawn(function()
-        while isTracking do
-            sendPendingChanges()
-            task.wait(0.5)  -- Check every 500ms
-        end
-    end)
+    -- Auto-extract is disabled. Use explicit "extract" to sync Studio → files.
+    return
 end
 
 -- Stop tracking changes
