@@ -205,6 +205,77 @@ mod tree_mapping {
         // Unmapped paths are untouched
         find_instance(instances, "ServerScriptService/Main");
     }
+
+    #[tokio::test]
+    async fn test_incremental_applies_reverse_mapping() {
+        let server = create_test_server();
+        let project = fixture_project();
+        std::fs::write(
+            project.path().join("rbxsync.json"),
+            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
+        )
+        .unwrap();
+        write(&project.path().join("src"), "shared/Util.luau", "return {}");
+
+        let response = server
+            .post("/sync/incremental")
+            .json(&json!({"project_dir": project.path().to_string_lossy()}))
+            .await;
+        response.assert_status_ok();
+        let body: serde_json::Value = response.json();
+        assert_eq!(body["full_sync"], true);
+        let instances = body["instances"].as_array().unwrap();
+        let util = find_instance(instances, "ReplicatedStorage/Shared/Util");
+        assert_eq!(util["className"], "ModuleScript");
+        assert!(!instances.iter().any(|i| i["path"] == "shared/Util"));
+    }
+
+    #[tokio::test]
+    async fn test_diff_applies_reverse_mapping() {
+        let server = create_test_server();
+        let project = fixture_project();
+        std::fs::write(
+            project.path().join("rbxsync.json"),
+            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
+        )
+        .unwrap();
+        write(
+            &project.path().join("src"),
+            "shared/Thing.rbxjson",
+            r#"{"className":"Folder","name":"Thing"}"#,
+        );
+
+        let diff = server
+            .post("/diff")
+            .json(&json!({"project_dir": project.path().to_string_lossy()}));
+
+        let plugin = async {
+            let poll = server.get("/rbxsync/request").await;
+            poll.assert_status_ok();
+            let request: serde_json::Value = poll.json();
+            assert_eq!(request["command"], "studio:paths");
+            let id = request["id"].as_str().unwrap().to_string();
+            server
+                .post("/rbxsync/response")
+                .json(&json!({
+                    "id": id,
+                    "success": true,
+                    "data": {"paths": [
+                        {"path": "Workspace/Part", "className": "Part"}
+                    ]}
+                }))
+                .await
+                .assert_status_ok();
+        };
+
+        let (diff_response, _) = tokio::join!(diff, plugin);
+        diff_response.assert_status_ok();
+        let body: serde_json::Value = diff_response.json();
+        assert_eq!(body["success"], true);
+        let added: Vec<&str> = body["added"].as_array().unwrap().iter().map(|e| e["path"].as_str().unwrap()).collect();
+        assert!(added.contains(&"ReplicatedStorage/Shared/Thing"));
+        assert!(!added.contains(&"shared/Thing"));
+    }
 }
 
 mod diff {
