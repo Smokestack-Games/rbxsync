@@ -87,6 +87,13 @@ async fn test_bootstrap_writes_scripts_and_sidecars() {
     assert!(dir.path().join("src/Workspace/Part.rbxjson").exists());
     assert_eq!(adopted_of(&body), vec!["ServerScriptService/Main.server.luau"]);
     assert_eq!(body["scriptsWritten"], 1);
+
+    let leftover_chunks: Vec<_> = std::fs::read_dir(dir.path().join("src"))
+        .unwrap()
+        .flatten()
+        .filter(|e| e.file_name().to_string_lossy().starts_with("chunk_"))
+        .collect();
+    assert!(leftover_chunks.is_empty(), "chunk files must be cleaned after finalize: {leftover_chunks:?}");
 }
 
 #[tokio::test]

@@ -111,6 +111,28 @@ fn clear_instance_files(dir: &std::path::Path) -> std::io::Result<()> {
     Ok(())
 }
 
+/// Back up src to .rbxsync-backup/src and clear instance data files,
+/// preserving script sources in place.
+fn prepare_src_for_extraction(project_dir: &str) {
+    let src_dir = PathBuf::from(project_dir).join("src");
+    let backup_dir = PathBuf::from(project_dir).join(".rbxsync-backup");
+    let backup_src = backup_dir.join("src");
+
+    if src_dir.exists() {
+        if backup_src.exists() {
+            let _ = std::fs::remove_dir_all(&backup_src);
+        }
+        let _ = std::fs::create_dir_all(&backup_dir);
+        if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
+            tracing::warn!("Failed to back up src directory: {}", e);
+        } else {
+            tracing::info!("Backed up src to .rbxsync-backup/src");
+        }
+        let _ = clear_instance_files(&src_dir);
+    }
+    let _ = std::fs::create_dir_all(&src_dir);
+}
+
 /// Strip disambiguation suffix from a path segment (RBXSYNC-68)
 /// Extraction adds `_{8 hex chars}` suffix for duplicates
 /// e.g., "Part_a1b2c3d4" -> "Part", "MyModel" -> "MyModel"
@@ -374,6 +396,8 @@ pub struct ExtractionSession {
     pub output_dir: String,
     /// Whether finalize has been called (extraction complete even if 0 chunks)
     pub finalized: bool,
+    /// Whether src has already been backed up and cleared for this extraction
+    pub src_prepared: bool,
 }
 
 /// Read all chunk files from disk and return the combined instances.
@@ -1392,6 +1416,7 @@ async fn handle_extract_start(
             total_chunks: None,
             output_dir: String::new(),
             finalized: false,
+            src_prepared: true,
         });
     }
 
@@ -1451,39 +1476,11 @@ async fn handle_extract_start(
         }
     }
 
-    // Clear existing src folder before extraction to remove stale files (Fixes RBXSYNC-27)
+    // Clear existing src folder before extraction to remove stale files (Fixes RBXSYNC-27),
+    // preserving script sources on disk
     if let Some(ref project_dir) = req.project_dir {
         if !project_dir.is_empty() {
-            let src_dir = PathBuf::from(project_dir).join("src");
-
-            if src_dir.exists() {
-                let backup_dir = PathBuf::from(project_dir).join(".rbxsync-backup");
-                let backup_src = backup_dir.join("src");
-
-                // Remove old backup if exists
-                if backup_src.exists() {
-                    let _ = std::fs::remove_dir_all(&backup_src);
-                }
-
-                // Create backup directory
-                let _ = std::fs::create_dir_all(&backup_dir);
-
-                // Move src to backup (rename is atomic and fast)
-                if let Err(e) = std::fs::rename(&src_dir, &backup_src) {
-                    // If rename fails (cross-device), fall back to copy+delete
-                    tracing::warn!("Rename failed, falling back to copy: {}", e);
-                    if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
-                        tracing::warn!("Failed to backup src directory: {}", e);
-                    }
-                    // Delete original src after backup
-                    let _ = std::fs::remove_dir_all(&src_dir);
-                }
-
-                tracing::info!("Cleared src folder before extraction (backed up to .rbxsync-backup/src)");
-            }
-
-            // Create fresh src directory
-            let _ = std::fs::create_dir_all(&src_dir);
+            prepare_src_for_extraction(project_dir);
         }
     }
 
@@ -1555,6 +1552,7 @@ async fn handle_extract_chunk(
                 total_chunks: None,
                 output_dir: output_dir.clone(),
                 finalized: false,
+                src_prepared: false,
             });
         }
 
@@ -1951,6 +1949,17 @@ async fn handle_extract_finalize(
     // Read chunk data from disk BEFORE backup/rename (chunks are stored in output_dir)
     let all_instances = read_chunks_from_disk(&session.output_dir, session.chunks_received);
 
+    // Delete consumed chunk files so they don't linger in src or get copied into backups
+    if let Ok(entries) = std::fs::read_dir(&session.output_dir) {
+        for entry in entries.flatten() {
+            let name = entry.file_name();
+            let name = name.to_string_lossy();
+            if name.starts_with("chunk_") && name.ends_with(".json") {
+                let _ = std::fs::remove_file(entry.path());
+            }
+        }
+    }
+
     // Backup existing src directory before clearing (for undo support)
     let backup_dir = PathBuf::from(&req.project_dir).join(".rbxsync-backup");
     let backup_src = backup_dir.join("src");
@@ -1965,37 +1974,12 @@ async fn handle_extract_finalize(
         None
     };
 
-    if src_dir.exists() {
-        // Remove old backup if exists
-        if backup_src.exists() {
-            let _ = std::fs::remove_dir_all(&backup_src);
-        }
-        // Create backup directory
-        let _ = std::fs::create_dir_all(&backup_dir);
-        // Move src to backup (rename is atomic and fast)
-        if let Err(e) = std::fs::rename(&src_dir, &backup_src) {
-            // If rename fails (cross-device), fall back to copy+delete
-            tracing::warn!("Rename failed, falling back to copy: {}", e);
-            if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
-                tracing::warn!("Failed to backup src directory: {}", e);
-            }
-
-            for entry in std::fs::read_dir(&src_dir).unwrap_or_else(|_| std::fs::read_dir(".").unwrap()).flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    let _ = std::fs::remove_dir_all(&path);
-                } else {
-                    let _ = std::fs::remove_file(&path);
-                }
-            }
-        }
-        tracing::info!("Backed up src to .rbxsync-backup/src");
+    let already_prepared = session.src_prepared;
+    if !already_prepared {
+        prepare_src_for_extraction(&req.project_dir);
     }
 
     tracing::info!("Finalizing {} instances to {}", all_instances.len(), src_dir.display());
-
-    // Create src directory
-    let _ = std::fs::create_dir_all(&src_dir);
 
     // Restore terrain data that was backed up before clearing
     if let Some(data) = terrain_data {
@@ -2098,6 +2082,7 @@ async fn handle_extract_finalize(
     let mut directories_needed: HashSet<PathBuf> = HashSet::new();
     let mut script_write_ops: Vec<WriteOp> = Vec::new();
     let mut json_write_ops: Vec<WriteOp> = Vec::new();
+    let mut adopted: Vec<String> = Vec::new();
 
     tracing::info!("Preparing {} instances for parallel write...", all_instances.len());
     let prep_start = std::time::Instant::now();
@@ -2142,19 +2127,26 @@ async fn handle_extract_finalize(
         let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
 
         if is_script {
-            // Prepare script source write operation
             if let Some(props) = inst.get("properties") {
                 if let Some(source) = props.get("Source").and_then(|v| v.get("value")).and_then(|v| v.as_str()) {
-                    let extension = match class_name {
-                        "Script" => ".server.luau",
-                        "LocalScript" => ".client.luau",
-                        _ => ".luau",
-                    };
-                    let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
-                    script_write_ops.push(WriteOp {
-                        path: PathBuf::from(script_path),
-                        content: source.to_string(),
+                    // Scripts are managed on disk: write only when no script
+                    // file exists at the target path (adopt-once)
+                    let script_exists = rbxsync_core::SCRIPT_FILE_SUFFIXES.iter().any(|ext| {
+                        PathBuf::from(rbxsync_core::path_with_suffix(&full_path, ext)).exists()
                     });
+                    if !script_exists {
+                        let extension = match class_name {
+                            "Script" => ".server.luau",
+                            "LocalScript" => ".client.luau",
+                            _ => ".luau",
+                        };
+                        let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
+                        adopted.push(format!("{}{}", fs_path, extension));
+                        script_write_ops.push(WriteOp {
+                            path: PathBuf::from(script_path),
+                            content: source.to_string(),
+                        });
+                    }
                 }
             }
         }
@@ -2366,7 +2358,8 @@ async fn handle_extract_finalize(
             "success": true,
             "filesWritten": files_written,
             "scriptsWritten": scripts_written,
-            "totalInstances": all_instances.len()
+            "totalInstances": all_instances.len(),
+            "adopted": adopted
         })),
     )
 }
