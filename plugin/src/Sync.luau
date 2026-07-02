@@ -510,15 +510,7 @@ function Sync.createInstance(data: any, parent: Instance?): Instance?
     end
 
     -- Don't create services, just find them
-    local services = {
-        "Workspace", "ReplicatedStorage", "ReplicatedFirst",
-        "ServerScriptService", "ServerStorage", "StarterGui",
-        "StarterPack", "StarterPlayer", "Lighting", "SoundService",
-        "Teams", "Chat", "LocalizationService", "TestService",
-        "MaterialService"
-    }
-
-    for _, serviceName in services do
+    for _, serviceName in Services.list do
         if className == serviceName or name == serviceName then
             local service = game:GetService(serviceName)
             if service and referenceId then
