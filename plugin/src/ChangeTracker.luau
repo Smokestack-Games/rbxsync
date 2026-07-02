@@ -7,7 +7,6 @@
 ]]
 
 local HttpService = game:GetService("HttpService")
-local ScriptEditorService = game:GetService("ScriptEditorService")
 
 local Config = require(script.Parent.Config)
 local Serializer = require(script.Parent.Serializer)
@@ -23,6 +22,9 @@ local isConnectedToServer = false
 -- Suppress outbound changes during inbound sync (prevents echo loops)
 -- This is the primary mechanism to prevent data loss - see Azul plugin analysis
 local isSyncingFromServer = false
+
+-- Track whether we've already warned about a refused Source payload (avoid log spam)
+local warnedSourceRefused = false
 
 -- Services to track for changes
 local trackedServices = {
@@ -167,6 +169,15 @@ end
 local function queueChange(instance: Instance, changeType: string, data: any?)
     -- Primary echo prevention: suppress ALL changes during inbound sync
     if isSyncingFromServer then
+        return
+    end
+
+    -- Scripts are managed on disk; ops carrying Source are refused
+    if data and data.properties and data.properties.Source ~= nil then
+        if not warnedSourceRefused then
+            warn("[RbxSync] Dropped a change carrying script Source; scripts sync from disk only")
+            warnedSourceRefused = true
+        end
         return
     end
 
@@ -394,28 +405,6 @@ local function sendPendingChanges()
     end
 end
 
--- Track script source changes
-local function trackScriptChanges(script: LuaSourceContainer)
-    -- Use ScriptEditorService to detect when scripts are edited
-    local connection = ScriptEditorService.TextDocumentDidClose:Connect(function(doc)
-        if doc.Name == script:GetFullName() then
-            -- Script was modified
-            local source = ""
-            pcall(function()
-                source = (script :: any).Source
-            end)
-
-            queueChange(script, "modify", {
-                properties = {
-                    Source = { type = "string", value = source }
-                }
-            })
-        end
-    end)
-
-    table.insert(connections, connection)
-end
-
 -- Track property changes on an instance
 local function trackInstanceChanges(instance: Instance)
     -- Track property changes
@@ -438,17 +427,8 @@ local function trackInstanceChanges(instance: Instance)
             return
         end
 
-        -- For scripts, track Source changes specially
+        -- Scripts are managed on disk; Source changes are not tracked
         if instance:IsA("LuaSourceContainer") and property == "Source" then
-            local source = ""
-            pcall(function()
-                source = (instance :: any).Source
-            end)
-            queueChange(instance, "modify", {
-                properties = {
-                    Source = { type = "string", value = source }
-                }
-            })
             return
         end
 
@@ -558,17 +538,11 @@ local function setupServiceTracking(service: Instance)
         -- Store path for deletion tracking
         getInstancePath(descendant, false)
         trackInstanceChanges(descendant)
-        if descendant:IsA("LuaSourceContainer") then
-            trackScriptChanges(descendant)
-        end
     end
 
     -- Track new instances
     local addedConnection = service.DescendantAdded:Connect(function(descendant)
         trackInstanceChanges(descendant)
-        if descendant:IsA("LuaSourceContainer") then
-            trackScriptChanges(descendant)
-        end
 
         -- Queue create event
         local ok, serialized = pcall(function()
