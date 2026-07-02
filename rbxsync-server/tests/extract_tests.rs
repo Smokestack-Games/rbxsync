@@ -261,3 +261,16 @@ async fn test_start_without_project_dir_does_not_mark_prepared() {
     assert!(!src.join("Workspace/Stale.rbxjson").exists());
     assert!(src.join("Workspace/Part.rbxjson").exists());
 }
+
+#[tokio::test]
+async fn test_finalize_writes_freshness_file() {
+    let server = create_test_server();
+    let dir = tempfile::tempdir().unwrap();
+    run_extraction(&server, &dir, json!([plain_instance("Workspace/Part", "Part")])).await;
+
+    let meta = dir.path().join(".rbxsync/snapshot.json");
+    let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&meta).unwrap()).unwrap();
+    assert!(doc["lastFullExtract"].as_u64().unwrap() > 0);
+    assert!(doc["lastLiveUpdate"].as_u64().unwrap() > 0);
+    assert!(!dir.path().join(".rbxsync/snapshot.json.tmp").exists(), "atomic write must not leave a temp file");
+}

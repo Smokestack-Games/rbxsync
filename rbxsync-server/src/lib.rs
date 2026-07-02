@@ -133,6 +133,39 @@ fn prepare_src_for_extraction(project_dir: &str) {
     let _ = std::fs::create_dir_all(&src_dir);
 }
 
+/// Record snapshot freshness in <project>/.rbxsync/snapshot.json (epoch millis).
+/// `full_extract` also stamps lastFullExtract; every call stamps lastLiveUpdate.
+fn write_snapshot_freshness(project_dir: &str, full_extract: bool) {
+    let dir = PathBuf::from(project_dir).join(".rbxsync");
+    if std::fs::create_dir_all(&dir).is_err() {
+        return;
+    }
+    let path = dir.join("snapshot.json");
+    let now_ms = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as u64)
+        .unwrap_or(0);
+
+    let mut doc = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+        .unwrap_or_else(|| serde_json::json!({}));
+
+    if let Some(obj) = doc.as_object_mut() {
+        if full_extract {
+            obj.insert("lastFullExtract".to_string(), serde_json::json!(now_ms));
+        }
+        obj.insert("lastLiveUpdate".to_string(), serde_json::json!(now_ms));
+    }
+
+    let tmp = dir.join("snapshot.json.tmp");
+    if let Ok(json) = serde_json::to_string_pretty(&doc) {
+        if std::fs::write(&tmp, json).is_ok() {
+            let _ = std::fs::rename(&tmp, &path);
+        }
+    }
+}
+
 /// Strip disambiguation suffix from a path segment (RBXSYNC-68)
 /// Extraction adds `_{8 hex chars}` suffix for duplicates
 /// e.g., "Part_a1b2c3d4" -> "Part", "MyModel" -> "MyModel"
@@ -465,6 +498,7 @@ pub fn create_router(state: Arc<AppState>) -> Router {
         .route("/extract/export", post(handle_extract_export))
         .route("/extract/finalize", post(handle_extract_finalize))
         .route("/extract/terrain", post(handle_extract_terrain))
+        .route("/snapshot/status", get(handle_snapshot_status))
         // Sync endpoints
         .route("/sync/command", post(handle_sync_command))
         .route("/sync/batch", post(handle_sync_batch))
@@ -1381,6 +1415,48 @@ async fn handle_response(
         tracing::warn!("No channel found for request {} - response dropped", response.id);
     }
     Json(serde_json::json!({"ok": true}))
+}
+
+#[derive(Debug, Deserialize)]
+pub struct SnapshotStatusQuery {
+    #[serde(rename = "projectDir")]
+    pub project_dir: Option<String>,
+}
+
+/// Snapshot freshness for a project: whether a baseline extraction exists
+/// and when the snapshot last changed
+async fn handle_snapshot_status(Query(params): Query<SnapshotStatusQuery>) -> impl IntoResponse {
+    let project_dir = match params.project_dir.filter(|p| !p.is_empty()) {
+        Some(p) => p,
+        None => {
+            return (
+                StatusCode::BAD_REQUEST,
+                Json(serde_json::json!({"baseline": false, "error": "projectDir required"})),
+            );
+        }
+    };
+    let path = PathBuf::from(&project_dir).join(".rbxsync").join("snapshot.json");
+    let doc = std::fs::read_to_string(&path)
+        .ok()
+        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok());
+
+    let get = |key: &str| {
+        doc.as_ref()
+            .and_then(|d| d.get(key))
+            .cloned()
+            .unwrap_or(serde_json::Value::Null)
+    };
+    let last_full = get("lastFullExtract");
+
+    (
+        StatusCode::OK,
+        Json(serde_json::json!({
+            "baseline": last_full.as_u64().is_some(),
+            "lastFullExtract": last_full,
+            "lastLiveUpdate": get("lastLiveUpdate"),
+            "placeId": serde_json::Value::Null
+        })),
+    )
 }
 
 /// Start extraction request
@@ -2342,6 +2418,8 @@ async fn handle_extract_finalize(
         ops.remove(&req.project_dir);
     }
 
+    write_snapshot_freshness(&req.project_dir, true);
+
     (
         StatusCode::OK,
         Json(serde_json::json!({
@@ -2798,6 +2876,10 @@ async fn handle_sync_from_studio(Json(req): Json<SyncFromStudioRequest>) -> impl
                 errors.push(format!("Unknown change type: {}", op.change_type));
             }
         }
+    }
+
+    if files_written > 0 {
+        write_snapshot_freshness(&req.project_dir, false);
     }
 
     tracing::info!("Studio sync complete: {} files written, {} errors", files_written, errors.len());
