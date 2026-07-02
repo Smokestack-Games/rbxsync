@@ -31,6 +31,7 @@ local Reflection = require(script.Reflection)
 local Serializer = require(script.Serializer)
 local Sync = require(script.Sync)
 local Config = require(script.Config)
+local Services = require(script.Services)
 local TestRunner = require(script.TestRunner)
 local ChangeTracker = require(script.ChangeTracker)
 local TerrainHandler = require(script.TerrainHandler)
@@ -624,23 +625,7 @@ local function extractGame(config: {any})
     print("[RbxSync Debug] config.services type:", type(config.services), "length:", config.services and #config.services or "nil")
 
     -- Determine which services to extract (check for non-empty array since empty [] is truthy in Lua)
-    local defaultServices = {
-        "Workspace",
-        "ReplicatedStorage",
-        "ReplicatedFirst",
-        "ServerScriptService",
-        "ServerStorage",
-        "StarterGui",
-        "StarterPack",
-        "StarterPlayer",
-        "Lighting",
-        "SoundService",
-        "Teams",
-        "Chat",
-        "LocalizationService",
-        "TestService",
-        "MaterialService",
-    }
+    local defaultServices = Services.list
     local servicesToExtract = (config.services and #config.services > 0) and config.services or defaultServices
     print("[RbxSync Debug] Using", #servicesToExtract, "services")
 

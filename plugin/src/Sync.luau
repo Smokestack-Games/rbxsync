@@ -12,6 +12,7 @@ local CollectionService = game:GetService("CollectionService")
 local Reflection = require(script.Parent.Reflection)
 local CSGHandler = require(script.Parent.CSGHandler)
 local ChangeTracker = require(script.Parent.ChangeTracker)
+local Services = require(script.Parent.Services)
 
 local Sync = {}
 
@@ -38,23 +39,7 @@ local instancesByPath: {[string]: Instance} = {}
 
 -- Services that can be accessed via game:GetService()
 -- Used for reliable service lookup instead of FindFirstChild
-local SERVICES: {[string]: boolean} = {
-    Workspace = true,
-    ReplicatedStorage = true,
-    ReplicatedFirst = true,
-    ServerScriptService = true,
-    ServerStorage = true,
-    StarterGui = true,
-    StarterPack = true,
-    StarterPlayer = true,
-    Lighting = true,
-    SoundService = true,
-    Teams = true,
-    Chat = true,
-    LocalizationService = true,
-    TestService = true,
-    MaterialService = true,
-}
+local SERVICES: {[string]: boolean} = Services.set
 
 -- Reference properties that need deferred resolution
 -- Comprehensive list of all Instance reference properties in Roblox

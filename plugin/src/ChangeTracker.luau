@@ -10,6 +10,7 @@ local HttpService = game:GetService("HttpService")
 
 local Config = require(script.Parent.Config)
 local Serializer = require(script.Parent.Serializer)
+local Services = require(script.Parent.Services)
 
 local ChangeTracker = {}
 
@@ -27,18 +28,7 @@ local isSyncingFromServer = false
 local warnedSourceRefused = false
 
 -- Services to track for changes
-local trackedServices = {
-    "Workspace",
-    "ReplicatedStorage",
-    "ReplicatedFirst",
-    "ServerScriptService",
-    "ServerStorage",
-    "StarterGui",
-    "StarterPack",
-    "StarterPlayer",
-    "Lighting",
-    "SoundService",
-}
+local trackedServices = Services.list
 
 -- Connections for cleanup
 local connections: {RBXScriptConnection} = {}
