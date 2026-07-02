@@ -647,3 +647,186 @@ pub fn process_file_change(
         }
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn temp_project() -> tempfile::TempDir {
+        tempfile::tempdir().unwrap()
+    }
+
+    fn write_src(dir: &tempfile::TempDir, rel: &str, content: &str) -> PathBuf {
+        let p = dir.path().join("src").join(rel);
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, content).unwrap();
+        p
+    }
+
+    fn src_path(dir: &tempfile::TempDir, rel: &str) -> PathBuf {
+        dir.path().join("src").join(rel)
+    }
+
+    fn change(dir: &tempfile::TempDir, path: PathBuf, kind: FileChangeKind) -> FileChange {
+        FileChange {
+            path,
+            project_dir: dir.path().to_string_lossy().to_string(),
+            kind,
+        }
+    }
+
+    #[test]
+    fn test_create_server_script() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ServerScriptService/Main.server.luau", "print('hi')");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["type"], "create");
+        assert_eq!(op["path"], "ServerScriptService/Main");
+        assert_eq!(op["data"]["className"], "Script");
+        assert_eq!(op["data"]["name"], "Main");
+        assert_eq!(op["data"]["properties"]["Source"]["value"], "print('hi')");
+    }
+
+    #[test]
+    fn test_modify_client_lua() {
+        let dir = temp_project();
+        let p = write_src(&dir, "StarterPlayer/Ctl.client.lua", "-- c");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
+        assert_eq!(op["type"], "update");
+        assert_eq!(op["path"], "StarterPlayer/Ctl");
+        assert_eq!(op["data"]["className"], "LocalScript");
+    }
+
+    #[test]
+    fn test_module_script() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ReplicatedStorage/Utils.luau", "return {}");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["data"]["className"], "ModuleScript");
+        assert_eq!(op["path"], "ReplicatedStorage/Utils");
+    }
+
+    #[test]
+    fn test_rbxjson_sets_path_and_derives_name() {
+        let dir = temp_project();
+        let p = write_src(&dir, "Workspace/Part.rbxjson", r#"{"className":"Part"}"#);
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["type"], "create");
+        assert_eq!(op["path"], "Workspace/Part");
+        assert_eq!(op["data"]["path"], "Workspace/Part");
+        assert_eq!(op["data"]["name"], "Part");
+        assert_eq!(op["data"]["className"], "Part");
+    }
+
+    #[test]
+    fn test_meta_rbxjson_maps_to_parent() {
+        let dir = temp_project();
+        let p = write_src(&dir, "Workspace/Container/_meta.rbxjson", r#"{"className":"Model","name":"Container"}"#);
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
+        assert_eq!(op["path"], "Workspace/Container");
+    }
+
+    #[test]
+    fn test_init_server_luau_maps_to_parent() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ServerScriptService/Svc/init.server.luau", "-- s");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
+        assert_eq!(op["path"], "ServerScriptService/Svc");
+        assert_eq!(op["data"]["className"], "Script");
+    }
+
+    #[test]
+    fn test_delete_file() {
+        let dir = temp_project();
+        let p = src_path(&dir, "ServerScriptService/Gone.server.luau");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Delete)).unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "ServerScriptService/Gone");
+        assert_eq!(op["isFolder"], false);
+    }
+
+    #[test]
+    fn test_delete_directory() {
+        let dir = temp_project();
+        let p = src_path(&dir, "Workspace/SomeFolder");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Delete)).unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "Workspace/SomeFolder");
+        assert_eq!(op["isFolder"], true);
+    }
+
+    #[test]
+    fn test_modify_missing_file_becomes_delete() {
+        let dir = temp_project();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        let p = src_path(&dir, "Workspace/Ghost.luau");
+        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "Workspace/Ghost");
+    }
+
+    #[test]
+    fn test_unknown_extension_is_skipped() {
+        let dir = temp_project();
+        let p = write_src(&dir, "Workspace/notes.txt", "x");
+        assert!(process_file_change(&change(&dir, p, FileChangeKind::Create)).is_none());
+    }
+
+    #[test]
+    fn test_outside_src_is_skipped() {
+        let dir = temp_project();
+        let p = dir.path().join("other").join("Main.server.luau");
+        std::fs::create_dir_all(p.parent().unwrap()).unwrap();
+        std::fs::write(&p, "x").unwrap();
+        assert!(process_file_change(&change(&dir, p, FileChangeKind::Create)).is_none());
+    }
+
+    #[test]
+    fn test_atomic_save_rename_is_update() {
+        let dir = temp_project();
+        let p = write_src(&dir, "ServerScriptService/Main.server.luau", "print('v2')");
+        let tmp = src_path(&dir, "ServerScriptService/Main.server.luau.tmp");
+        let op = process_file_change(&change(
+            &dir,
+            p,
+            FileChangeKind::Rename { from_path: tmp },
+        ))
+        .unwrap();
+        assert_eq!(op["type"], "update");
+        assert_eq!(op["path"], "ServerScriptService/Main");
+        assert_eq!(op["data"]["properties"]["Source"]["value"], "print('v2')");
+    }
+
+    #[test]
+    fn test_rename_script() {
+        let dir = temp_project();
+        let new_p = write_src(&dir, "ServerScriptService/After.server.luau", "x");
+        let old_p = src_path(&dir, "ServerScriptService/Before.server.luau");
+        let op = process_file_change(&change(
+            &dir,
+            new_p,
+            FileChangeKind::Rename { from_path: old_p },
+        ))
+        .unwrap();
+        assert_eq!(op["type"], "rename");
+        assert_eq!(op["path"], "ServerScriptService/After");
+        assert_eq!(op["data"]["oldPath"], "ServerScriptService/Before");
+        assert_eq!(op["data"]["newPath"], "ServerScriptService/After");
+    }
+
+    #[test]
+    fn test_rename_target_missing_is_delete_of_old() {
+        let dir = temp_project();
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
+        let new_p = src_path(&dir, "ServerScriptService/After.server.luau");
+        let old_p = src_path(&dir, "ServerScriptService/Before.server.luau");
+        let op = process_file_change(&change(
+            &dir,
+            new_p,
+            FileChangeKind::Rename { from_path: old_p },
+        ))
+        .unwrap();
+        assert_eq!(op["type"], "delete");
+        assert_eq!(op["path"], "ServerScriptService/Before");
+    }
+}
