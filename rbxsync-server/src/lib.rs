@@ -108,10 +108,10 @@ fn clear_instance_files(dir: &std::path::Path) -> std::io::Result<Vec<PathBuf>> 
             }
             // Succeeds only when empty; non-empty directories are kept
             let _ = std::fs::remove_dir(&path);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("rbxjson") {
-            if std::fs::remove_file(&path).is_ok() {
-                removed.push(path);
-            }
+        } else if path.extension().and_then(|e| e.to_str()) == Some("rbxjson")
+            && std::fs::remove_file(&path).is_ok()
+        {
+            removed.push(path);
         }
     }
     Ok(removed)
