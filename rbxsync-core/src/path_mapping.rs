@@ -6,6 +6,7 @@
 //! watcher, read-tree, incremental, diff) delegate here so the
 //! conventions cannot drift.
 
+use std::collections::HashMap;
 use std::path::Path;
 
 use crate::path_utils::path_to_string;
@@ -61,13 +62,116 @@ pub fn file_to_instance_path(rel_path: &Path) -> MappedPath {
     MappedPath { instance_path, script_class }
 }
 
+/// Apply tree mapping to convert DataModel path to filesystem path
+pub fn apply_tree_mapping(datamodel_path: &str, tree_mapping: &HashMap<String, String>) -> String {
+    // Try to find longest matching prefix
+    let mut best_match: Option<(&str, &str)> = None;
+    let mut best_len = 0;
+
+    for (dm_prefix, fs_prefix) in tree_mapping {
+        if (datamodel_path == dm_prefix || datamodel_path.starts_with(&format!("{}/", dm_prefix)))
+            && dm_prefix.len() > best_len {
+                best_match = Some((dm_prefix.as_str(), fs_prefix.as_str()));
+                best_len = dm_prefix.len();
+            }
+    }
+
+    if let Some((dm_prefix, fs_prefix)) = best_match {
+        if datamodel_path == dm_prefix {
+            fs_prefix.to_string()
+        } else {
+            let suffix = &datamodel_path[dm_prefix.len() + 1..]; // Skip the '/'
+            format!("{}/{}", fs_prefix, suffix)
+        }
+    } else {
+        datamodel_path.to_string()
+    }
+}
+
+/// Apply reverse tree mapping to convert filesystem path to DataModel path
+pub fn apply_reverse_tree_mapping(fs_path: &str, tree_mapping: &HashMap<String, String>) -> String {
+    // Try to find longest matching prefix (reverse lookup)
+    let mut best_match: Option<(&str, &str)> = None;
+    let mut best_len = 0;
+
+    for (dm_prefix, fs_prefix) in tree_mapping {
+        if (fs_path == fs_prefix || fs_path.starts_with(&format!("{}/", fs_prefix)))
+            && fs_prefix.len() > best_len {
+                best_match = Some((dm_prefix.as_str(), fs_prefix.as_str()));
+                best_len = fs_prefix.len();
+            }
+    }
+
+    if let Some((dm_prefix, fs_prefix)) = best_match {
+        if fs_path == fs_prefix {
+            dm_prefix.to_string()
+        } else {
+            let suffix = &fs_path[fs_prefix.len() + 1..]; // Skip the '/'
+            format!("{}/{}", dm_prefix, suffix)
+        }
+    } else {
+        fs_path.to_string()
+    }
+}
+
+/// Extract treeMapping from a project config JSON value
+pub fn tree_mapping_from_config(config: Option<&serde_json::Value>) -> HashMap<String, String> {
+    config
+        .and_then(|c| c.get("treeMapping"))
+        .and_then(|m| m.as_object())
+        .map(|obj| {
+            obj.iter()
+                .filter_map(|(k, v)| v.as_str().map(|s| (k.clone(), s.to_string())))
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::collections::HashMap;
     use std::path::PathBuf;
 
     fn map(rel: &str) -> MappedPath {
         file_to_instance_path(&PathBuf::from(rel))
+    }
+
+    fn mapping() -> HashMap<String, String> {
+        HashMap::from([
+            ("ReplicatedStorage/Shared".to_string(), "shared".to_string()),
+            ("ReplicatedStorage/Shared/Net".to_string(), "net".to_string()),
+        ])
+    }
+
+    #[test]
+    fn test_apply_tree_mapping() {
+        let m = mapping();
+        assert_eq!(apply_tree_mapping("ReplicatedStorage/Shared", &m), "shared");
+        assert_eq!(apply_tree_mapping("ReplicatedStorage/Shared/Util", &m), "shared/Util");
+        // Longest prefix wins
+        assert_eq!(apply_tree_mapping("ReplicatedStorage/Shared/Net/Rpc", &m), "net/Rpc");
+        // No match is identity
+        assert_eq!(apply_tree_mapping("Workspace/Part", &m), "Workspace/Part");
+    }
+
+    #[test]
+    fn test_apply_reverse_tree_mapping() {
+        let m = mapping();
+        assert_eq!(apply_reverse_tree_mapping("shared", &m), "ReplicatedStorage/Shared");
+        assert_eq!(apply_reverse_tree_mapping("shared/Util", &m), "ReplicatedStorage/Shared/Util");
+        assert_eq!(apply_reverse_tree_mapping("net/Rpc", &m), "ReplicatedStorage/Shared/Net/Rpc");
+        assert_eq!(apply_reverse_tree_mapping("Workspace/Part", &m), "Workspace/Part");
+    }
+
+    #[test]
+    fn test_tree_mapping_from_config() {
+        let config = serde_json::json!({"treeMapping": {"ReplicatedStorage/Shared": "shared"}});
+        let m = tree_mapping_from_config(Some(&config));
+        assert_eq!(m.get("ReplicatedStorage/Shared").map(String::as_str), Some("shared"));
+        assert!(tree_mapping_from_config(None).is_empty());
+        let no_field = serde_json::json!({});
+        assert!(tree_mapping_from_config(Some(&no_field)).is_empty());
     }
 
     #[test]
