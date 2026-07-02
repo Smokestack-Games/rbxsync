@@ -1405,14 +1405,19 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
     isSyncing = false
     ChangeTracker.setSyncingFromServer(false)
 
-    -- If sync errored out, report it and cancel the recording
+    -- If sync errored out, still commit any changes that were applied
     if not syncOk then
         warn("[RbxSync] Sync error: " .. tostring(syncErr))
         setStatus("Sync error occurred", Colors.error, 10)
         if recordingId then
-            ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Cancel)
+            if appliedCount > 0 then
+                -- Commit partial progress rather than discarding all successful changes
+                ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Commit)
+            else
+                ChangeHistoryService:FinishRecording(recordingId, Enum.FinishRecordingOperation.Cancel)
+            end
         end
-        return { success = false, results = results, applied = appliedCount, skipped = skippedCount }
+        return { success = false, results = results, applied = appliedCount, skipped = skippedCount, errors = { tostring(syncErr) } }
     end
 
     -- Print detailed changes (only things that actually changed)
@@ -1455,7 +1460,15 @@ local function syncBatch(payload: any): {success: boolean, results: {any}?, erro
         end
     end
 
-    return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount }
+    -- Collect error messages from failed operations
+    local errors = {}
+    for _, result in results do
+        if not result.success and result.error then
+            table.insert(errors, result.error)
+        end
+    end
+
+    return { success = failCount == 0, results = results, applied = appliedCount, skipped = skippedCount, errors = errors }
 end
 
 -- Handle incoming commands from server (silent dispatch)
@@ -2278,6 +2291,7 @@ local function pollLoop()
                                 success = ok and (result == nil or result.success ~= false),
                                 data = ok and (result and result.data or result) or {},  -- Extract data field if present, otherwise return full result
                                 error = (not ok and tostring(result)) or (result and result.error) or nil,
+                                errors = ok and result and result.errors or nil,
                             }
                             print("[RbxSync Debug] Sending response for:", response.command, "id:", response.id)
                             local postOk, postErr = httpPost("/rbxsync/response", responseData)

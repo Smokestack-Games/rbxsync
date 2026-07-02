@@ -393,6 +393,8 @@ pub struct PluginResponse {
     pub data: serde_json::Value,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub error: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub errors: Vec<String>,
 }
 
 /// Active extraction session state
@@ -1372,6 +1374,14 @@ async fn handle_response(
     Json(response): Json<PluginResponse>,
 ) -> impl IntoResponse {
     tracing::info!("Received response for request {}: success={}", response.id, response.success);
+    if !response.success {
+        if !response.errors.is_empty() {
+            tracing::warn!("Sync errors for {}: {:?}", response.id, response.errors);
+        }
+        if let Some(ref err) = response.error {
+            tracing::warn!("Sync error for {}: {}", response.id, err);
+        }
+    }
     let channels = state.response_channels.read().await;
     if let Some(sender) = channels.get(&response.id) {
         tracing::info!("Found channel for request {}, sending response", response.id);
