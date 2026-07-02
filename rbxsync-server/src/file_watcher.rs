@@ -120,7 +120,7 @@ pub async fn start_file_watcher(
         // Helper: determine if a path should be processed based on extension/kind
         let should_process_path = |path: &PathBuf, kind: &FileChangeKind| -> bool {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                ext == "luau" || ext == "rbxjson"
+                ext == "luau" || ext == "lua" || ext == "rbxjson"
             } else {
                 // For deletions and renames, also handle directories (no extension)
                 let is_delete_like = matches!(kind, FileChangeKind::Delete | FileChangeKind::Rename { .. });
@@ -333,7 +333,7 @@ pub async fn start_file_watcher(
                                     for entry in entries.flatten() {
                                         let entry_path = entry.path();
                                         if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
-                                            if ext == "luau" || ext == "rbxjson" {
+                                            if ext == "luau" || ext == "lua" || ext == "rbxjson" {
                                                 let change = FileChange {
                                                     path: entry_path,
                                                     project_dir: project_dir_clone.clone(),
@@ -404,10 +404,17 @@ pub fn process_file_change(
     };
 
     // Convert to instance path (e.g., "ServerScriptService/MyScript")
-    // Handle _meta.rbxjson specially - it represents the parent folder
+    // Handle _meta.rbxjson and init.* files specially - they represent the parent folder
     let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
     let inst_path = if filename == "_meta.rbxjson" {
         // _meta.rbxjson represents the parent folder
+        rel_path
+            .parent()
+            .map(rbxsync_core::path_to_string)
+            .unwrap_or_default()
+    } else if filename.starts_with("init.") {
+        // Rojo-style init convention: init.server.luau, init.client.luau, init.luau,
+        // init.rbxjson all represent the parent directory as a script/instance
         rel_path
             .parent()
             .map(rbxsync_core::path_to_string)
@@ -416,7 +423,10 @@ pub fn process_file_change(
         rbxsync_core::path_to_string(rel_path)
             .trim_end_matches(".server.luau")
             .trim_end_matches(".client.luau")
+            .trim_end_matches(".server.lua")
+            .trim_end_matches(".client.lua")
             .trim_end_matches(".luau")
+            .trim_end_matches(".lua")
             .trim_end_matches(".rbxjson")
             .to_string()
     };
@@ -444,7 +454,7 @@ pub fn process_file_change(
             // Read the file content
             let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
-            if file_ext == "luau" {
+            if file_ext == "luau" || file_ext == "lua" {
                 // Script file
                 let source = match std::fs::read_to_string(path) {
                     Ok(s) => s,
@@ -456,9 +466,9 @@ pub fn process_file_change(
 
                 // Determine script type from filename
                 let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                let class_name = if filename.ends_with(".server.luau") {
+                let class_name = if filename.ends_with(".server.luau") || filename.ends_with(".server.lua") {
                     "Script"
-                } else if filename.ends_with(".client.luau") {
+                } else if filename.ends_with(".client.luau") || filename.ends_with(".client.lua") {
                     "LocalScript"
                 } else {
                     "ModuleScript"
@@ -531,7 +541,7 @@ pub fn process_file_change(
                     return None;
                 }
                 let file_ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
-                if file_ext == "luau" {
+                if file_ext == "luau" || file_ext == "lua" {
                     let source = match std::fs::read_to_string(path) {
                         Ok(s) => s,
                         Err(e) => {
@@ -540,9 +550,9 @@ pub fn process_file_change(
                         }
                     };
                     let filename = path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-                    let class_name = if filename.ends_with(".server.luau") {
+                    let class_name = if filename.ends_with(".server.luau") || filename.ends_with(".server.lua") {
                         "Script"
-                    } else if filename.ends_with(".client.luau") {
+                    } else if filename.ends_with(".client.luau") || filename.ends_with(".client.lua") {
                         "LocalScript"
                     } else {
                         "ModuleScript"
@@ -603,7 +613,8 @@ pub fn process_file_change(
                 Err(_) => return None,
             };
             let old_filename = from_path.file_name().and_then(|n| n.to_str()).unwrap_or("");
-            let old_inst_path = if old_filename == "_meta.rbxjson" {
+            let old_inst_path = if old_filename == "_meta.rbxjson" || old_filename.starts_with("init.") {
+                // _meta.rbxjson and init.* files represent the parent folder
                 old_rel
                     .parent()
                     .map(rbxsync_core::path_to_string)
