@@ -59,6 +59,18 @@ export class RbxSyncClient {
     this._projectDir = dir;
   }
 
+  /** Canonical project-dir identity: forward slashes, lowercase drive letter */
+  private normalizeDirKey(dir: string): string {
+    const forward = dir.replace(/\\/g, '/');
+    return /^[A-Za-z]:/.test(forward)
+      ? forward.charAt(0).toLowerCase() + forward.slice(1)
+      : forward;
+  }
+
+  private matchesProjectDir(placeDir: string): boolean {
+    return this.normalizeDirKey(placeDir) === this.normalizeDirKey(this._projectDir);
+  }
+
   private updateConnectionState(state: ConnectionState): void {
     this._connectionState = state;
     this._onConnectionChange.fire(state);
@@ -164,7 +176,7 @@ export class RbxSyncClient {
     if (!this._projectDir) return undefined;
 
     const places = await this.getConnectedPlaces();
-    return places.find(p => p.project_dir === this._projectDir);
+    return places.find(p => this.matchesProjectDir(p.project_dir));
   }
 
   // Get current operation status from server (RBXSYNC-77)
@@ -195,7 +207,7 @@ export class RbxSyncClient {
         vscode.window.showInformationMessage(`Linked ${response.data.place_name} to this workspace`);
         // Trigger connection change to refresh places
         const places = await this.getConnectedPlaces();
-        const place = places.find(p => p.project_dir === this._projectDir);
+        const place = places.find(p => this.matchesProjectDir(p.project_dir));
         this.updateConnectionState({
           connected: true,
           serverVersion: this._connectionState.serverVersion,
@@ -223,7 +235,7 @@ export class RbxSyncClient {
         vscode.window.showInformationMessage(`Unlinked ${response.data.place_name} from this workspace`);
         // Trigger connection change to refresh places
         const places = await this.getConnectedPlaces();
-        const place = places.find(p => p.project_dir === this._projectDir);
+        const place = places.find(p => this.matchesProjectDir(p.project_dir));
         this.updateConnectionState({
           connected: true,
           serverVersion: this._connectionState.serverVersion,

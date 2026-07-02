@@ -31,6 +31,19 @@ fn normalize_path(path: &str) -> String {
     path.replace('\\', "/")
 }
 
+/// Canonical form for a project_dir used as a routing/registry identity:
+/// forward slashes plus a lowercase drive letter, so Studio (`C:\x`),
+/// VS Code (`c:/x`), and CLI callers all resolve to one key.
+fn normalize_project_key(dir: &str) -> String {
+    let mut normalized = normalize_path(dir);
+    let bytes = normalized.as_bytes();
+    if bytes.len() >= 2 && bytes[1] == b':' && bytes[0].is_ascii_uppercase() {
+        let lower = (bytes[0].to_ascii_lowercase()) as char;
+        normalized.replace_range(0..1, &lower.to_string());
+    }
+    normalized
+}
+
 /// Load project config from rbxsync.json
 fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
     let config_path = PathBuf::from(project_dir).join("rbxsync.json");
@@ -407,6 +420,7 @@ async fn enqueue_plugin_request(
         queue.push_back(request);
     } else if let Some(dir) = project_dir {
         // Route to project-specific queue if it exists, otherwise global
+        let dir = &normalize_project_key(dir);
         let mut queues = state.project_queues.write().await;
         if let Some(queue) = queues.get_mut(dir) {
             queue.push_back(request);
@@ -632,7 +646,7 @@ async fn handle_register(
     Json(req): Json<RegisterRequest>,
 ) -> impl IntoResponse {
     // Normalize path separators for Windows compatibility
-    let project_dir = normalize_path(&req.project_dir);
+    let project_dir = normalize_project_key(&req.project_dir);
 
     // Auto-link: if project_dir is empty and place_id > 0, try to find a matching
     // workspace via place_ids in rbxsync.json config files
@@ -878,7 +892,7 @@ async fn handle_register_vscode(
     }
 
     // Normalize path separators for Windows compatibility
-    let workspace_dir = normalize_path(&req.workspace_dir);
+    let workspace_dir = normalize_project_key(&req.workspace_dir);
 
     // Update heartbeat timestamp
     let mut workspaces = state.vscode_workspaces.write().await;
@@ -992,13 +1006,14 @@ async fn handle_update_project_path(
         }));
     }
 
+    let new_project_dir = normalize_project_key(&req.project_dir);
     let mut registry = state.place_registry.write().await;
     let mut updated_count = 0;
 
     // Update all registered places to use the new project directory
     for (_key, place_info) in registry.iter_mut() {
         let old_path = place_info.project_dir.clone();
-        place_info.project_dir = req.project_dir.clone();
+        place_info.project_dir = new_project_dir.clone();
         updated_count += 1;
         tracing::info!(
             "Updated Studio project path: '{}' -> '{}'",
@@ -1021,9 +1036,9 @@ async fn handle_update_project_path(
         // Move commands from old paths to new path
         let old_keys: Vec<String> = queues.keys().cloned().collect();
         for old_key in old_keys {
-            if old_key != req.project_dir {
+            if old_key != new_project_dir {
                 if let Some(commands) = queues.remove(&old_key) {
-                    queues.entry(req.project_dir.clone())
+                    queues.entry(new_project_dir.clone())
                         .or_insert_with(VecDeque::new)
                         .extend(commands);
                 }
@@ -1051,6 +1066,10 @@ async fn handle_link_studio(
     State(state): State<Arc<AppState>>,
     Json(req): Json<LinkStudioRequest>,
 ) -> impl IntoResponse {
+    let req = LinkStudioRequest {
+        place_id: req.place_id,
+        new_project_dir: normalize_project_key(&req.new_project_dir),
+    };
     let mut registry = state.place_registry.write().await;
 
     // Find the entry with matching place_id (key is now session_id, not place_id)
@@ -1318,7 +1337,7 @@ async fn handle_operation_status(
 
     if let Some(ref project_dir) = params.project_dir {
         // Return operation for specific project
-        if let Some(op) = operations.get(project_dir) {
+        if let Some(op) = operations.get(&normalize_project_key(project_dir)) {
             return Json(serde_json::json!({
                 "operation": op,
             }));
@@ -1369,8 +1388,9 @@ async fn handle_request_poll(
 
         // Then try project-specific queue if projectDir provided
         if let Some(ref dir) = project_dir {
+            let dir = normalize_project_key(dir);
             let mut queues = state.project_queues.write().await;
-            if let Some(queue) = queues.get_mut(dir) {
+            if let Some(queue) = queues.get_mut(&dir) {
                 if let Some(request) = queue.pop_front() {
                     return Some(request);
                 }
@@ -1389,9 +1409,10 @@ async fn handle_request_poll(
 
     // Update heartbeat for all places matching this projectDir
     if let Some(ref dir) = params.project_dir {
+        let dir = normalize_project_key(dir);
         let mut registry = state.place_registry.write().await;
         for place in registry.values_mut() {
-            if place.project_dir == *dir {
+            if place.project_dir == dir {
                 place.last_heartbeat = Some(Instant::now());
             }
         }
@@ -1524,7 +1545,7 @@ async fn handle_extract_start(
     if let Some(ref project_dir) = req.project_dir {
         if !project_dir.is_empty() {
             let mut ops = state.operation_state.write().await;
-            ops.insert(project_dir.clone(), OperationInfo {
+            ops.insert(normalize_project_key(project_dir), OperationInfo {
                 op_type: OperationType::Extract,
                 project_dir: project_dir.clone(),
                 start_time: std::time::SystemTime::now()
@@ -2439,7 +2460,7 @@ async fn handle_extract_finalize(
     // Clear operation state for VS Code UI (RBXSYNC-77)
     {
         let mut ops = state.operation_state.write().await;
-        ops.remove(&req.project_dir);
+        ops.remove(&normalize_project_key(&req.project_dir));
     }
 
     write_snapshot_freshness(&req.project_dir, true);
@@ -2647,7 +2668,7 @@ async fn handle_sync_batch(
     if let Some(ref project_dir) = req.project_dir {
         if !project_dir.is_empty() {
             let mut ops = state.operation_state.write().await;
-            ops.insert(project_dir.clone(), OperationInfo {
+            ops.insert(normalize_project_key(project_dir), OperationInfo {
                 op_type: OperationType::Sync,
                 project_dir: project_dir.clone(),
                 start_time: std::time::SystemTime::now()
@@ -2698,7 +2719,7 @@ async fn handle_sync_batch(
     // Clear operation state for VS Code UI (RBXSYNC-77)
     if let Some(ref project_dir) = req.project_dir {
         let mut ops = state.operation_state.write().await;
-        ops.remove(project_dir);
+        ops.remove(&normalize_project_key(project_dir));
     }
 
     match result {

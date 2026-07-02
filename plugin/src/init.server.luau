@@ -545,6 +545,7 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
                 if type(singleResult) == "string" and singleResult:find("too large") then
                     -- Skip oversized instance silently
                 else
+                    warn("[RbxSync] Chunk " .. chunkIndex .. " instance " .. i .. " send failed: " .. tostring(singleResult))
                     return false
                 end
             end
@@ -552,6 +553,7 @@ local function sendChunk(sessionId: string, chunkIndex: number, totalChunks: num
         return true
     end
 
+    warn("[RbxSync] Chunk " .. chunkIndex .. " send failed: " .. tostring(result))
     return false
 end
 
@@ -2181,11 +2183,12 @@ end
 local function pollLoop()
     while true do
         if isConnected then
-            -- Include projectDir for multi-workspace routing
+            -- Include sessionId and projectDir for multi-place routing:
+            -- session-targeted commands are queued under this Studio's session
             local projectDir = Config.getProjectDir()
-            local endpoint = "/rbxsync/request"
+            local endpoint = "/rbxsync/request?sessionId=" .. HttpService:UrlEncode(SESSION_ID)
             if projectDir ~= "" then
-                endpoint = endpoint .. "?projectDir=" .. HttpService:UrlEncode(projectDir)
+                endpoint = endpoint .. "&projectDir=" .. HttpService:UrlEncode(projectDir)
             end
             local success, response = httpGet(endpoint)
 
