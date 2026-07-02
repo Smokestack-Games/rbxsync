@@ -4,7 +4,7 @@
 //! This module defines how we serialize instances to JSON.
 
 use serde::{Deserialize, Serialize};
-use std::collections::HashMap;
+use std::collections::BTreeMap;
 use uuid::Uuid;
 
 use super::{AttributeValue, PropertyValue};
@@ -23,12 +23,12 @@ pub struct Instance {
     pub reference_id: Uuid,
 
     /// Instance properties (excluding Name which is stored separately)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub properties: HashMap<String, PropertyValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, PropertyValue>,
 
     /// Instance attributes (custom user-defined values)
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub attributes: HashMap<String, AttributeValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, AttributeValue>,
 
     /// CollectionService tags
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -50,8 +50,8 @@ impl Instance {
             class_name: class_name.into(),
             name: name.into(),
             reference_id: Uuid::new_v4(),
-            properties: HashMap::new(),
-            attributes: HashMap::new(),
+            properties: BTreeMap::new(),
+            attributes: BTreeMap::new(),
             tags: Vec::new(),
             children: Vec::new(),
             source_file: None,
@@ -134,12 +134,12 @@ pub struct InstanceMeta {
     pub reference_id: Uuid,
 
     /// Properties for this instance
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub properties: HashMap<String, PropertyValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub properties: BTreeMap<String, PropertyValue>,
 
     /// Attributes
-    #[serde(default, skip_serializing_if = "HashMap::is_empty")]
-    pub attributes: HashMap<String, AttributeValue>,
+    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
+    pub attributes: BTreeMap<String, AttributeValue>,
 
     /// Tags
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
