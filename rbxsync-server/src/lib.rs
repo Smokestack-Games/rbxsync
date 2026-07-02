@@ -2914,22 +2914,11 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 // Derive path from file system if not present in JSON
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rbxsync_core::path_to_string(rel_path);
                                 // Convert file path to instance path:
                                 // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
                                 // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
                                 // e.g., "Workspace/Model/init.rbxjson" -> "Workspace/Model"
-                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let is_init = path_str.ends_with("/init.rbxjson") || path_str.ends_with("\\init.rbxjson");
-                                let rel_inst_path = if is_meta {
-                                    // _meta.rbxjson represents the parent folder
-                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                } else if is_init {
-                                    // Rojo-style init.rbxjson represents the parent folder
-                                    path_str.replace("/init.rbxjson", "").replace("\\init.rbxjson", "")
-                                } else {
-                                    path_str.replace(".rbxjson", "")
-                                };
+                                let rel_inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
 
                                 // Apply path prefix (for packages mapping to DataModel paths)
                                 let inst_path = if path_prefix.is_empty() {
@@ -2937,10 +2926,6 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                                 } else {
                                     format!("{}/{}", path_prefix, rel_inst_path)
                                 };
-
-                                if path_str.contains("_meta") {
-                                    tracing::info!("DEBUG: path_str='{}', is_meta={}, inst_path='{}'", path_str, is_meta, inst_path);
-                                }
 
                                 // Set path from file location (used for tracking, not naming)
                                 // Normalize path to strip disambiguation suffixes (RBXSYNC-68)
@@ -2963,28 +2948,11 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                     } else if ext == "luau" || ext == "lua" {
                         // Read script source
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                        let path_str = rbxsync_core::path_to_string(rel_path);
                         let filename_str = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
 
                         // Handle init.* convention: init.server.luau, init.client.luau, init.luau
                         // represent the parent directory as a script instance
-                        let rel_inst_path = if filename_str.starts_with("init.") {
-                            // Rojo-style: init file represents the parent directory
-                            rel_path
-                                .parent()
-                                .map(rbxsync_core::path_to_string)
-                                .unwrap_or_default()
-                        } else {
-                            // e.g., "ServerScriptService/MyScript.server.luau" -> "ServerScriptService/MyScript"
-                            path_str
-                                .trim_end_matches(".server.luau")
-                                .trim_end_matches(".client.luau")
-                                .trim_end_matches(".server.lua")
-                                .trim_end_matches(".client.lua")
-                                .trim_end_matches(".luau")
-                                .trim_end_matches(".lua")
-                                .to_string()
-                        };
+                        let rel_inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
 
                         // Apply path prefix (for packages mapping to DataModel paths)
                         let inst_path = if path_prefix.is_empty() {
@@ -3044,13 +3012,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         if merged_scripts.contains(inst_path) {
             continue;
         }
-        let class_name = if filename.ends_with(".server.luau") || filename.ends_with(".server.lua") {
-            "Script"
-        } else if filename.ends_with(".client.luau") || filename.ends_with(".client.lua") {
-            "LocalScript"
-        } else {
-            "ModuleScript"
-        };
+        let class_name = rbxsync_core::script_class_from_filename(filename);
         let name = inst_path.rsplit('/').next().unwrap_or(inst_path);
         instances.push(serde_json::json!({
             "className": class_name,
@@ -3273,17 +3235,7 @@ async fn handle_sync_incremental(
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rbxsync_core::path_to_string(rel_path);
-                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let is_init = path_str.ends_with("/init.rbxjson") || path_str.ends_with("\\init.rbxjson");
-                                let inst_path = if is_meta {
-                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                } else if is_init {
-                                    // Rojo-style init.rbxjson represents the parent folder
-                                    path_str.replace("/init.rbxjson", "").replace("\\init.rbxjson", "")
-                                } else {
-                                    path_str.replace(".rbxjson", "")
-                                };
+                                let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
 
                                 if let Some(obj) = inst.as_object_mut() {
                                     obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
@@ -3298,25 +3250,10 @@ async fn handle_sync_incremental(
                         }
                     } else if ext == "luau" || ext == "lua" {
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                        let path_str = rbxsync_core::path_to_string(rel_path);
                         let filename_str = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
 
                         // Handle init.* convention: init file represents the parent directory
-                        let inst_path = if filename_str.starts_with("init.") {
-                            rel_path
-                                .parent()
-                                .map(rbxsync_core::path_to_string)
-                                .unwrap_or_default()
-                        } else {
-                            path_str
-                                .trim_end_matches(".server.luau")
-                                .trim_end_matches(".client.luau")
-                                .trim_end_matches(".server.lua")
-                                .trim_end_matches(".client.lua")
-                                .trim_end_matches(".luau")
-                                .trim_end_matches(".lua")
-                                .to_string()
-                        };
+                        let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
 
                         if let Ok(source) = std::fs::read_to_string(&path) {
                             scripts.insert(inst_path, (source, filename_str));
@@ -3353,13 +3290,7 @@ async fn handle_sync_incremental(
     for (script_path, (source, filename)) in &scripts {
         if !instance_paths.contains(script_path) {
             // Determine script type from original filename (not the trimmed path)
-            let class_name = if filename.ends_with(".server.luau") || filename.ends_with(".server.lua") {
-                "Script"
-            } else if filename.ends_with(".client.luau") || filename.ends_with(".client.lua") {
-                "LocalScript"
-            } else {
-                "ModuleScript"
-            };
+            let class_name = rbxsync_core::script_class_from_filename(filename);
 
             let instance_name = script_path.rsplit('/').next().unwrap_or(script_path);
 
@@ -3545,19 +3476,7 @@ async fn handle_diff(
                         if let Ok(content) = std::fs::read_to_string(&path) {
                             if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
                                 let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let path_str = rbxsync_core::path_to_string(rel_path);
-                                let is_meta = path_str.ends_with("/_meta.rbxjson") || path_str.ends_with("\\_meta.rbxjson");
-                                let is_init = path_str.ends_with("/init.rbxjson") || path_str.ends_with("\\init.rbxjson");
-                                let inst_path = if is_meta {
-                                    path_str.replace("/_meta.rbxjson", "").replace("\\_meta.rbxjson", "")
-                                } else if is_init {
-                                    // Rojo-style init.rbxjson represents the parent folder
-                                    path_str.replace("/init.rbxjson", "").replace("\\init.rbxjson", "")
-                                } else {
-                                    path_str.replace(".rbxjson", "")
-                                };
-                                // Normalize path separators
-                                let inst_path = inst_path.replace('\\', "/");
+                                let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
                                 // Strip disambiguation suffixes for comparison with Studio paths
                                 // (RBXSYNC-68: extract adds _refId suffixes, Studio paths don't have them)
                                 let normalized_path = normalize_path_for_comparison(&inst_path);
