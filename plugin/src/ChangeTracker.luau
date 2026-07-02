@@ -224,6 +224,32 @@ local MAX_BATCH_SIZE = 100  -- Max changes per batch to prevent memory issues
 local DEBOUNCE_TIME = 0.3   -- 300ms debounce
 local MAX_PAYLOAD_SIZE = 900000  -- ~900KB, stay under Roblox 1MB HTTP limit
 
+-- Snapshot ops never carry script source; scripts sync from disk only
+local function sanitizePayload(data: any): any
+    if data and data.properties then
+        data.properties.Source = nil
+    end
+    return data
+end
+
+-- Ask the server whether a snapshot baseline exists for this project
+local function getSnapshotStatus(projectDir: string): (boolean, any)
+    local url = Config.getServerUrl() .. "/snapshot/status?projectDir=" .. HttpService:UrlEncode(projectDir)
+    local ok, result = pcall(function()
+        return HttpService:GetAsync(url)
+    end)
+    if not ok then
+        return false, nil
+    end
+    local decoded, data = pcall(function()
+        return HttpService:JSONDecode(result)
+    end)
+    if decoded then
+        return true, data
+    end
+    return false, nil
+end
+
 -- Send a batch of operations to server, returns (success, filesWritten, errors)
 local function sendOperationBatch(operations: {{type: string, path: string, className: string, data: any?}}): (boolean, number, {string})
     local url = Config.getServerUrl() .. "/sync/from-studio"
@@ -428,7 +454,7 @@ local function trackInstanceChanges(instance: Instance)
         end)
 
         if ok and serialized then
-            queueChange(instance, "modify", serialized)
+            queueChange(instance, "modify", sanitizePayload(serialized))
         end
     end)
 
@@ -540,7 +566,7 @@ local function setupServiceTracking(service: Instance)
         end)
 
         if ok and serialized then
-            queueChange(descendant, "create", serialized)
+            queueChange(descendant, "create", sanitizePayload(serialized))
         end
     end)
 
@@ -555,10 +581,44 @@ local function setupServiceTracking(service: Instance)
     table.insert(connections, removedConnection)
 end
 
--- Start tracking changes
+-- Start snapshot tracking once a baseline extraction exists
 function ChangeTracker.start()
-    -- Auto-extract is disabled. Use explicit "extract" to sync Studio → files.
-    return
+    if isTracking then
+        return
+    end
+
+    task.spawn(function()
+        local projectDir = Config.getProjectDir()
+        if projectDir == "" then
+            return
+        end
+
+        local ok, status = getSnapshotStatus(projectDir)
+        if not ok or not status or status.baseline ~= true then
+            warn("[RbxSync] Snapshot tracking needs a baseline; run Extract first")
+            return
+        end
+
+        if isTracking then
+            return
+        end
+        isTracking = true
+        print("[RbxSync] Snapshot tracking enabled")
+
+        for _, serviceName in Services.list do
+            local service = game:FindFirstChild(serviceName)
+            if service then
+                setupServiceTracking(service)
+            end
+        end
+
+        task.spawn(function()
+            while isTracking do
+                sendPendingChanges()
+                task.wait(0.5)
+            end
+        end)
+    end)
 end
 
 -- Stop tracking changes
@@ -572,7 +632,7 @@ function ChangeTracker.stop()
     table.clear(connections)
     table.clear(pendingChanges)
 
-    print("[RbxSync] Auto-extract disabled")
+    print("[RbxSync] Snapshot tracking stopped")
 end
 
 -- Check if tracking is active
