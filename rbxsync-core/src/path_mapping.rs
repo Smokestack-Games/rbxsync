@@ -49,12 +49,15 @@ pub fn file_to_instance_path(rel_path: &Path) -> MappedPath {
         return MappedPath { instance_path, script_class };
     }
 
-    let path_str = path_to_string(rel_path);
-    let suffixes = [".server.luau", ".client.luau", ".server.lua", ".client.lua", ".luau", ".lua", ".rbxjson"];
-    let instance_path = suffixes.iter()
-        .find_map(|suffix| path_str.strip_suffix(suffix))
-        .map(|s| s.to_string())
-        .unwrap_or(path_str);
+    let instance_path = path_to_string(rel_path)
+        .trim_end_matches(".server.luau")
+        .trim_end_matches(".client.luau")
+        .trim_end_matches(".server.lua")
+        .trim_end_matches(".client.lua")
+        .trim_end_matches(".luau")
+        .trim_end_matches(".lua")
+        .trim_end_matches(".rbxjson")
+        .to_string();
     MappedPath { instance_path, script_class }
 }
 
@@ -165,9 +168,12 @@ mod tests {
     }
 
     #[test]
-    fn test_mid_string_rbxjson_not_stripped() {
-        // trim_end_matches semantics: only the trailing suffix is removed
+    fn test_repeated_trailing_suffix_stripped() {
+        // trim_end_matches semantics: repeated trailing occurrences are all removed
         let m = map("Workspace/Part.rbxjson.rbxjson");
-        assert_eq!(m.instance_path, "Workspace/Part.rbxjson");
+        assert_eq!(m.instance_path, "Workspace/Part");
+        // Non-trailing occurrences are untouched
+        let m = map("Workspace/Part.rbxjson.bak");
+        assert_eq!(m.instance_path, "Workspace/Part.rbxjson.bak");
     }
 }
