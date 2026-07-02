@@ -198,3 +198,66 @@ async fn test_extract_start_preserves_scripts() {
     assert!(backup.join("ServerScriptService/Main.server.luau").exists(), "backup keeps the original tree");
     assert!(backup.join("Workspace/Stale.rbxjson").exists());
 }
+
+#[tokio::test]
+async fn test_start_then_finalize_prepares_once() {
+    let server = create_test_server();
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    write(&src, "ServerScriptService/Main.server.luau", "print('original')");
+    write(&src, "Workspace/Stale.rbxjson", r#"{"className":"Part","name":"Stale"}"#);
+    let project_dir = dir.path().to_string_lossy().to_string();
+
+    let start = server.post("/extract/start").json(&json!({"project_dir": project_dir})).await;
+    start.assert_status_ok();
+
+    // A local edit between start and finalize must survive: finalize skips
+    // its own prepare because start already ran it
+    std::fs::write(src.join("ServerScriptService/Main.server.luau"), "-- edited after start").unwrap();
+
+    let chunk = server.post("/extract/chunk").json(&json!({
+        "session_id": "gate-test", "chunk_index": 0, "total_chunks": 1,
+        "data": json!([script_instance("ServerScriptService/Main", "Script", "print('studio')")]),
+        "project_dir": project_dir
+    })).await;
+    chunk.assert_status_ok();
+    let finalize = server.post("/extract/finalize").json(&json!({"project_dir": project_dir})).await;
+    finalize.assert_status_ok();
+
+    assert_eq!(
+        std::fs::read_to_string(src.join("ServerScriptService/Main.server.luau")).unwrap(),
+        "-- edited after start"
+    );
+    // Backup reflects the pre-start tree, not a mid-extraction re-backup
+    assert_eq!(
+        std::fs::read_to_string(dir.path().join(".rbxsync-backup/src/ServerScriptService/Main.server.luau")).unwrap(),
+        "print('original')"
+    );
+    assert!(dir.path().join(".rbxsync-backup/src/Workspace/Stale.rbxjson").exists());
+}
+
+#[tokio::test]
+async fn test_start_without_project_dir_does_not_mark_prepared() {
+    let server = create_test_server();
+    let dir = tempfile::tempdir().unwrap();
+    let src = dir.path().join("src");
+    write(&src, "Workspace/Stale.rbxjson", r#"{"className":"Part","name":"Stale"}"#);
+    let project_dir = dir.path().to_string_lossy().to_string();
+
+    // start with no project_dir: session exists but nothing was prepared
+    let start = server.post("/extract/start").json(&json!({})).await;
+    start.assert_status_ok();
+
+    let chunk = server.post("/extract/chunk").json(&json!({
+        "session_id": "gate-test-2", "chunk_index": 0, "total_chunks": 1,
+        "data": json!([plain_instance("Workspace/Part", "Part")]),
+        "project_dir": project_dir
+    })).await;
+    chunk.assert_status_ok();
+    let finalize = server.post("/extract/finalize").json(&json!({"project_dir": project_dir})).await;
+    finalize.assert_status_ok();
+
+    // Finalize must have run its own prepare: stale instance file cleared
+    assert!(!src.join("Workspace/Stale.rbxjson").exists());
+    assert!(src.join("Workspace/Part.rbxjson").exists());
+}

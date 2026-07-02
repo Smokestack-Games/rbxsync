@@ -1416,7 +1416,7 @@ async fn handle_extract_start(
             total_chunks: None,
             output_dir: String::new(),
             finalized: false,
-            src_prepared: true,
+            src_prepared: false,
         });
     }
 
@@ -1481,6 +1481,9 @@ async fn handle_extract_start(
     if let Some(ref project_dir) = req.project_dir {
         if !project_dir.is_empty() {
             prepare_src_for_extraction(project_dir);
+            if let Some(session) = state.extraction_session.write().await.as_mut() {
+                session.src_prepared = true;
+            }
         }
     }
 
@@ -1974,8 +1977,7 @@ async fn handle_extract_finalize(
         None
     };
 
-    let already_prepared = session.src_prepared;
-    if !already_prepared {
+    if !session.src_prepared {
         prepare_src_for_extraction(&req.project_dir);
     }
 
@@ -2239,18 +2241,6 @@ async fn handle_extract_finalize(
             "Write failures: {} scripts, {} json files",
             script_failures, json_failures
         );
-    }
-
-    // Clean up chunk files
-    if let Ok(entries) = std::fs::read_dir(&src_dir) {
-        for entry in entries.flatten() {
-            let path = entry.path();
-            if let Some(name) = path.file_name().and_then(|n| n.to_str()) {
-                if name.starts_with("chunk_") && name.ends_with(".json") {
-                    let _ = std::fs::remove_file(path);
-                }
-            }
-        }
     }
 
     // Create service folders even if they're empty
