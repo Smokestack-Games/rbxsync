@@ -79,6 +79,10 @@ enum Commands {
         /// Output directory (default: project src directory)
         #[arg(short, long)]
         output: Option<PathBuf>,
+
+        /// Build the baseline from a saved place file instead of connecting to Studio
+        #[arg(long)]
+        from_file: Option<PathBuf>,
     },
 
     /// Start the sync server (connects to Studio plugin)
@@ -513,8 +517,14 @@ async fn main() -> Result<()> {
             terrain,
             assets,
             output,
+            from_file,
         } => {
-            cmd_extract(service, terrain, assets, output).await?;
+            if let Some(place) = from_file {
+                let project_dir = output.unwrap_or_else(|| std::env::current_dir().expect("cwd"));
+                extract_from_file(&place, &project_dir)?;
+            } else {
+                cmd_extract(service, terrain, assets, output).await?;
+            }
         }
         Commands::Serve { port, background } => {
             cmd_serve(port, background).await?;
@@ -940,6 +950,33 @@ fn find_studio_path() -> Result<PathBuf> {
 }
 
 /// Extract game from Studio
+/// Build a baseline .rbxjson tree from a saved place file (.rbxl/.rbxlx),
+/// bypassing HTTP extraction. project_dir is the project root (contains src/).
+fn extract_from_file(place_path: &std::path::Path, project_dir: &std::path::Path) -> Result<()> {
+    let ext = place_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    let reader = std::io::BufReader::new(
+        std::fs::File::open(place_path).with_context(|| format!("Failed to open {}", place_path.display()))?);
+    let dom = match ext.as_str() {
+        "rbxl" | "rbxm" => rbx_binary::from_reader(reader).context("Failed to parse binary place file")?,
+        "rbxlx" | "rbxmx" => rbx_xml::from_reader_default(reader).context("Failed to parse XML place file")?,
+        other => anyhow::bail!("Unsupported place file type '.{}'. Expected .rbxl, .rbxlx, .rbxm, or .rbxmx", other),
+    };
+
+    let instances = rbxsync_core::dom_to_instances(&dom);
+    let project_dir_str = project_dir.to_string_lossy().to_string();
+    let src_dir = project_dir.join("src");
+
+    rbxsync_core::extract_tree::prepare_src_for_extraction(&project_dir_str);
+    let tree_mapping = rbxsync_core::load_tree_mapping(project_dir);
+    let plan = rbxsync_core::extract_tree::plan_instance_writes(&src_dir, &instances, &tree_mapping);
+    let (files_written, scripts_written) = rbxsync_core::extract_tree::execute_write_plan_sync(&plan);
+    rbxsync_core::extract_tree::write_snapshot_freshness(&project_dir_str, true);
+
+    println!("Baseline built from {}: {} instance files, {} scripts adopted ({} total instances)",
+        place_path.display(), files_written, scripts_written, instances.len());
+    Ok(())
+}
+
 async fn cmd_extract(
     services: Option<Vec<String>>,
     terrain: bool,
@@ -3810,4 +3847,37 @@ async fn cmd_harness(action: HarnessAction) -> Result<()> {
     }
 
     Ok(())
+}
+
+#[cfg(test)]
+mod from_file_tests {
+    use super::*;
+    use rbx_dom_weak::{InstanceBuilder, WeakDom};
+    use rbx_dom_weak::types::Variant;
+
+    #[test]
+    fn test_extract_from_file_builds_tree() {
+        let dir = tempfile::tempdir().unwrap();
+        // Build a tiny place and write it as .rbxlx
+        let part = InstanceBuilder::new("Part").with_name("Block")
+            .with_property("Anchored", Variant::Bool(true));
+        let script = InstanceBuilder::new("Script").with_name("Main")
+            .with_property("Source", Variant::String("print('hi')".into()));
+        let sss = InstanceBuilder::new("ServerScriptService").with_name("ServerScriptService").with_child(script);
+        let ws = InstanceBuilder::new("Workspace").with_name("Workspace").with_child(part);
+        let dom = WeakDom::new(InstanceBuilder::new("DataModel").with_children([ws, sss]));
+        let place = dir.path().join("game.rbxlx");
+        let refs = dom.root().children().to_vec();
+        rbx_xml::to_writer_default(std::io::BufWriter::new(std::fs::File::create(&place).unwrap()), &dom, &refs).unwrap();
+
+        extract_from_file(&place, dir.path()).unwrap();
+
+        let src = dir.path().join("src");
+        assert!(src.join("Workspace/Block.rbxjson").exists());
+        assert!(src.join("ServerScriptService/Main.server.luau").exists());
+        assert_eq!(std::fs::read_to_string(src.join("ServerScriptService/Main.server.luau")).unwrap(), "print('hi')");
+        let sidecar = std::fs::read_to_string(src.join("ServerScriptService/Main.rbxjson")).unwrap();
+        assert!(!sidecar.contains("\"Source\""));
+        assert!(dir.path().join(".rbxsync/snapshot.json").exists());
+    }
 }
