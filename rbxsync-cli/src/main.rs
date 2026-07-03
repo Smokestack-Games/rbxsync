@@ -949,7 +949,6 @@ fn find_studio_path() -> Result<PathBuf> {
     }
 }
 
-/// Extract game from Studio
 /// Build a baseline .rbxjson tree from a saved place file (.rbxl/.rbxlx),
 /// bypassing HTTP extraction. project_dir is the project root (contains src/).
 fn extract_from_file(place_path: &std::path::Path, project_dir: &std::path::Path) -> Result<()> {
@@ -977,6 +976,7 @@ fn extract_from_file(place_path: &std::path::Path, project_dir: &std::path::Path
     Ok(())
 }
 
+/// Extract game from Studio
 async fn cmd_extract(
     services: Option<Vec<String>>,
     terrain: bool,
