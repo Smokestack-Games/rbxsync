@@ -20,10 +20,11 @@ pub fn dom_to_instances(dom: &WeakDom) -> Vec<Value> {
 fn walk(dom: &WeakDom, inst_ref: Ref, parent_path: &str, out: &mut Vec<Value>) {
     let Some(instance) = dom.get_by_ref(inst_ref) else { return };
     let name = instance.name.clone();
+    let escaped_name = name.replace('/', "[SLASH]");
     let path = if parent_path.is_empty() {
-        name.clone()
+        escaped_name
     } else {
-        format!("{}/{}", parent_path, name)
+        format!("{}/{}", parent_path, escaped_name)
     };
 
     let mut properties = serde_json::Map::new();
@@ -53,15 +54,21 @@ fn walk(dom: &WeakDom, inst_ref: Ref, parent_path: &str, out: &mut Vec<Value>) {
         }
     }
 
-    out.push(json!({
+    let mut obj = json!({
         "className": instance.class,
         "name": name,
         "path": path,
-        "referenceId": format!("{:?}", inst_ref),
+        "referenceId": inst_ref.to_string(),
         "properties": properties,
-        "attributes": attributes,
-        "tags": tags,
-    }));
+    });
+    let map = obj.as_object_mut().expect("json!({...}) always builds an object");
+    if !attributes.is_empty() {
+        map.insert("attributes".to_string(), Value::Object(attributes));
+    }
+    if !tags.is_empty() {
+        map.insert("tags".to_string(), Value::Array(tags));
+    }
+    out.push(obj);
 
     for &child in instance.children() {
         walk(dom, child, &path, out);
@@ -116,5 +123,36 @@ mod tests {
         let p = instances.iter().find(|i| i["path"] == "Workspace/P").unwrap();
         assert_eq!(p["attributes"]["Level"], json!({"type":"int32","value":3}));
         assert_eq!(p["tags"], json!(["Spawn"]));
+    }
+
+    #[test]
+    fn test_duplicate_named_siblings_get_distinct_reference_ids() {
+        use rbx_dom_weak::InstanceBuilder;
+        let dom = WeakDom::new(InstanceBuilder::new("DataModel").with_child(
+            InstanceBuilder::new("Workspace").with_name("Workspace").with_children([
+                InstanceBuilder::new("Part").with_name("Part"),
+                InstanceBuilder::new("Part").with_name("Part"),
+                InstanceBuilder::new("Part").with_name("Part"),
+            ])));
+        let instances = dom_to_instances(&dom);
+        let ids: std::collections::HashSet<&str> = instances.iter()
+            .filter(|i| i["path"] == "Workspace/Part")
+            .map(|i| i["referenceId"].as_str().unwrap())
+            .collect();
+        assert_eq!(ids.len(), 3, "three same-named siblings must have three distinct referenceIds");
+        // And the 8-char disambiguation prefixes must differ
+        let prefixes: std::collections::HashSet<String> = ids.iter().map(|id| id[..8].to_string()).collect();
+        assert_eq!(prefixes.len(), 3, "8-char disambiguation prefixes must be distinct");
+    }
+
+    #[test]
+    fn test_slash_in_name_is_escaped_in_path_but_not_name() {
+        let part = InstanceBuilder::new("Part").with_name("a/b");
+        let dom = WeakDom::new(InstanceBuilder::new("DataModel")
+            .with_child(InstanceBuilder::new("Workspace").with_name("Workspace").with_child(part)));
+
+        let instances = dom_to_instances(&dom);
+        let p = instances.iter().find(|i| i["name"] == "a/b").unwrap();
+        assert_eq!(p["path"], "Workspace/a[SLASH]b");
     }
 }
