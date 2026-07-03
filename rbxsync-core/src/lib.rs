@@ -14,6 +14,7 @@ pub mod path_utils;
 pub mod plugin_builder;
 pub mod rojo;
 pub mod types;
+pub mod variant_json;
 
 // Re-export commonly used types
 pub use obfuscator::{Obfuscator, ObfuscatorConfig, ObfuscationResult};
@@ -36,3 +37,4 @@ pub use path_mapping::{
     script_class_from_filename, tree_mapping_from_config, MappedPath, SCRIPT_FILE_SUFFIXES,
 };
 pub use path_utils::{normalize_path, path_to_string, path_with_suffix, pathbuf_with_suffix, sanitize_filename};
+pub use variant_json::{json_to_variant, variant_to_json};

@@ -2079,7 +2079,7 @@ fn build_dom_from_src(src_dir: &std::path::Path, is_place: bool) -> Result<WeakD
                     // Add properties from JSON
                     if let Some(props) = json.get("properties").and_then(|p| p.as_object()) {
                         for (prop_name, prop_value) in props {
-                            if let Some(value) = json_to_variant(prop_value) {
+                            if let Some(value) = rbxsync_core::json_to_variant(prop_value) {
                                 builder = builder.with_property(prop_name, value);
                             }
                         }
@@ -2181,7 +2181,7 @@ fn build_dom_children(
             if let Some(ref meta) = meta_data {
                 if let Some(props) = meta.get("properties").and_then(|p| p.as_object()) {
                     for (prop_name, prop_value) in props {
-                        if let Some(value) = json_to_variant(prop_value) {
+                        if let Some(value) = rbxsync_core::json_to_variant(prop_value) {
                             builder = builder.with_property(prop_name, value);
                         }
                     }
@@ -2209,7 +2209,7 @@ fn build_dom_children(
 
                     if let Some(props) = json.get("properties").and_then(|p| p.as_object()) {
                         for (prop_name, prop_value) in props {
-                            if let Some(value) = json_to_variant(prop_value) {
+                            if let Some(value) = rbxsync_core::json_to_variant(prop_value) {
                                 builder = builder.with_property(prop_name, value);
                             }
                         }
@@ -2253,191 +2253,6 @@ fn service_class_name(name: &str) -> &'static str {
         "TestService" => "TestService",
         "Players" => "Players",
         _ => "Folder",
-    }
-}
-
-/// Convert JSON property value to rbx_dom Variant
-fn json_to_variant(value: &serde_json::Value) -> Option<Variant> {
-    use rbx_dom_weak::types::*;
-
-    // Check if it has a type field (our format)
-    if let Some(obj) = value.as_object() {
-        if let Some(type_str) = obj.get("type").and_then(|t| t.as_str()) {
-            let val = obj.get("value");
-            return match type_str {
-                // Basic types
-                "string" => val?.as_str().map(|s| Variant::String(s.to_string())),
-                "int" | "int32" => val?.as_i64().map(|n| Variant::Int32(n as i32)),
-                "int64" => val?.as_i64().map(Variant::Int64),
-                "float" | "float32" => val?.as_f64().map(|n| Variant::Float32(n as f32)),
-                "float64" | "double" => val?.as_f64().map(Variant::Float64),
-                "bool" => val?.as_bool().map(Variant::Bool),
-
-                // nil means "use default" - skip the property entirely
-                "nil" => None,
-
-                // Vector types
-                "Vector2" => {
-                    let v = val?.as_object()?;
-                    Some(Variant::Vector2(Vector2::new(
-                        v.get("x")?.as_f64()? as f32,
-                        v.get("y")?.as_f64()? as f32,
-                    )))
-                }
-                "Vector3" => {
-                    let v = val?.as_object()?;
-                    Some(Variant::Vector3(Vector3::new(
-                        v.get("x")?.as_f64()? as f32,
-                        v.get("y")?.as_f64()? as f32,
-                        v.get("z")?.as_f64()? as f32,
-                    )))
-                }
-
-                // Color types
-                "Color3" => {
-                    let v = val?.as_object()?;
-                    Some(Variant::Color3(Color3::new(
-                        v.get("r")?.as_f64()? as f32,
-                        v.get("g")?.as_f64()? as f32,
-                        v.get("b")?.as_f64()? as f32,
-                    )))
-                }
-                "Color3uint8" => {
-                    let v = val?.as_object()?;
-                    Some(Variant::Color3uint8(Color3uint8::new(
-                        v.get("r")?.as_u64()? as u8,
-                        v.get("g")?.as_u64()? as u8,
-                        v.get("b")?.as_u64()? as u8,
-                    )))
-                }
-                "BrickColor" => {
-                    val?.as_u64().map(|n| Variant::BrickColor(BrickColor::from_number(n as u16).unwrap_or(BrickColor::MediumStoneGrey)))
-                }
-
-                // UDim types
-                "UDim" => {
-                    let v = val?.as_object()?;
-                    Some(Variant::UDim(UDim::new(
-                        v.get("scale")?.as_f64()? as f32,
-                        v.get("offset")?.as_i64()? as i32,
-                    )))
-                }
-                "UDim2" => {
-                    let v = val?.as_object()?;
-                    let x = v.get("x")?.as_object()?;
-                    let y = v.get("y")?.as_object()?;
-                    Some(Variant::UDim2(UDim2::new(
-                        UDim::new(
-                            x.get("scale")?.as_f64()? as f32,
-                            x.get("offset")?.as_i64()? as i32,
-                        ),
-                        UDim::new(
-                            y.get("scale")?.as_f64()? as f32,
-                            y.get("offset")?.as_i64()? as i32,
-                        ),
-                    )))
-                }
-
-                // CFrame
-                "CFrame" => {
-                    let v = val?.as_object()?;
-                    let pos = v.get("position")?.as_array()?;
-                    let rot = v.get("rotation")?.as_array()?;
-                    if pos.len() >= 3 && rot.len() >= 9 {
-                        Some(Variant::CFrame(CFrame::new(
-                            Vector3::new(
-                                pos[0].as_f64()? as f32,
-                                pos[1].as_f64()? as f32,
-                                pos[2].as_f64()? as f32,
-                            ),
-                            Matrix3::new(
-                                Vector3::new(rot[0].as_f64()? as f32, rot[1].as_f64()? as f32, rot[2].as_f64()? as f32),
-                                Vector3::new(rot[3].as_f64()? as f32, rot[4].as_f64()? as f32, rot[5].as_f64()? as f32),
-                                Vector3::new(rot[6].as_f64()? as f32, rot[7].as_f64()? as f32, rot[8].as_f64()? as f32),
-                            ),
-                        )))
-                    } else {
-                        None
-                    }
-                }
-
-                // Enum (store as u32)
-                "Enum" => {
-                    let v = val?.as_object()?;
-                    let enum_value = v.get("value")?;
-                    // Try to get numeric value, or parse from string
-                    if let Some(n) = enum_value.as_u64() {
-                        Some(Variant::Enum(rbx_dom_weak::types::Enum::from_u32(n as u32)))
-                    } else {
-                        // For string enum values, we'd need the reflection database
-                        // For now, default to 0
-                        Some(Variant::Enum(rbx_dom_weak::types::Enum::from_u32(0)))
-                    }
-                }
-
-                // Rect
-                "Rect" => {
-                    let v = val?.as_object()?;
-                    let min = v.get("min")?.as_object()?;
-                    let max = v.get("max")?.as_object()?;
-                    Some(Variant::Rect(Rect::new(
-                        Vector2::new(min.get("x")?.as_f64()? as f32, min.get("y")?.as_f64()? as f32),
-                        Vector2::new(max.get("x")?.as_f64()? as f32, max.get("y")?.as_f64()? as f32),
-                    )))
-                }
-
-                // NumberRange
-                "NumberRange" => {
-                    let v = val?.as_object()?;
-                    Some(Variant::NumberRange(NumberRange::new(
-                        v.get("min")?.as_f64()? as f32,
-                        v.get("max")?.as_f64()? as f32,
-                    )))
-                }
-
-                // Font
-                "Font" => {
-                    let v = val?.as_object()?;
-                    let family = v.get("family")?.as_str()?.to_string();
-                    let weight = v.get("weight").and_then(|w| w.as_u64()).unwrap_or(400) as u16;
-                    let style = v.get("style").and_then(|s| s.as_str()).unwrap_or("Normal");
-                    Some(Variant::Font(Font {
-                        family,
-                        weight: FontWeight::from_u16(weight).unwrap_or(FontWeight::Regular),
-                        style: if style == "Italic" { FontStyle::Italic } else { FontStyle::Normal },
-                        cached_face_id: None,
-                    }))
-                }
-
-                // Content (asset URLs)
-                "Content" => {
-                    val?.as_str().map(|s| Variant::Content(Content::from(s.to_string())))
-                }
-
-                // Refs - we skip these as they need special handling
-                "Ref" => None,
-
-                // Skip unknown/unsupported types
-                _ => {
-                    tracing::debug!("Unsupported property type: {}", type_str);
-                    None
-                }
-            };
-        }
-    }
-
-    // Direct value
-    match value {
-        serde_json::Value::String(s) => Some(Variant::String(s.clone())),
-        serde_json::Value::Bool(b) => Some(Variant::Bool(*b)),
-        serde_json::Value::Number(n) => {
-            if let Some(i) = n.as_i64() {
-                Some(Variant::Int32(i as i32))
-            } else {
-                n.as_f64().map(Variant::Float64)
-            }
-        }
-        _ => None,
     }
 }
 
