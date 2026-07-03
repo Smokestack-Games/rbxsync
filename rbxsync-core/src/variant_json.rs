@@ -193,7 +193,6 @@ pub fn json_to_variant(value: &serde_json::Value) -> Option<Variant> {
 /// Encode an rbx_dom Variant as the `.rbxjson` `{ "type", "value" }` shape.
 /// Returns None for types we don't persist as context (binary/opaque, Ref).
 pub fn variant_to_json(variant: &rbx_dom_weak::types::Variant) -> Option<serde_json::Value> {
-    use rbx_dom_weak::types::Variant;
     use serde_json::json;
 
     let out = match variant {
@@ -276,6 +275,19 @@ mod tests {
                 Vector3::new(0.0, 0.0, 1.0),
             ),
         )));
+    }
+
+    #[test]
+    fn test_enum_font_content_brickcolor_roundtrip() {
+        roundtrip(Variant::Enum(Enum::from_u32(3)));
+        roundtrip(Variant::BrickColor(BrickColor::from_number(1).unwrap()));
+        roundtrip(Variant::Content(Content::from("rbxassetid://123".to_string())));
+        roundtrip(Variant::Font(Font {
+            family: "rbxasset://fonts/families/SourceSansPro.json".to_string(),
+            weight: FontWeight::Bold,
+            style: FontStyle::Italic,
+            cached_face_id: None,
+        }));
     }
 
     #[test]
