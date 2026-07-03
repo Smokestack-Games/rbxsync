@@ -13,7 +13,7 @@ use anyhow::{bail, Context, Result};
 use clap::{Parser, Subcommand};
 use notify::{Config, RecommendedWatcher, RecursiveMode, Watcher};
 use rbx_dom_weak::types::Variant;
-use rbx_dom_weak::{InstanceBuilder, WeakDom};
+use rbx_dom_weak::{ustr, InstanceBuilder, WeakDom};
 use rbxsync_core::{
     build_plugin, find_existing_rbxsync_plugin, find_rojo_project, get_studio_plugins_folder,
     install_plugin, parse_rojo_project, rojo_to_tree_mapping, PluginBuildConfig, ProjectConfig,
@@ -2165,7 +2165,7 @@ fn build_dom_children(
                 if let Some(instance) = dom.get_by_ref_mut(parent_ref) {
                     instance
                         .properties
-                        .insert("Source".to_string(), Variant::String(source));
+                        .insert(ustr("Source"), Variant::String(source));
                 }
             }
             break;

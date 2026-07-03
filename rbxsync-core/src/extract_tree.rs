@@ -86,11 +86,20 @@ pub fn plan_instance_writes(
     // Collect all disambiguated paths for container detection
     let all_paths: HashSet<String> = ref_to_path.values().cloned().collect();
 
+    // A path is a container when another path begins with `path + "/"`. Insert
+    // each path's ancestor prefixes once so container detection is a hash lookup
+    // rather than a scan of every path for every instance.
+    let mut container_paths: HashSet<&str> = HashSet::new();
+    for path in &all_paths {
+        let mut idx = path.len();
+        while let Some(slash) = path[..idx].rfind('/') {
+            container_paths.insert(&path[..slash]);
+            idx = slash;
+        }
+    }
+
     // Helper to check if a path has children (is a container)
-    let has_children = |path: &str| -> bool {
-        let prefix = format!("{}/", path);
-        all_paths.iter().any(|p| p.starts_with(&prefix))
-    };
+    let has_children = |path: &str| -> bool { container_paths.contains(path) };
 
     // Helper to normalize package paths (fix duplicated Packages folders)
     let normalize_path = |path: &str| -> String {

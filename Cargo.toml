@@ -50,10 +50,10 @@ flate2 = "1.0"
 reqwest = { version = "0.11", features = ["json"] }
 
 # Roblox binary/XML format (for plugin bundling)
-rbx_binary = "0.7"
-rbx_xml = "0.13"
-rbx_dom_weak = "2.7"
-rbx_types = "1.8"
+rbx_binary = "3.0"
+rbx_xml = "3.0"
+rbx_dom_weak = "4.2"
+rbx_types = "3.1"
 
 # Platform utilities
 dirs = "5.0"

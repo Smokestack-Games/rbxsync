@@ -225,7 +225,11 @@ pub fn variant_to_json(variant: &rbx_dom_weak::types::Variant) -> Option<serde_j
             "family": f.family,
             "weight": f.weight.as_u16(),
             "style": match f.style { rbx_dom_weak::types::FontStyle::Italic => "Italic", _ => "Normal" } } }),
-        Variant::Content(c) => json!({ "type": "Content", "value": AsRef::<str>::as_ref(c) }),
+        Variant::ContentId(c) => json!({ "type": "Content", "value": c.as_str() }),
+        Variant::Content(c) => match c.as_uri() {
+            Some(uri) => json!({ "type": "Content", "value": uri }),
+            None => return None,
+        },
         _ => return None,
     };
     Some(out)
