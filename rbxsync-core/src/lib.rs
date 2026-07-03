@@ -8,6 +8,7 @@
 //! - Rojo project file parsing and migration
 //! - Luau obfuscation for build-time transforms
 
+pub mod extract_tree;
 pub mod obfuscator;
 pub mod path_mapping;
 pub mod path_utils;
@@ -18,6 +19,10 @@ pub mod types;
 pub mod variant_json;
 
 // Re-export commonly used types
+pub use extract_tree::{
+    clear_instance_files, copy_dir_recursive, execute_write_plan_sync, plan_instance_writes,
+    prepare_src_for_extraction, write_snapshot_freshness, WriteOp, WritePlan,
+};
 pub use obfuscator::{Obfuscator, ObfuscatorConfig, ObfuscationResult};
 pub use plugin_builder::{build_plugin, build_plugin_with_stats, find_existing_rbxsync_plugin, get_studio_plugins_folder, install_plugin, PluginBuildConfig, PluginBuildStats};
 pub use rojo::{

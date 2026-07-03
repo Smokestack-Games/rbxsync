@@ -57,39 +57,6 @@ fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
     None
 }
 
-/// Directories to skip during recursive copy operations
-const SKIP_DIRS: &[&str] = &[".rbxsync-trash", ".rbxsync-backup", ".rbxsync", ".git", "node_modules"];
-
-/// Recursively copy a directory, skipping system directories and
-/// preventing circular copies (dst inside src).
-fn copy_dir_recursive(src: &PathBuf, dst: &PathBuf) -> std::io::Result<()> {
-    let resolved_src = src.canonicalize().unwrap_or_else(|_| src.clone());
-    let resolved_dst = dst.canonicalize().unwrap_or_else(|_| dst.clone());
-
-    if resolved_dst.starts_with(&resolved_src) {
-        tracing::warn!("Skipping circular copy: {:?} is inside {:?}", dst, src);
-        return Ok(());
-    }
-
-    std::fs::create_dir_all(dst)?;
-    for entry in std::fs::read_dir(src)? {
-        let entry = entry?;
-        let path = entry.path();
-        let dest_path = dst.join(entry.file_name());
-        if path.is_dir() {
-            if let Some(name) = entry.file_name().to_str() {
-                if SKIP_DIRS.contains(&name) {
-                    continue;
-                }
-            }
-            copy_dir_recursive(&path, &dest_path)?;
-        } else {
-            std::fs::copy(&path, &dest_path)?;
-        }
-    }
-    Ok(())
-}
-
 /// True if the directory tree contains any script source file
 fn dir_contains_script(dir: &std::path::Path) -> bool {
     let Ok(entries) = std::fs::read_dir(dir) else {
@@ -106,83 +73,6 @@ fn dir_contains_script(dir: &std::path::Path) -> bool {
         }
     }
     false
-}
-
-/// Delete instance data files (.rbxjson, including _meta.rbxjson) under `dir`
-/// and remove directories left empty; script source files are preserved.
-/// Returns the absolute paths of the files removed.
-fn clear_instance_files(dir: &std::path::Path) -> std::io::Result<Vec<PathBuf>> {
-    let mut removed = Vec::new();
-    for entry in std::fs::read_dir(dir)?.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if let Ok(mut inner) = clear_instance_files(&path) {
-                removed.append(&mut inner);
-            }
-            // Succeeds only when empty; non-empty directories are kept
-            let _ = std::fs::remove_dir(&path);
-        } else if path.extension().and_then(|e| e.to_str()) == Some("rbxjson")
-            && std::fs::remove_file(&path).is_ok()
-        {
-            removed.push(path);
-        }
-    }
-    Ok(removed)
-}
-
-/// Back up src to .rbxsync-backup/src and clear instance data files,
-/// preserving script sources in place.
-fn prepare_src_for_extraction(project_dir: &str) {
-    let src_dir = PathBuf::from(project_dir).join("src");
-    let backup_dir = PathBuf::from(project_dir).join(".rbxsync-backup");
-    let backup_src = backup_dir.join("src");
-
-    if src_dir.exists() {
-        if backup_src.exists() {
-            let _ = std::fs::remove_dir_all(&backup_src);
-        }
-        let _ = std::fs::create_dir_all(&backup_dir);
-        if let Err(e) = copy_dir_recursive(&src_dir, &backup_src) {
-            tracing::warn!("Failed to back up src directory: {}", e);
-        } else {
-            tracing::info!("Backed up src to .rbxsync-backup/src");
-        }
-        let _ = clear_instance_files(&src_dir);
-    }
-    let _ = std::fs::create_dir_all(&src_dir);
-}
-
-/// Record snapshot freshness in <project>/.rbxsync/snapshot.json (epoch millis).
-/// `full_extract` also stamps lastFullExtract; every call stamps lastLiveUpdate.
-fn write_snapshot_freshness(project_dir: &str, full_extract: bool) {
-    let dir = PathBuf::from(project_dir).join(".rbxsync");
-    if std::fs::create_dir_all(&dir).is_err() {
-        return;
-    }
-    let path = dir.join("snapshot.json");
-    let now_ms = std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_millis() as u64)
-        .unwrap_or(0);
-
-    let mut doc = std::fs::read_to_string(&path)
-        .ok()
-        .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-        .unwrap_or_else(|| serde_json::json!({}));
-
-    if let Some(obj) = doc.as_object_mut() {
-        if full_extract {
-            obj.insert("lastFullExtract".to_string(), serde_json::json!(now_ms));
-        }
-        obj.insert("lastLiveUpdate".to_string(), serde_json::json!(now_ms));
-    }
-
-    let tmp = dir.join("snapshot.json.tmp");
-    if let Ok(json) = serde_json::to_string_pretty(&doc) {
-        if std::fs::write(&tmp, json).is_ok() {
-            let _ = std::fs::rename(&tmp, &path);
-        }
-    }
 }
 
 /// Strip disambiguation suffix from a path segment (RBXSYNC-68)
@@ -1241,7 +1131,7 @@ async fn handle_undo_extract(
     // Restore from backup
     if std::fs::rename(&backup_src, &src_dir).is_err() {
         // If rename fails, try copy
-        if let Err(e) = copy_dir_recursive(&backup_src, &src_dir) {
+        if let Err(e) = rbxsync_core::extract_tree::copy_dir_recursive(&backup_src, &src_dir) {
             return Json(serde_json::json!({
                 "success": false,
                 "error": format!("Failed to restore from backup: {}", e)
@@ -1601,7 +1491,7 @@ async fn handle_extract_start(
     // preserving script sources on disk
     if let Some(ref project_dir) = req.project_dir {
         if !project_dir.is_empty() {
-            prepare_src_for_extraction(project_dir);
+            rbxsync_core::extract_tree::prepare_src_for_extraction(project_dir);
             if let Some(session) = state.extraction_session.write().await.as_mut() {
                 session.src_prepared = true;
             }
@@ -2099,7 +1989,7 @@ async fn handle_extract_finalize(
     };
 
     if !session.src_prepared {
-        prepare_src_for_extraction(&req.project_dir);
+        rbxsync_core::extract_tree::prepare_src_for_extraction(&req.project_dir);
     }
 
     tracing::info!("Finalizing {} instances to {}", all_instances.len(), src_dir.display());
@@ -2113,79 +2003,6 @@ async fn handle_extract_finalize(
         }
     }
 
-    // Track which services we've seen to create folders for them
-    let mut service_folders: std::collections::HashSet<String> = std::collections::HashSet::new();
-
-    // First pass: build a map from referenceId to disambiguated path
-    // This handles duplicate sibling names by appending a suffix
-    let mut path_to_count: std::collections::HashMap<String, usize> = std::collections::HashMap::new();
-    let mut ref_to_path: std::collections::HashMap<String, String> = std::collections::HashMap::new();
-    let mut duplicate_count = 0;
-
-    for inst in &all_instances {
-        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
-            if !path.is_empty() {
-                let ref_id = inst.get("referenceId").and_then(|v| v.as_str()).unwrap_or("");
-                let count = path_to_count.entry(path.to_string()).or_insert(0);
-                *count += 1;
-
-                // If this is a duplicate path, append a suffix
-                let disambiguated_path = if *count > 1 {
-                    // Use referenceId suffix for disambiguation (first 8 chars)
-                    let suffix = if ref_id.len() >= 8 { &ref_id[..8] } else { ref_id };
-                    let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
-                    tracing::warn!(
-                        "Duplicate instance path detected: '{}' ({}). Disambiguating to '{}_{}'",
-                        path, class_name, path, suffix
-                    );
-                    duplicate_count += 1;
-                    format!("{}_{}", path, suffix)
-                } else {
-                    path.to_string()
-                };
-
-                if !ref_id.is_empty() {
-                    ref_to_path.insert(ref_id.to_string(), disambiguated_path);
-                }
-            }
-        }
-    }
-
-    if duplicate_count > 0 {
-        tracing::info!("Found {} duplicate instance paths - these have been disambiguated", duplicate_count);
-    }
-
-    // Collect all disambiguated paths for container detection
-    let all_paths: std::collections::HashSet<String> = ref_to_path.values().cloned().collect();
-
-    // Helper to check if a path has children (is a container)
-    let has_children = |path: &str| -> bool {
-        let prefix = format!("{}/", path);
-        all_paths.iter().any(|p| p.starts_with(&prefix))
-    };
-
-    // Helper to normalize package paths (fix duplicated Packages folders)
-    let normalize_path = |path: &str| -> String {
-        // Fix case variations and duplications like "Packages/Packages" or "packages/Packages"
-        let mut normalized = path.to_string();
-
-        // Replace various case-insensitive duplications
-        let patterns = [
-            ("Packages/Packages/", "Packages/"),
-            ("packages/packages/", "packages/"),
-            ("Packages/packages/", "Packages/"),
-            ("packages/Packages/", "Packages/"),
-        ];
-
-        for (from, to) in patterns {
-            while normalized.contains(from) {
-                normalized = normalized.replace(from, to);
-            }
-        }
-
-        normalized
-    };
-
     // PERFORMANCE OPTIMIZATION for large games (RBXSYNC-26):
     // Instead of writing files sequentially (which causes PC hang on 180k+ instances),
     // we batch directory creation and write files in parallel with bounded concurrency.
@@ -2195,120 +2012,14 @@ async fn handle_extract_finalize(
     // Maximum concurrent file writes to prevent overwhelming the filesystem
     const MAX_CONCURRENT_WRITES: usize = 64;
 
-    // Struct to hold pending write operations
-    struct WriteOp {
-        path: PathBuf,
-        content: String,
-    }
-
-    // First pass: Collect all directories needed and prepare write operations
-    let mut directories_needed: HashSet<PathBuf> = HashSet::new();
-    let mut script_write_ops: Vec<WriteOp> = Vec::new();
-    let mut json_write_ops: Vec<WriteOp> = Vec::new();
-    let mut adopted: Vec<String> = Vec::new();
-
-    tracing::info!("Preparing {} instances for parallel write...", all_instances.len());
-    let prep_start = std::time::Instant::now();
-
-    for inst in &all_instances {
-        let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
-
-        // Use disambiguated path from ref_to_path map to handle duplicate instance names
-        let ref_id = inst.get("referenceId").and_then(|v| v.as_str()).unwrap_or("");
-        let inst_path = if !ref_id.is_empty() {
-            ref_to_path.get(ref_id).map(|s| s.as_str()).unwrap_or("")
-        } else {
-            inst.get("path").and_then(|v| v.as_str()).unwrap_or("")
-        };
-        if inst_path.is_empty() {
-            continue;
-        }
-
-        // Normalize path to fix package folder duplication
-        let inst_path = normalize_path(inst_path);
-
-        // Apply tree mapping to convert DataModel path to filesystem path
-        let fs_path = rbxsync_core::apply_tree_mapping(&inst_path, &tree_mapping);
-
-        // Use mapped path for filesystem operations
-        let full_path = src_dir.join(&fs_path);
-
-        // Track service name (first segment of mapped path) for folder creation
-        if let Some(service_name) = fs_path.split('/').next() {
-            service_folders.insert(service_name.to_string());
-        }
-
-        // Collect parent directory instead of creating immediately
-        if let Some(parent) = full_path.parent() {
-            directories_needed.insert(parent.to_path_buf());
-        }
-
-        // Check if this instance has children (use normalized path)
-        let is_container = has_children(&inst_path);
-
-        // Check if this is a script with source
-        let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
-
-        if is_script {
-            if let Some(props) = inst.get("properties") {
-                if let Some(source) = props.get("Source").and_then(|v| v.get("value")).and_then(|v| v.as_str()) {
-                    // Scripts are managed on disk: write only when no script
-                    // file exists at the target path (adopt-once)
-                    let script_exists = rbxsync_core::SCRIPT_FILE_SUFFIXES.iter().any(|ext| {
-                        PathBuf::from(rbxsync_core::path_with_suffix(&full_path, ext)).exists()
-                    });
-                    if !script_exists {
-                        let extension = match class_name {
-                            "Script" => ".server.luau",
-                            "LocalScript" => ".client.luau",
-                            _ => ".luau",
-                        };
-                        let script_path = rbxsync_core::path_with_suffix(&full_path, extension);
-                        adopted.push(format!("{}{}", fs_path, extension));
-                        script_write_ops.push(WriteOp {
-                            path: PathBuf::from(script_path),
-                            content: source.to_string(),
-                        });
-                    }
-                }
-            }
-        }
-
-        // Prepare .rbxjson file write operation
-        let json_path = if is_container {
-            // Container: folder will be created, put _meta.rbxjson inside
-            directories_needed.insert(full_path.clone());
-            full_path.join("_meta.rbxjson")
-        } else {
-            // Leaf: write as sibling .rbxjson
-            rbxsync_core::pathbuf_with_suffix(&full_path, ".rbxjson")
-        };
-
-        // Create a clean instance object without source (for scripts)
-        let mut clean_inst = inst.clone();
-        if is_script {
-            if let Some(props) = clean_inst.get_mut("properties") {
-                if let Some(obj) = props.as_object_mut() {
-                    obj.remove("Source");
-                }
-            }
-        }
-
-        if let Ok(json) = serde_json::to_string_pretty(&clean_inst) {
-            json_write_ops.push(WriteOp {
-                path: json_path,
-                content: json,
-            });
-        }
-    }
-
-    tracing::info!(
-        "Preparation complete in {:?}: {} directories, {} scripts, {} json files",
-        prep_start.elapsed(),
-        directories_needed.len(),
-        script_write_ops.len(),
-        json_write_ops.len()
-    );
+    // Decide directories, script adoptions, and .rbxjson writes for the extracted tree
+    let rbxsync_core::extract_tree::WritePlan {
+        dirs: directories_needed,
+        script_ops: script_write_ops,
+        json_ops: json_write_ops,
+        adopted,
+        service_folders,
+    } = rbxsync_core::extract_tree::plan_instance_writes(&src_dir, &all_instances, &tree_mapping);
 
     // Batch create all directories (run in blocking task to not block async runtime)
     let dirs_to_create: Vec<PathBuf> = directories_needed.into_iter().collect();
@@ -2399,7 +2110,7 @@ async fn handle_extract_finalize(
                 }
 
                 // Restore packages from backup
-                if let Err(e) = copy_dir_recursive(&backup_packages, &dest_packages) {
+                if let Err(e) = rbxsync_core::extract_tree::copy_dir_recursive(&backup_packages, &dest_packages) {
                     tracing::warn!("Failed to restore packages from {}: {}", backup_rel, e);
                 } else {
                     tracing::info!("Restored Wally packages from backup: {}", backup_rel);
@@ -2463,7 +2174,7 @@ async fn handle_extract_finalize(
         ops.remove(&normalize_project_key(&req.project_dir));
     }
 
-    write_snapshot_freshness(&req.project_dir, true);
+    rbxsync_core::extract_tree::write_snapshot_freshness(&req.project_dir, true);
 
     (
         StatusCode::OK,
@@ -2809,7 +2520,7 @@ async fn handle_sync_from_studio(
                 if full_path.is_dir() {
                     if dir_contains_script(&full_path) {
                         // Remove instance data within, keep the directory and its scripts
-                        if let Ok(removed) = clear_instance_files(&full_path) {
+                        if let Ok(removed) = rbxsync_core::extract_tree::clear_instance_files(&full_path) {
                             if !removed.is_empty() {
                                 deleted_any = true;
                                 tracing::info!("Studio sync: cleared {} instance files in {:?}, scripts preserved", removed.len(), full_path);
@@ -2936,7 +2647,7 @@ async fn handle_sync_from_studio(
     }
 
     if files_written > 0 {
-        write_snapshot_freshness(&req.project_dir, false);
+        rbxsync_core::extract_tree::write_snapshot_freshness(&req.project_dir, false);
     }
 
     tracing::info!("Studio sync complete: {} files written, {} errors", files_written, errors.len());
