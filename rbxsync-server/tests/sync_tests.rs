@@ -326,203 +326,154 @@ mod diff {
 mod from_studio {
     use super::*;
 
+    /// A minimal project with a `src` directory (the from-studio handler
+    /// requires `src` to exist). datamodel.rbxjson starts absent and is
+    /// materialized by the debounced flush.
     fn script_project() -> TempDir {
         let dir = tempfile::tempdir().unwrap();
-        let src = dir.path().join("src");
-        write(&src, "ServerScriptService/Main.server.luau", "print('disk truth')");
-        write(&src, "ServerScriptService/Main.rbxjson", r#"{"className":"Script","name":"Main"}"#);
-        write(&src, "Workspace/Stuff/_meta.rbxjson", r#"{"className":"Folder","name":"Stuff"}"#);
-        write(&src, "Workspace/Stuff/Runner.server.luau", "print('runner')");
-        write(&src, "Workspace/Stuff/Runner.rbxjson", r#"{"className":"Script","name":"Runner"}"#);
-        write(&src, "Workspace/Empty/_meta.rbxjson", r#"{"className":"Folder","name":"Empty"}"#);
+        std::fs::create_dir_all(dir.path().join("src")).unwrap();
         dir
     }
 
-    async fn post_ops(server: &TestServer, dir: &TempDir, ops: serde_json::Value) -> serde_json::Value {
-        let response = server
-            .post("/sync/from-studio")
-            .json(&json!({"operations": ops, "projectDir": dir.path().to_string_lossy()}))
-            .await;
-        response.assert_status_ok();
-        response.json()
-    }
-
-    #[tokio::test]
-    async fn test_modify_never_writes_script_source() {
-        let server = create_test_server();
-        let dir = script_project();
-        post_ops(&server, &dir, json!([{
-            "type": "modify",
-            "path": "ServerScriptService/Main",
-            "className": "Script",
-            "data": {
-                "className": "Script",
-                "source": "print('studio edit')",
-                "properties": {"Source": {"type": "string", "value": "print('studio edit')"}, "Name": {"type": "string", "value": "Main"}}
-            }
-        }])).await;
-
-        let script = dir.path().join("src/ServerScriptService/Main.server.luau");
-        assert_eq!(std::fs::read_to_string(&script).unwrap(), "print('disk truth')");
-        let sidecar = std::fs::read_to_string(dir.path().join("src/ServerScriptService/Main.rbxjson")).unwrap();
-        assert!(!sidecar.contains("studio edit"), "sidecar must not carry source: {sidecar}");
-        assert!(!sidecar.contains("\"Source\""));
-    }
-
-    #[tokio::test]
-    async fn test_create_never_writes_script_source() {
-        let server = create_test_server();
-        let dir = script_project();
-        post_ops(&server, &dir, json!([{
-            "type": "create",
-            "path": "ServerScriptService/Fresh",
-            "className": "Script",
-            "data": {"className": "Script", "source": "print('made in studio')",
-                     "properties": {"Source": {"type": "string", "value": "print('made in studio')"}}}
-        }])).await;
-
-        for suffix in rbxsync_core::SCRIPT_FILE_SUFFIXES {
-            let p = dir.path().join(format!("src/ServerScriptService/Fresh{suffix}"));
-            assert!(!p.exists(), "no script file may be created: {p:?}");
-        }
-        assert!(dir.path().join("src/ServerScriptService/Fresh.rbxjson").exists());
-        let sidecar = std::fs::read_to_string(dir.path().join("src/ServerScriptService/Fresh.rbxjson")).unwrap();
-        assert!(!sidecar.contains("made in studio"), "sidecar must not carry source: {sidecar}");
-        assert!(!sidecar.contains("\"Source\""));
-    }
-
-    #[tokio::test]
-    async fn test_delete_preserves_script_file() {
-        let server = create_test_server();
-        let dir = script_project();
-        post_ops(&server, &dir, json!([{
-            "type": "delete", "path": "ServerScriptService/Main", "className": "Script", "data": {}
-        }])).await;
-
-        assert!(dir.path().join("src/ServerScriptService/Main.server.luau").exists());
-        assert!(!dir.path().join("src/ServerScriptService/Main.rbxjson").exists());
-    }
-
-    #[tokio::test]
-    async fn test_delete_folder_with_scripts_preserves_them() {
-        let server = create_test_server();
-        let dir = script_project();
-        post_ops(&server, &dir, json!([{
-            "type": "delete", "path": "Workspace/Stuff", "className": "Folder", "data": {}
-        }])).await;
-
-        assert!(dir.path().join("src/Workspace/Stuff/Runner.server.luau").exists());
-        assert!(!dir.path().join("src/Workspace/Stuff/_meta.rbxjson").exists());
-        assert!(!dir.path().join("src/Workspace/Stuff/Runner.rbxjson").exists());
-    }
-
-    #[tokio::test]
-    async fn test_delete_scriptfree_folder_removed() {
-        let server = create_test_server();
-        let dir = script_project();
-        post_ops(&server, &dir, json!([{
-            "type": "delete", "path": "Workspace/Empty", "className": "Folder", "data": {}
-        }])).await;
-
-        assert!(!dir.path().join("src/Workspace/Empty").exists());
-    }
-
-    #[tokio::test]
-    async fn test_rename_preserves_script_file() {
-        let server = create_test_server();
-        let dir = script_project();
-        post_ops(&server, &dir, json!([{
-            "type": "rename", "path": "ServerScriptService/Renamed", "className": "Script",
-            "data": {"oldPath": "ServerScriptService/Main", "newPath": "ServerScriptService/Renamed"}
-        }])).await;
-
-        assert!(dir.path().join("src/ServerScriptService/Main.server.luau").exists(), "script file must not be renamed");
-        assert!(!dir.path().join("src/ServerScriptService/Renamed.server.luau").exists());
-        assert!(dir.path().join("src/ServerScriptService/Renamed.rbxjson").exists());
-        assert!(!dir.path().join("src/ServerScriptService/Main.rbxjson").exists());
-    }
-
-    #[tokio::test]
-    async fn test_rename_folder_with_scripts_skipped() {
-        let server = create_test_server();
-        let dir = script_project();
-        let body = post_ops(&server, &dir, json!([{
-            "type": "rename", "path": "Workspace/Moved", "className": "Folder",
-            "data": {"oldPath": "Workspace/Stuff", "newPath": "Workspace/Moved"}
-        }])).await;
-
-        assert!(dir.path().join("src/Workspace/Stuff/Runner.server.luau").exists());
-        assert!(!dir.path().join("src/Workspace/Moved").exists());
-        assert!(!body["errors"].as_array().unwrap().is_empty(), "skip must be reported");
-    }
-
-    fn create_test_server_with_state() -> (TestServer, std::sync::Arc<rbxsync_server::AppState>) {
+    /// Server plus the Arc<AppState> it was built from, so tests can drive
+    /// `flush_project` deterministically instead of waiting on the sweeper.
+    fn fixture_server() -> (TestServer, std::sync::Arc<rbxsync_server::AppState>, TempDir) {
         let state = AppState::new();
         let server = TestServer::new(create_router(state.clone())).unwrap();
-        (server, state)
+        (server, state, script_project())
     }
 
-    #[tokio::test]
-    async fn test_from_studio_marks_written_paths_recently_synced() {
-        let (server, state) = create_test_server_with_state();
-        let dir = script_project();
-        let response = server
+    async fn post_ops(server: &TestServer, dir: &TempDir, ops: serde_json::Value) {
+        server
             .post("/sync/from-studio")
-            .json(&json!({"operations": json!([{
-                "type": "modify",
-                "path": "ServerScriptService/Main",
-                "className": "Script",
-                "data": {"className": "Script", "properties": {"Name": {"type": "string", "value": "Main"}}}
-            }]), "projectDir": dir.path().to_string_lossy()}))
-            .await;
-        response.assert_status_ok();
+            .json(&json!({"operations": ops, "projectDir": dir.path().to_string_lossy()}))
+            .await
+            .assert_status_ok();
+    }
 
-        let json_path = dir.path().join("src/ServerScriptService/Main.rbxjson");
-        assert!(state.is_recently_synced(&json_path).await, "written sidecar must be marked");
-        assert!(!state.is_recently_synced(&dir.path().join("src/Other.rbxjson")).await);
+    fn read_datamodel(dir: &TempDir) -> serde_json::Value {
+        serde_json::from_str(&std::fs::read_to_string(dir.path().join("datamodel.rbxjson")).unwrap()).unwrap()
+    }
+
+    fn child<'a>(node: &'a serde_json::Value, name: &str) -> Option<&'a serde_json::Value> {
+        node.get("children")?.as_array()?.iter().find(|c| c["name"] == name)
     }
 
     #[tokio::test]
-    async fn test_from_studio_updates_freshness_only_when_files_written() {
-        let (server, _state) = create_test_server_with_state();
-        let dir = script_project();
+    async fn test_create_writes_node_without_source() {
+        let (server, state, dir) = fixture_server();
+        post_ops(&server, &dir, json!([{
+            "type": "create", "path": "ServerScriptService/Fresh", "className": "Script",
+            "data": {"className": "Script", "name": "Fresh", "path": "ServerScriptService/Fresh",
+                "properties": {"Source": {"type": "string", "value": "print(1)"},
+                               "Enabled": {"type": "bool", "value": true}}}
+        }])).await;
+        state.flush_project(&dir.path().to_string_lossy()).await;
+
+        let doc = read_datamodel(&dir);
+        let sss = child(&doc, "ServerScriptService").expect("ServerScriptService present");
+        let fresh = child(sss, "Fresh").expect("Fresh present");
+        assert!(fresh["properties"].get("Source").is_none(), "Source stripped from context node");
+        assert_eq!(fresh["properties"]["Enabled"], json!({"type": "bool", "value": true}));
+    }
+
+    #[tokio::test]
+    async fn test_modify_updates_node() {
+        let (server, state, dir) = fixture_server();
+        let project = dir.path().to_string_lossy().to_string();
+
+        post_ops(&server, &dir, json!([{
+            "type": "create", "path": "Workspace/Item", "className": "Folder",
+            "data": {"className": "Folder", "name": "Item",
+                "properties": {"Flag": {"type": "bool", "value": false}}}
+        }])).await;
+        state.flush_project(&project).await;
+        let before = read_datamodel(&dir);
+        assert_eq!(child(child(&before, "Workspace").unwrap(), "Item").unwrap()["properties"]["Flag"],
+            json!({"type": "bool", "value": false}));
+
+        post_ops(&server, &dir, json!([{
+            "type": "modify", "path": "Workspace/Item", "className": "Folder",
+            "data": {"className": "Folder", "name": "Item",
+                "properties": {"Flag": {"type": "bool", "value": true}}}
+        }])).await;
+        state.flush_project(&project).await;
+
+        let after = read_datamodel(&dir);
+        assert_eq!(child(child(&after, "Workspace").unwrap(), "Item").unwrap()["properties"]["Flag"],
+            json!({"type": "bool", "value": true}), "modify updates the node's properties");
+    }
+
+    #[tokio::test]
+    async fn test_delete_removes_node() {
+        let (server, state, dir) = fixture_server();
+        let project = dir.path().to_string_lossy().to_string();
+
+        post_ops(&server, &dir, json!([{
+            "type": "create", "path": "Workspace/Gone", "className": "Part",
+            "data": {"className": "Part", "name": "Gone", "properties": {}}
+        }])).await;
+        state.flush_project(&project).await;
+        assert!(child(child(&read_datamodel(&dir), "Workspace").unwrap(), "Gone").is_some());
+
+        post_ops(&server, &dir, json!([{
+            "type": "delete", "path": "Workspace/Gone", "className": "Part", "data": {}
+        }])).await;
+        state.flush_project(&project).await;
+
+        let doc = read_datamodel(&dir);
+        assert!(child(child(&doc, "Workspace").unwrap(), "Gone").is_none(), "deleted node removed from context");
+    }
+
+    #[tokio::test]
+    async fn test_rename_moves_node() {
+        let (server, state, dir) = fixture_server();
+        let project = dir.path().to_string_lossy().to_string();
+
+        post_ops(&server, &dir, json!([{
+            "type": "create", "path": "Workspace/Old", "className": "Model",
+            "data": {"className": "Model", "name": "Old", "properties": {}}
+        }])).await;
+        state.flush_project(&project).await;
+
+        post_ops(&server, &dir, json!([{
+            "type": "rename", "path": "Workspace/New", "className": "Model",
+            "data": {"oldPath": "Workspace/Old", "newPath": "Workspace/New"}
+        }])).await;
+        state.flush_project(&project).await;
+
+        let ws = child(&read_datamodel(&dir), "Workspace").unwrap().clone();
+        assert!(child(&ws, "New").is_some(), "renamed node present at new path");
+        assert!(child(&ws, "Old").is_none(), "old path removed after rename");
+    }
+
+    #[tokio::test]
+    async fn test_flush_stamps_freshness_only_when_ops_apply() {
+        let (server, state, dir) = fixture_server();
+        let project = dir.path().to_string_lossy().to_string();
         let meta = dir.path().join(".rbxsync/snapshot.json");
 
-        // Delete of a nonexistent path writes nothing
-        server.post("/sync/from-studio").json(&json!({"operations": json!([{
+        // Delete of a nonexistent path applies nothing -> no freshness stamp.
+        post_ops(&server, &dir, json!([{
             "type": "delete", "path": "Workspace/DoesNotExist", "className": "Part", "data": {}
-        }]), "projectDir": dir.path().to_string_lossy()})).await.assert_status_ok();
+        }])).await;
+        state.flush_project(&project).await;
         assert!(!meta.exists(), "no-op batch must not stamp freshness");
 
-        // A real write stamps lastLiveUpdate
-        server.post("/sync/from-studio").json(&json!({"operations": json!([{
+        // A real write stamps lastLiveUpdate but never creates a baseline.
+        post_ops(&server, &dir, json!([{
             "type": "modify", "path": "Workspace/Part", "className": "Part",
-            "data": {"className": "Part", "properties": {}}
-        }]), "projectDir": dir.path().to_string_lossy()})).await.assert_status_ok();
+            "data": {"className": "Part", "name": "Part", "properties": {}}
+        }])).await;
+        state.flush_project(&project).await;
         let doc: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&meta).unwrap()).unwrap();
         assert!(doc["lastLiveUpdate"].as_u64().unwrap() > 0);
-        // Live updates never create a baseline
         assert!(doc.get("lastFullExtract").and_then(|v| v.as_u64()).is_none());
     }
 
     #[tokio::test]
-    async fn test_delete_of_script_only_folder_counts_nothing() {
-        let (server, _state) = create_test_server_with_state();
-        let dir = script_project();
-        let scripts_only = dir.path().join("src/Workspace/ScriptsOnly");
-        std::fs::create_dir_all(&scripts_only).unwrap();
-        std::fs::write(scripts_only.join("A.server.luau"), "print('a')").unwrap();
-
-        let body = post_ops(&server, &dir, json!([{
-            "type": "delete", "path": "Workspace/ScriptsOnly", "className": "Folder", "data": {}
-        }])).await;
-        assert_eq!(body["filesWritten"], 0, "clearing a script-only folder removes nothing");
-        assert!(scripts_only.join("A.server.luau").exists());
-    }
-
-    #[tokio::test]
     async fn test_recently_synced_ttl_evicts() {
-        let (_server, state) = create_test_server_with_state();
+        let (_server, state, _dir) = fixture_server();
         let p = std::path::PathBuf::from("Workspace_ttl_probe.rbxjson");
         state.mark_recently_synced(p.clone()).await;
         assert!(state.is_recently_synced(&p).await);

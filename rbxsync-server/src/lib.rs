@@ -57,24 +57,6 @@ fn load_project_config(project_dir: &str) -> Option<serde_json::Value> {
     None
 }
 
-/// True if the directory tree contains any script source file
-fn dir_contains_script(dir: &std::path::Path) -> bool {
-    let Ok(entries) = std::fs::read_dir(dir) else {
-        return false;
-    };
-    for entry in entries.flatten() {
-        let path = entry.path();
-        if path.is_dir() {
-            if dir_contains_script(&path) {
-                return true;
-            }
-        } else if matches!(path.extension().and_then(|e| e.to_str()), Some("luau") | Some("lua")) {
-            return true;
-        }
-    }
-    false
-}
-
 /// Strip disambiguation suffix from a path segment (RBXSYNC-68)
 /// Extraction adds `_{8 hex chars}` suffix for duplicates
 /// e.g., "Part_a1b2c3d4" -> "Part", "MyModel" -> "MyModel"
@@ -242,6 +224,15 @@ pub struct AppState {
 
     /// Reason the playtest ended (e.g. "completed", "stopped", "plugin_unresponsive")
     pub playtest_ended_reason: RwLock<Option<String>>,
+
+    /// Buffered from-studio ops per project, flushed to datamodel.rbxjson after a quiet window.
+    pub pending_flush: RwLock<HashMap<String, PendingFlush>>,
+}
+
+/// Buffered live deltas awaiting a debounced flush into datamodel.rbxjson.
+pub struct PendingFlush {
+    pub ops: Vec<rbxsync_core::context_tree::SyncOp>,
+    pub last_update: std::time::Instant,
 }
 
 impl AppState {
@@ -277,6 +268,7 @@ impl AppState {
             playtest_ended: RwLock::new(None),
             operation_state: RwLock::new(HashMap::new()),
             playtest_ended_reason: RwLock::new(None),
+            pending_flush: RwLock::new(HashMap::new()),
         })
     }
 
@@ -291,6 +283,33 @@ impl AppState {
         let mut map = self.recently_synced.write().await;
         map.retain(|_, t| t.elapsed() < TTL);
         map.contains_key(path)
+    }
+
+    /// Apply all buffered ops for a project to its datamodel.rbxjson (read-modify-write).
+    pub async fn flush_project(&self, project_dir: &str) {
+        let ops = {
+            let mut map = self.pending_flush.write().await;
+            match map.get_mut(project_dir) {
+                Some(p) if !p.ops.is_empty() => std::mem::take(&mut p.ops),
+                _ => return,
+            }
+        };
+        let path = std::path::PathBuf::from(project_dir).join("datamodel.rbxjson");
+        let mut root = std::fs::read_to_string(&path)
+            .ok()
+            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
+            .unwrap_or_else(|| serde_json::json!({ "className": "DataModel", "name": "DataModel", "children": [] }));
+        let tree_mapping = rbxsync_core::load_tree_mapping(std::path::Path::new(project_dir));
+        let applied = rbxsync_core::context_tree::apply_ops(&mut root, &ops, "src", &tree_mapping);
+        if applied > 0 {
+            let json = serde_json::to_string_pretty(&root).unwrap_or_default();
+            let tmp = path.with_extension("rbxjson.tmp");
+            if std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
+                rbxsync_core::extract_tree::write_snapshot_freshness(project_dir, false);
+            } else {
+                tracing::warn!("Failed to write datamodel.rbxjson for {}", project_dir);
+            }
+        }
     }
 }
 
@@ -2471,7 +2490,34 @@ pub struct StudioChangeOperation {
     pub data: Option<serde_json::Value>,
 }
 
-/// Handle changes from Studio and write them to files
+/// Convert a Studio change operation into a context-tree `SyncOp`.
+/// Rename operations carry their old/new DataModel paths inside `data`.
+fn to_sync_op(op: &StudioChangeOperation) -> Option<rbxsync_core::context_tree::SyncOp> {
+    use rbxsync_core::context_tree::{OpKind, SyncOp};
+    let kind = match op.change_type.as_str() {
+        "create" => OpKind::Create,
+        "modify" => OpKind::Modify,
+        "delete" => OpKind::Delete,
+        "rename" => OpKind::Rename,
+        _ => return None,
+    };
+    let new_path = op.data.as_ref()
+        .and_then(|d| d.get("newPath"))
+        .and_then(|v| v.as_str())
+        .map(|s| s.to_string());
+    let path = if kind == OpKind::Rename {
+        op.data.as_ref()
+            .and_then(|d| d.get("oldPath"))
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .unwrap_or_else(|| op.path.clone())
+    } else {
+        op.path.clone()
+    };
+    Some(SyncOp { op: kind, path, new_path, data: op.data.clone() })
+}
+
+/// Handle changes from Studio and buffer them for a debounced flush into datamodel.rbxjson
 async fn handle_sync_from_studio(
     State(state): State<Arc<AppState>>,
     Json(req): Json<SyncFromStudioRequest>,
@@ -2493,171 +2539,30 @@ async fn handle_sync_from_studio(
         );
     }
 
-    // Load project config and tree mapping
-    let config = load_project_config(&req.project_dir);
-    let tree_mapping = rbxsync_core::tree_mapping_from_config(config.as_ref());
-
-    let mut files_written = 0;
-    let mut errors: Vec<String> = Vec::new();
-
-    for op in &req.operations {
-        // Convert instance path to file path with tree mapping
-        let inst_path = &op.path;
-        let fs_path = rbxsync_core::apply_tree_mapping(inst_path, &tree_mapping);
-        let full_path = src_dir.join(&fs_path);
-
-        match op.change_type.as_str() {
-            "delete" => {
-                // Scripts are managed on disk; only instance data is removed
-                let mut deleted_any = false;
-                let json_path = rbxsync_core::path_with_suffix(&full_path, ".rbxjson");
-                if std::fs::remove_file(&json_path).is_ok() {
-                    deleted_any = true;
-                    state.mark_recently_synced(PathBuf::from(&json_path)).await;
-                    tracing::info!("Studio sync: deleted {}", json_path);
-                }
-
-                if full_path.is_dir() {
-                    if dir_contains_script(&full_path) {
-                        // Remove instance data within, keep the directory and its scripts
-                        if let Ok(removed) = rbxsync_core::extract_tree::clear_instance_files(&full_path) {
-                            if !removed.is_empty() {
-                                deleted_any = true;
-                                tracing::info!("Studio sync: cleared {} instance files in {:?}, scripts preserved", removed.len(), full_path);
-                            }
-                            for p in removed {
-                                state.mark_recently_synced(p).await;
-                            }
-                        }
-                    } else if std::fs::remove_dir_all(&full_path).is_ok() {
-                        deleted_any = true;
-                        tracing::info!("Studio sync: deleted folder {:?}", full_path);
-                    }
-                }
-
-                if deleted_any {
-                    files_written += 1;
-                }
-            }
-            "rename" => {
-                // Handle rename: move files from old path to new path
-                if let Some(data) = &op.data {
-                    let old_inst_path = data.get("oldPath").and_then(|v| v.as_str());
-                    let new_inst_path = data.get("newPath").and_then(|v| v.as_str());
-
-                    if let (Some(old_path), Some(new_path)) = (old_inst_path, new_inst_path) {
-                        let old_fs_path = rbxsync_core::apply_tree_mapping(old_path, &tree_mapping);
-                        let new_fs_path = rbxsync_core::apply_tree_mapping(new_path, &tree_mapping);
-                        let old_full_path = src_dir.join(&old_fs_path);
-                        let new_full_path = src_dir.join(&new_fs_path);
-
-                        tracing::info!("Studio sync: renaming {:?} -> {:?}", old_full_path, new_full_path);
-
-                        // Ensure new parent directory exists
-                        if let Some(parent) = new_full_path.parent() {
-                            let _ = std::fs::create_dir_all(parent);
-                        }
-
-                        if old_full_path.is_dir() {
-                            if dir_contains_script(&old_full_path) {
-                                errors.push(format!(
-                                    "Skipped folder rename {:?}: contains scripts managed on disk",
-                                    old_full_path
-                                ));
-                            } else {
-                                match std::fs::rename(&old_full_path, &new_full_path) {
-                                    Ok(_) => {
-                                        tracing::info!("Studio sync: renamed folder {:?} -> {:?}", old_full_path, new_full_path);
-                                        files_written += 1;
-                                    }
-                                    Err(e) => {
-                                        errors.push(format!("Failed to rename folder {:?}: {}", old_full_path, e));
-                                    }
-                                }
-                            }
-                        } else {
-                            // Rename instance data only; scripts are managed on disk
-                            let old_file = PathBuf::from(rbxsync_core::path_with_suffix(&old_full_path, ".rbxjson"));
-                            let new_file = PathBuf::from(rbxsync_core::path_with_suffix(&new_full_path, ".rbxjson"));
-                            if old_file.exists() {
-                                match std::fs::rename(&old_file, &new_file) {
-                                    Ok(_) => {
-                                        tracing::info!("Studio sync: renamed {:?} -> {:?}", old_file, new_file);
-                                        state.mark_recently_synced(old_file.clone()).await;
-                                        state.mark_recently_synced(new_file.clone()).await;
-                                        files_written += 1;
-                                    }
-                                    Err(e) => {
-                                        errors.push(format!("Failed to rename {:?}: {}", old_file, e));
-                                    }
-                                }
-                            }
-                        }
-                    } else {
-                        errors.push("Rename operation missing oldPath or newPath".to_string());
-                    }
-                }
-            }
-            "create" | "modify" => {
-                if let Some(data) = &op.data {
-                    // Ensure parent directory exists
-                    if let Some(parent) = full_path.parent() {
-                        let _ = std::fs::create_dir_all(parent);
-                    }
-
-                    // Scripts have their source stripped from the sidecar
-                    let class_name = op.class_name.as_deref()
-                        .or_else(|| data.get("className").and_then(|v| v.as_str()))
-                        .unwrap_or("");
-
-                    let is_script = matches!(class_name, "Script" | "LocalScript" | "ModuleScript");
-
-                    // Write .rbxjson for non-source properties
-                    let mut clean_data = data.clone();
-                    if is_script {
-                        // Remove source from both formats
-                        if let Some(obj) = clean_data.as_object_mut() {
-                            obj.remove("source");
-                        }
-                        if let Some(props) = clean_data.get_mut("properties") {
-                            if let Some(obj) = props.as_object_mut() {
-                                obj.remove("Source");
-                            }
-                        }
-                    }
-
-                    let json_path = rbxsync_core::path_with_suffix(&full_path, ".rbxjson");
-                    if let Ok(json) = serde_json::to_string_pretty(&clean_data) {
-                        match std::fs::write(&json_path, json) {
-                            Ok(_) => {
-                                state.mark_recently_synced(PathBuf::from(&json_path)).await;
-                                files_written += 1;
-                            }
-                            Err(e) => {
-                                errors.push(format!("Failed to write {}: {}", json_path, e));
-                            }
-                        }
-                    }
-                }
-            }
-            _ => {
-                errors.push(format!("Unknown change type: {}", op.change_type));
-            }
-        }
+    // Convert each Studio change into a context-tree op and buffer it. The
+    // buffered deltas are folded into datamodel.rbxjson by a debounced flush
+    // (the background sweeper, or flush_project directly), which also stamps
+    // snapshot freshness. Nothing is written to disk synchronously here.
+    let ops: Vec<_> = req.operations.iter().filter_map(to_sync_op).collect();
+    let count = ops.len();
+    {
+        let mut map = state.pending_flush.write().await;
+        let entry = map.entry(req.project_dir.clone()).or_insert_with(|| PendingFlush {
+            ops: Vec::new(),
+            last_update: std::time::Instant::now(),
+        });
+        entry.ops.extend(ops);
+        entry.last_update = std::time::Instant::now();
     }
 
-    if files_written > 0 {
-        rbxsync_core::extract_tree::write_snapshot_freshness(&req.project_dir, false);
-    }
-
-    tracing::info!("Studio sync complete: {} files written, {} errors", files_written, errors.len());
+    tracing::info!("Studio sync buffered: {} ops queued for {}", count, req.project_dir);
 
     (
         StatusCode::OK,
         Json(serde_json::json!({
-            "success": errors.is_empty(),
-            "filesWritten": files_written,
-            "errors": errors
+            "success": true,
+            "filesWritten": count,
+            "errors": Vec::<String>::new()
         })),
     )
 }
@@ -5191,6 +5096,25 @@ pub async fn run_server(config: ServerConfig) -> anyhow::Result<()> {
     let state_for_watcher = state.clone();
     tokio::spawn(async move {
         process_file_changes(state_for_watcher).await;
+    });
+
+    // Debounced flush sweeper: fold buffered from-studio deltas into
+    // datamodel.rbxjson once a project's buffer has been quiet for 2s.
+    let state_for_flush = state.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::time::sleep(std::time::Duration::from_millis(500)).await;
+            let due: Vec<String> = {
+                let map = state_for_flush.pending_flush.read().await;
+                map.iter()
+                    .filter(|(_, p)| !p.ops.is_empty() && p.last_update.elapsed() >= std::time::Duration::from_secs(2))
+                    .map(|(k, _)| k.clone())
+                    .collect()
+            };
+            for project in due {
+                state_for_flush.flush_project(&project).await;
+            }
+        }
     });
 
     let addr = format!("{}:{}", config.host, config.port);
