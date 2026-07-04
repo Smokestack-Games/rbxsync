@@ -307,7 +307,24 @@ impl AppState {
             if std::fs::write(&tmp, json).and_then(|_| std::fs::rename(&tmp, &path)).is_ok() {
                 rbxsync_core::extract_tree::write_snapshot_freshness(project_dir, false);
             } else {
-                tracing::warn!("Failed to write datamodel.rbxjson for {}", project_dir);
+                tracing::warn!(
+                    "Failed to write datamodel.rbxjson for {}; re-buffering {} ops",
+                    project_dir,
+                    ops.len()
+                );
+                // The write/rename failed (e.g. a transient sharing violation while
+                // Studio/AV/the watcher holds the file). Re-insert the drained ops at
+                // the front of the buffer so the next sweep retries them, preserving
+                // FIFO order against any ops that arrived during the I/O window.
+                let mut map = self.pending_flush.write().await;
+                let entry = map.entry(project_dir.to_string()).or_insert_with(|| PendingFlush {
+                    ops: Vec::new(),
+                    last_update: std::time::Instant::now(),
+                });
+                let mut restored = ops;
+                restored.append(&mut entry.ops);
+                entry.ops = restored;
+                entry.last_update = std::time::Instant::now();
             }
         }
     }

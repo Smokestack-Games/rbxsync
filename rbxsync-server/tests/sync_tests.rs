@@ -484,4 +484,40 @@ mod from_studio {
             assert!(!state.is_recently_synced(&p).await);
         }
     }
+
+    #[tokio::test]
+    async fn test_flush_write_failure_rebuffers_ops_for_retry() {
+        let (server, state, dir) = fixture_server();
+        let project = dir.path().to_string_lossy().to_string();
+
+        // Force the write side of the flush to fail deterministically: the atomic
+        // write path is `datamodel.rbxjson.tmp`, so pre-creating a directory at
+        // that exact path makes `std::fs::write` fail on both Windows and POSIX
+        // (you cannot write file contents to a path that is itself a directory).
+        let tmp_path = dir.path().join("datamodel.rbxjson.tmp");
+        std::fs::create_dir(&tmp_path).unwrap();
+
+        post_ops(&server, &dir, json!([{
+            "type": "create", "path": "Workspace/Survivor", "className": "Part",
+            "data": {"className": "Part", "name": "Survivor", "properties": {}}
+        }])).await;
+        state.flush_project(&project).await;
+
+        // The write failed, so no datamodel.rbxjson should have been produced...
+        assert!(!dir.path().join("datamodel.rbxjson").exists(), "failed write must not produce a partial file");
+        // ...and the drained op must be re-buffered rather than dropped.
+        {
+            let map = state.pending_flush.read().await;
+            let pending = map.get(&project).expect("ops re-buffered after failed write");
+            assert_eq!(pending.ops.len(), 1, "the live delta must survive the failed flush");
+        }
+
+        // Clear the obstruction and retry: the re-buffered op is applied on the next flush.
+        std::fs::remove_dir(&tmp_path).unwrap();
+        state.flush_project(&project).await;
+
+        let doc = read_datamodel(&dir);
+        assert!(child(child(&doc, "Workspace").unwrap(), "Survivor").is_some(),
+            "re-buffered op is applied once the write can succeed");
+    }
 }
