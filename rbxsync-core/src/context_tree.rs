@@ -252,8 +252,27 @@ fn parent_children<'a>(root: &'a mut Value, path: &str) -> Option<(&'a mut Vec<V
     Some((cur.get_mut("children")?.as_array_mut()?, leaf))
 }
 
+/// Navigate to the mutable children Vec of the parent of `path`, WITHOUT
+/// creating any missing ancestors. Returns None if any ancestor segment (or
+/// the parent's `children` array) doesn't already exist. Returns
+/// (parent_children, leaf_name) on success.
+fn find_parent_children<'a>(root: &'a mut Value, path: &str) -> Option<(&'a mut Vec<Value>, String)> {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return None;
+    }
+    let leaf = segments[segments.len() - 1].to_string();
+    let mut cur = root;
+    for seg in &segments[..segments.len() - 1] {
+        let kids = cur.get_mut("children")?.as_array_mut()?;
+        let idx = kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(*seg))?;
+        cur = kids.get_mut(idx)?;
+    }
+    Some((cur.get_mut("children")?.as_array_mut()?, leaf))
+}
+
 fn remove_at(root: &mut Value, path: &str) -> bool {
-    if let Some((kids, leaf)) = parent_children(root, path) {
+    if let Some((kids, leaf)) = find_parent_children(root, path) {
         if let Some(i) = kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(leaf.as_str())) {
             kids.remove(i);
             return true;
@@ -273,6 +292,21 @@ fn upsert(root: &mut Value, path: &str, node: Value) -> bool {
                     kids[i].as_object_mut().unwrap().insert("children".into(), ch);
                 }
             }
+            None => kids.push(node),
+        }
+        return true;
+    }
+    false
+}
+
+/// Replace-or-push at `path` WITHOUT preserving any existing destination
+/// node's children. Used for rename's destination insert, where the moved
+/// node's own children (carried over from the source) are already correct
+/// and must not be clobbered by a stale destination's children.
+fn upsert_replace(root: &mut Value, path: &str, node: Value) -> bool {
+    if let Some((kids, leaf)) = parent_children(root, path) {
+        match kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(leaf.as_str())) {
+            Some(i) => kids[i] = node,
             None => kids.push(node),
         }
         return true;
@@ -311,13 +345,17 @@ pub fn apply_ops(
             }
             OpKind::Rename => {
                 if let Some(new_path) = &op.new_path {
-                    // Move the existing subtree from old to new path.
-                    if let Some((kids, leaf)) = parent_children(root, &op.path) {
+                    // Locate the existing subtree without synthesizing phantom
+                    // ancestors if the source path doesn't actually exist.
+                    if let Some((kids, leaf)) = find_parent_children(root, &op.path) {
                         if let Some(i) = kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(leaf.as_str())) {
                             let mut moved = kids.remove(i);
                             let new_name = new_path.rsplit('/').next().unwrap_or(leaf.as_str()).to_string();
                             moved.as_object_mut().unwrap().insert("name".into(), json!(new_name));
-                            upsert(root, new_path, moved)
+                            // Insert the moved node wholesale: it already carries its
+                            // own (correct) children, so use the non-preserving upsert
+                            // to avoid clobbering them with a stale destination's children.
+                            upsert_replace(root, new_path, moved)
                         } else { false }
                     } else { false }
                 } else { false }
@@ -389,5 +427,36 @@ mod apply_tests {
         let mut root = empty_root();
         let n = apply_ops(&mut root, &[op(OpKind::Delete, "", None, None)], "src", &HashMap::new());
         assert_eq!(n, 0);
+    }
+
+    #[test]
+    fn test_rename_onto_existing_target_keeps_moved_childrens() {
+        let mut root = empty_root();
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Src", Some(json!({"className":"Model","properties":{}})), None)], "src", &HashMap::new());
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Src/Kept", Some(json!({"className":"Part","properties":{}})), None)], "src", &HashMap::new());
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Dst", Some(json!({"className":"Model","properties":{}})), None)], "src", &HashMap::new());
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Dst/Stale", Some(json!({"className":"Part","properties":{}})), None)], "src", &HashMap::new());
+        // rename Src -> Dst (collision): Dst must end up with Src's child "Kept", not the stale "Stale"
+        apply_ops(&mut root, &[op(OpKind::Rename, "Workspace/Src", None, Some("Workspace/Dst"))], "src", &HashMap::new());
+        let ws = root["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        let dst = ws["children"].as_array().unwrap().iter().find(|c| c["name"]=="Dst").unwrap();
+        let kids: Vec<&str> = dst["children"].as_array().unwrap().iter().map(|c| c["name"].as_str().unwrap()).collect();
+        assert_eq!(kids, vec!["Kept"], "moved node keeps its own child, not the stale destination's");
+    }
+
+    #[test]
+    fn test_delete_nonexistent_path_no_phantom_folders() {
+        let mut root = empty_root();
+        let n = apply_ops(&mut root, &[op(OpKind::Delete, "Workspace/Ghost/Deep", None, None)], "src", &HashMap::new());
+        assert_eq!(n, 0);
+        assert!(root["children"].as_array().unwrap().is_empty(), "no phantom Workspace/Ghost folders created");
+    }
+
+    #[test]
+    fn test_rename_nonexistent_source_no_phantom_folders() {
+        let mut root = empty_root();
+        let n = apply_ops(&mut root, &[op(OpKind::Rename, "Nowhere/Old", None, Some("Nowhere/New"))], "src", &HashMap::new());
+        assert_eq!(n, 0);
+        assert!(root["children"].as_array().unwrap().is_empty(), "no phantom folders from a failed rename source lookup");
     }
 }
