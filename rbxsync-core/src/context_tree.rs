@@ -142,7 +142,7 @@ pub fn write_context_file(
     tree_mapping: &HashMap<String, String>,
 ) -> std::io::Result<usize> {
     let tree = assemble_tree(instances, "src", tree_mapping);
-    let json = serde_json::to_string_pretty(&tree).unwrap_or_else(|_| "{}".to_string());
+    let json = serde_json::to_string_pretty(&tree).map_err(std::io::Error::other)?;
     let target = project_dir.join("datamodel.rbxjson");
     let tmp = project_dir.join("datamodel.rbxjson.tmp");
     std::fs::write(&tmp, json)?;

@@ -13,13 +13,13 @@
 use std::collections::{HashMap, HashSet};
 use std::path::{Path, PathBuf};
 
-use crate::{apply_tree_mapping, normalize_path, path_with_suffix, pathbuf_with_suffix, SCRIPT_FILE_SUFFIXES};
+use crate::{apply_tree_mapping, path_with_suffix, pathbuf_with_suffix, SCRIPT_FILE_SUFFIXES};
 
 /// Directories to skip during recursive copy operations
 const SKIP_DIRS: &[&str] = &[".rbxsync-trash", ".rbxsync-backup", ".rbxsync", ".git", "node_modules"];
 
 /// A single file to create during extraction.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, PartialEq)]
 pub struct WriteOp {
     pub path: PathBuf,
     pub content: String,
@@ -231,45 +231,14 @@ pub fn plan_instance_writes(
 }
 
 /// Plan just the adopt-once `.luau` script writes for a set of instances
-/// (no per-instance json). Scripts are written only when absent on disk.
+/// (no per-instance json). Delegates to `plan_instance_writes` so script path
+/// resolution, disambiguation, and adopt-once stay identical to a full extraction.
 pub fn plan_script_writes(
     src_dir: &Path,
     instances: &[serde_json::Value],
     tree_mapping: &HashMap<String, String>,
 ) -> Vec<WriteOp> {
-    let mut ops = Vec::new();
-    for inst in instances {
-        let class_name = inst.get("className").and_then(|v| v.as_str()).unwrap_or("Unknown");
-        if !matches!(class_name, "Script" | "LocalScript" | "ModuleScript") {
-            continue;
-        }
-        let inst_path = inst.get("path").and_then(|v| v.as_str()).unwrap_or("");
-        if inst_path.is_empty() {
-            continue;
-        }
-        let fs_path = apply_tree_mapping(&normalize_path(inst_path), tree_mapping);
-        let full_path = src_dir.join(&fs_path);
-        if let Some(source) = inst.get("properties")
-            .and_then(|p| p.get("Source"))
-            .and_then(|v| v.get("value"))
-            .and_then(|v| v.as_str())
-        {
-            let script_exists = SCRIPT_FILE_SUFFIXES.iter()
-                .any(|ext| PathBuf::from(path_with_suffix(&full_path, ext)).exists());
-            if !script_exists {
-                let extension = match class_name {
-                    "Script" => ".server.luau",
-                    "LocalScript" => ".client.luau",
-                    _ => ".luau",
-                };
-                ops.push(WriteOp {
-                    path: PathBuf::from(path_with_suffix(&full_path, extension)),
-                    content: source.to_string(),
-                });
-            }
-        }
-    }
-    ops
+    plan_instance_writes(src_dir, instances, tree_mapping).script_ops
 }
 
 /// Execute a [`WritePlan`] synchronously with `std::fs`, creating directories
@@ -466,5 +435,29 @@ mod tests {
         // Adopt-once: pre-existing script is not re-planned
         std::fs::write(src.join("ServerScriptService/Main.server.luau"), "-- mine").unwrap();
         assert!(plan_script_writes(&src, &insts, &std::collections::HashMap::new()).is_empty());
+    }
+
+    #[test]
+    fn test_plan_script_writes_matches_plan_instance_writes_script_ops() {
+        let dir = tempfile::tempdir().unwrap();
+        let src = dir.path().join("src");
+        std::fs::create_dir_all(&src).unwrap();
+        let tm = std::collections::HashMap::new();
+        let insts = vec![
+            // a script under a duplicated Packages path (exercises the dedup normalize)
+            serde_json::json!({"className":"ModuleScript","name":"Lib","path":"ReplicatedStorage/Packages/Packages/Lib",
+                "referenceId":"a1","properties":{"Source":{"type":"string","value":"return 1"}}}),
+            // duplicate-named script siblings (exercises disambiguation)
+            serde_json::json!({"className":"Script","name":"Run","path":"ServerScriptService/Run",
+                "referenceId":"b1","properties":{"Source":{"type":"string","value":"print(1)"}}}),
+            serde_json::json!({"className":"Script","name":"Run","path":"ServerScriptService/Run",
+                "referenceId":"b2","properties":{"Source":{"type":"string","value":"print(2)"}}}),
+            serde_json::json!({"className":"Part","name":"P","path":"Workspace/P","referenceId":"c1","properties":{}}),
+        ];
+        let via_scripts = plan_script_writes(&src, &insts, &tm);
+        let via_full = plan_instance_writes(&src, &insts, &tm).script_ops;
+        assert_eq!(via_scripts, via_full, "plan_script_writes must equal plan_instance_writes.script_ops");
+        // sanity: three scripts planned (non-script Part excluded)
+        assert_eq!(via_scripts.len(), 3);
     }
 }
