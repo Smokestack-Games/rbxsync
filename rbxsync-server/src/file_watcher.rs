@@ -120,7 +120,7 @@ pub async fn start_file_watcher(
         // Helper: determine if a path should be processed based on extension/kind
         let should_process_path = |path: &PathBuf, kind: &FileChangeKind| -> bool {
             if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
-                ext == "luau" || ext == "lua" || ext == "rbxjson"
+                ext == "luau" || ext == "lua"
             } else {
                 // For deletions and renames, also handle directories (no extension)
                 let is_delete_like = matches!(kind, FileChangeKind::Delete | FileChangeKind::Rename { .. });
@@ -333,7 +333,7 @@ pub async fn start_file_watcher(
                                     for entry in entries.flatten() {
                                         let entry_path = entry.path();
                                         if let Some(ext) = entry_path.extension().and_then(|e| e.to_str()) {
-                                            if ext == "luau" || ext == "lua" || ext == "rbxjson" {
+                                            if ext == "luau" || ext == "lua" {
                                                 let change = FileChange {
                                                     path: entry_path,
                                                     project_dir: project_dir_clone.clone(),

@@ -35,17 +35,20 @@ pub struct WritePlan {
     pub service_folders: HashSet<String>,
 }
 
-/// Decide the directories, script adoptions, and `.rbxjson` writes for a set of
-/// extracted instances, resolving duplicate sibling paths and honoring
-/// adopt-once (a script is only planned when no script file already exists at
-/// its target path). Performs read-only `.exists()` checks; writes nothing.
-pub fn plan_instance_writes(
-    src_dir: &Path,
-    instances: &[serde_json::Value],
-    tree_mapping: &HashMap<String, String>,
-) -> WritePlan {
-    // First pass: build a map from referenceId to disambiguated path
-    // This handles duplicate sibling names by appending a suffix
+/// Build a `referenceId -> disambiguated_path` map for a flat instance array.
+///
+/// `dom_to_instances` emits the SAME flat `path` for duplicate-named siblings
+/// (only slashes escaped; distinct identity is carried in `referenceId`). To
+/// keep such siblings distinct on disk (`.luau`/`.rbxjson` files) and in the
+/// context document, the Nth (N > 1) occurrence of a given path gets `_` plus
+/// the first 8 chars of its `referenceId` appended. Instances with an empty
+/// `path`, or with no `referenceId`, are omitted from the map — callers should
+/// fall back to the instance's raw `path` for those.
+///
+/// This is the single source of truth for path disambiguation, shared by
+/// [`plan_instance_writes`] (the `.luau`/`.rbxjson` writers) and the context
+/// document assembler, so the two always agree on a duplicate's path.
+pub fn disambiguate_paths(instances: &[serde_json::Value]) -> HashMap<String, String> {
     let mut path_to_count: HashMap<String, usize> = HashMap::new();
     let mut ref_to_path: HashMap<String, String> = HashMap::new();
     let mut duplicate_count = 0;
@@ -82,6 +85,23 @@ pub fn plan_instance_writes(
     if duplicate_count > 0 {
         tracing::info!("Found {} duplicate instance paths - these have been disambiguated", duplicate_count);
     }
+
+    ref_to_path
+}
+
+/// Decide the directories, script adoptions, and `.rbxjson` writes for a set of
+/// extracted instances, resolving duplicate sibling paths and honoring
+/// adopt-once (a script is only planned when no script file already exists at
+/// its target path). Performs read-only `.exists()` checks; writes nothing.
+pub fn plan_instance_writes(
+    src_dir: &Path,
+    instances: &[serde_json::Value],
+    tree_mapping: &HashMap<String, String>,
+) -> WritePlan {
+    // First pass: build a map from referenceId to disambiguated path.
+    // This handles duplicate sibling names by appending a referenceId suffix,
+    // shared with the context document assembler via disambiguate_paths.
+    let ref_to_path = disambiguate_paths(instances);
 
     // Collect all disambiguated paths for container detection
     let all_paths: HashSet<String> = ref_to_path.values().cloned().collect();

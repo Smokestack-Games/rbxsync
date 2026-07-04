@@ -295,10 +295,19 @@ impl AppState {
             }
         };
         let path = std::path::PathBuf::from(project_dir).join("datamodel.rbxjson");
-        let mut root = std::fs::read_to_string(&path)
-            .ok()
-            .and_then(|s| serde_json::from_str::<serde_json::Value>(&s).ok())
-            .unwrap_or_else(|| serde_json::json!({ "className": "DataModel", "name": "DataModel", "children": [] }));
+        let empty_root =
+            || serde_json::json!({ "className": "DataModel", "name": "DataModel", "children": [] });
+        // Distinguish absent (normal — no log) from present-but-unparseable (warn).
+        let mut root = match std::fs::read_to_string(&path) {
+            Ok(s) => serde_json::from_str::<serde_json::Value>(&s).unwrap_or_else(|_| {
+                tracing::warn!(
+                    "existing datamodel.rbxjson for {} is unparseable; rebuilding from buffered ops",
+                    project_dir
+                );
+                empty_root()
+            }),
+            Err(_) => empty_root(),
+        };
         let tree_mapping = rbxsync_core::load_tree_mapping(std::path::Path::new(project_dir));
         let applied = rbxsync_core::context_tree::apply_ops(&mut root, &ops, "src", &tree_mapping);
         if applied > 0 {

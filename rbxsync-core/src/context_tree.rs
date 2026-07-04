@@ -141,7 +141,31 @@ pub fn write_context_file(
     instances: &[Value],
     tree_mapping: &HashMap<String, String>,
 ) -> std::io::Result<usize> {
-    let tree = assemble_tree(instances, "src", tree_mapping);
+    // `dom_to_instances` gives duplicate-named siblings the SAME flat `path`
+    // (identity lives in `referenceId`). Rewrite each instance's `path` to its
+    // disambiguated path so all siblings stay distinct nodes in the nested
+    // document — using the same scheme plan_instance_writes uses for the
+    // `.luau`/`.rbxjson` files, so a duplicate script's `sourcePath` matches its
+    // real filename. The node `name` (raw name) is left untouched; only the
+    // path used for nesting/keying is disambiguated.
+    let ref_to_path = crate::extract_tree::disambiguate_paths(instances);
+    let disambiguated: Vec<Value> = instances
+        .iter()
+        .map(|inst| {
+            let ref_id = inst.get("referenceId").and_then(|v| v.as_str()).unwrap_or("");
+            match ref_to_path.get(ref_id) {
+                Some(new_path) => {
+                    let mut inst = inst.clone();
+                    if let Some(obj) = inst.as_object_mut() {
+                        obj.insert("path".into(), json!(new_path));
+                    }
+                    inst
+                }
+                None => inst.clone(),
+            }
+        })
+        .collect();
+    let tree = assemble_tree(&disambiguated, "src", tree_mapping);
     let json = serde_json::to_string_pretty(&tree).map_err(std::io::Error::other)?;
     let target = project_dir.join("datamodel.rbxjson");
     let tmp = project_dir.join("datamodel.rbxjson.tmp");
@@ -234,16 +258,22 @@ mod tests {
     }
 
     #[test]
-    fn test_duplicate_sibling_paths_kept_distinct() {
-        let tm = HashMap::new();
-        let instances = vec![
-            inst("Folder", "Root", "Root", json!({})),
-            inst("Part", "P", "Root/P", json!({})),
-            inst("Part", "P", "Root/P_4f37bf41", json!({})),
-        ];
-        let tree = assemble_tree(&instances, "src", &tm);
-        let root = find(&tree, "Root").unwrap();
-        assert_eq!(root["children"].as_array().unwrap().len(), 2);
+    fn test_duplicate_siblings_from_real_dom_all_present() {
+        use rbx_dom_weak::{InstanceBuilder, WeakDom};
+        let dom = WeakDom::new(InstanceBuilder::new("DataModel").with_child(
+            InstanceBuilder::new("Workspace").with_name("Workspace").with_children([
+                InstanceBuilder::new("Part").with_name("Part"),
+                InstanceBuilder::new("Part").with_name("Part"),
+                InstanceBuilder::new("Part").with_name("Part"),
+            ])));
+        let instances = crate::dom_to_instances(&dom);
+        let dir = tempfile::tempdir().unwrap();
+        crate::context_tree::write_context_file(dir.path(), &instances, &std::collections::HashMap::new()).unwrap();
+        let doc: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("datamodel.rbxjson")).unwrap()).unwrap();
+        let ws = doc["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        let parts: Vec<_> = ws["children"].as_array().unwrap().iter().filter(|c| c["name"]=="Part").collect();
+        assert_eq!(parts.len(), 3, "all three same-named siblings must survive in the context doc");
     }
 }
 
