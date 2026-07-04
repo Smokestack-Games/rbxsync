@@ -4,6 +4,7 @@
 //! Source (only a `sourcePath` pointer), no binary, hierarchy is by nesting.
 
 use std::collections::HashMap;
+use std::path::Path;
 use serde_json::{json, Map, Value};
 
 use crate::{apply_tree_mapping, normalize_path, path_with_suffix};
@@ -131,6 +132,45 @@ pub fn assemble_tree(
 
     let root_children: Vec<Value> = roots.iter().map(|r| build(r, &nodes, &children_of)).collect();
     json!({ "className": "DataModel", "name": "DataModel", "children": root_children })
+}
+
+/// Assemble the instances into the nested document and write it atomically to
+/// `<project_dir>/datamodel.rbxjson`, then stamp snapshot freshness (full extract).
+pub fn write_context_file(
+    project_dir: &Path,
+    instances: &[Value],
+    tree_mapping: &HashMap<String, String>,
+) -> std::io::Result<usize> {
+    let tree = assemble_tree(instances, "src", tree_mapping);
+    let json = serde_json::to_string_pretty(&tree).unwrap_or_else(|_| "{}".to_string());
+    let target = project_dir.join("datamodel.rbxjson");
+    let tmp = project_dir.join("datamodel.rbxjson.tmp");
+    std::fs::write(&tmp, json)?;
+    std::fs::rename(&tmp, &target)?;
+    crate::extract_tree::write_snapshot_freshness(&project_dir.to_string_lossy(), true);
+    Ok(instances.len())
+}
+
+#[cfg(test)]
+mod write_tests {
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn test_write_context_file_produces_single_nested_doc() {
+        let dir = tempfile::tempdir().unwrap();
+        let insts = vec![
+            json!({"className":"Workspace","name":"Workspace","path":"Workspace","properties":{}}),
+            json!({"className":"Part","name":"Part","path":"Workspace/Part","properties":{}}),
+        ];
+        write_context_file(dir.path(), &insts, &HashMap::new()).unwrap();
+        let doc: Value = serde_json::from_str(
+            &std::fs::read_to_string(dir.path().join("datamodel.rbxjson")).unwrap()).unwrap();
+        assert_eq!(doc["className"], "DataModel");
+        assert_eq!(doc["children"][0]["name"], "Workspace");
+        assert_eq!(doc["children"][0]["children"][0]["name"], "Part");
+        assert!(dir.path().join(".rbxsync/snapshot.json").exists());
+    }
 }
 
 #[cfg(test)]
