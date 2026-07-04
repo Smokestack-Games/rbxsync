@@ -962,17 +962,25 @@ fn extract_from_file(place_path: &std::path::Path, project_dir: &std::path::Path
     };
 
     let instances = rbxsync_core::dom_to_instances(&dom);
-    let project_dir_str = project_dir.to_string_lossy().to_string();
     let src_dir = project_dir.join("src");
 
-    rbxsync_core::extract_tree::prepare_src_for_extraction(&project_dir_str);
+    rbxsync_core::extract_tree::prepare_src_for_extraction(&project_dir.to_string_lossy());
     let tree_mapping = rbxsync_core::load_tree_mapping(project_dir);
-    let plan = rbxsync_core::extract_tree::plan_instance_writes(&src_dir, &instances, &tree_mapping);
-    let (files_written, scripts_written) = rbxsync_core::extract_tree::execute_write_plan_sync(&plan);
-    rbxsync_core::extract_tree::write_snapshot_freshness(&project_dir_str, true);
 
-    println!("Baseline built from {}: {} instance files, {} scripts adopted ({} total instances)",
-        place_path.display(), files_written, scripts_written, instances.len());
+    // Bootstrap scripts on disk (adopt-once), then write the single context document.
+    let script_ops = rbxsync_core::extract_tree::plan_script_writes(&src_dir, &instances, &tree_mapping);
+    let plan = rbxsync_core::extract_tree::WritePlan {
+        dirs: script_ops.iter().filter_map(|op| op.path.parent().map(|p| p.to_path_buf())).collect(),
+        script_ops,
+        json_ops: Vec::new(),
+        adopted: Vec::new(),
+        service_folders: std::collections::HashSet::new(),
+    };
+    let (_files, scripts_written) = rbxsync_core::extract_tree::execute_write_plan_sync(&plan);
+    let count = rbxsync_core::context_tree::write_context_file(project_dir, &instances, &tree_mapping)?;
+
+    println!("Baseline built from {}: datamodel.rbxjson with {} instances, {} scripts adopted",
+        place_path.display(), count, scripts_written);
     Ok(())
 }
 
@@ -3872,12 +3880,22 @@ mod from_file_tests {
 
         extract_from_file(&place, dir.path()).unwrap();
 
-        let src = dir.path().join("src");
-        assert!(src.join("Workspace/Block.rbxjson").exists());
-        assert!(src.join("ServerScriptService/Main.server.luau").exists());
-        assert_eq!(std::fs::read_to_string(src.join("ServerScriptService/Main.server.luau")).unwrap(), "print('hi')");
-        let sidecar = std::fs::read_to_string(src.join("ServerScriptService/Main.rbxjson")).unwrap();
-        assert!(!sidecar.contains("\"Source\""));
-        assert!(dir.path().join(".rbxsync/snapshot.json").exists());
+        let root = dir.path();
+        // Single nested context document, not an exploded tree
+        assert!(root.join("datamodel.rbxjson").exists());
+        assert!(!root.join("src/Workspace/Block.rbxjson").exists());
+        let doc: serde_json::Value = serde_json::from_str(
+            &std::fs::read_to_string(root.join("datamodel.rbxjson")).unwrap()).unwrap();
+        assert_eq!(doc["className"], "DataModel");
+        let ws = doc["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        assert!(ws["children"].as_array().unwrap().iter().any(|c| c["name"]=="Block"));
+        // Script still bootstrapped as a .luau; its node carries no Source
+        assert!(root.join("src/ServerScriptService/Main.server.luau").exists());
+        assert_eq!(std::fs::read_to_string(root.join("src/ServerScriptService/Main.server.luau")).unwrap(), "print('hi')");
+        let sss = doc["children"].as_array().unwrap().iter().find(|c| c["name"]=="ServerScriptService").unwrap();
+        let main = sss["children"].as_array().unwrap().iter().find(|c| c["name"]=="Main").unwrap();
+        assert!(main["properties"].get("Source").is_none());
+        assert_eq!(main["sourcePath"], "src/ServerScriptService/Main.server.luau");
+        assert!(root.join(".rbxsync/snapshot.json").exists());
     }
 }
