@@ -20,7 +20,7 @@ pub mod types;
 pub mod variant_json;
 
 // Re-export commonly used types
-pub use context_tree::assemble_tree;
+pub use context_tree::{apply_ops, assemble_tree, OpKind, SyncOp};
 pub use extract_tree::{
     clear_instance_files, copy_dir_recursive, execute_write_plan_sync, plan_instance_writes,
     prepare_src_for_extraction, write_snapshot_freshness, WriteOp, WritePlan,

@@ -206,3 +206,188 @@ mod tests {
         assert_eq!(root["children"].as_array().unwrap().len(), 2);
     }
 }
+
+#[derive(Debug, Clone, PartialEq)]
+pub enum OpKind { Create, Modify, Delete, Rename }
+
+/// One live delta to apply to the context document. `path` is the DataModel
+/// path; `new_path` is set for renames; `data` is the full instance object
+/// (create/modify) in the same shape `assemble_tree` consumes.
+#[derive(Debug, Clone)]
+pub struct SyncOp {
+    pub op: OpKind,
+    pub path: String,
+    pub new_path: Option<String>,
+    pub data: Option<Value>,
+}
+
+/// Navigate to the mutable children Vec of the parent of `path`, creating
+/// missing ancestor Folders. Returns (parent_children, leaf_name).
+fn parent_children<'a>(root: &'a mut Value, path: &str) -> Option<(&'a mut Vec<Value>, String)> {
+    let segments: Vec<&str> = path.split('/').filter(|s| !s.is_empty()).collect();
+    if segments.is_empty() {
+        return None;
+    }
+    let leaf = segments[segments.len() - 1].to_string();
+    let mut cur = root;
+    for seg in &segments[..segments.len() - 1] {
+        // ensure children array exists
+        if cur.get("children").is_none() {
+            cur.as_object_mut()?.insert("children".into(), Value::Array(vec![]));
+        }
+        let kids = cur.get_mut("children")?.as_array_mut()?;
+        let idx = kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(*seg));
+        let idx = match idx {
+            Some(i) => i,
+            None => {
+                kids.push(json!({ "className": "Folder", "name": seg }));
+                kids.len() - 1
+            }
+        };
+        cur = kids.get_mut(idx)?;
+    }
+    if cur.get("children").is_none() {
+        cur.as_object_mut()?.insert("children".into(), Value::Array(vec![]));
+    }
+    Some((cur.get_mut("children")?.as_array_mut()?, leaf))
+}
+
+fn remove_at(root: &mut Value, path: &str) -> bool {
+    if let Some((kids, leaf)) = parent_children(root, path) {
+        if let Some(i) = kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(leaf.as_str())) {
+            kids.remove(i);
+            return true;
+        }
+    }
+    false
+}
+
+fn upsert(root: &mut Value, path: &str, node: Value) -> bool {
+    if let Some((kids, leaf)) = parent_children(root, path) {
+        match kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(leaf.as_str())) {
+            Some(i) => {
+                // Preserve existing children when replacing an instance's own fields.
+                let existing_children = kids[i].get("children").cloned();
+                kids[i] = node;
+                if let Some(ch) = existing_children {
+                    kids[i].as_object_mut().unwrap().insert("children".into(), ch);
+                }
+            }
+            None => kids.push(node),
+        }
+        return true;
+    }
+    false
+}
+
+pub fn apply_ops(
+    root: &mut Value,
+    ops: &[SyncOp],
+    src_dir_name: &str,
+    tree_mapping: &HashMap<String, String>,
+) -> usize {
+    let mut applied = 0;
+    for op in ops {
+        let ok = match op.op {
+            OpKind::Delete => remove_at(root, &op.path),
+            OpKind::Create | OpKind::Modify => {
+                if let Some(data) = &op.data {
+                    // data carries className/name/properties/... in the instance shape;
+                    // ensure it has name/path for make_node.
+                    let mut inst = data.clone();
+                    let obj = inst.as_object_mut();
+                    if let Some(obj) = obj {
+                        obj.entry("path").or_insert(json!(op.path));
+                        if !obj.contains_key("name") {
+                            let nm = op.path.rsplit('/').next().unwrap_or("");
+                            obj.insert("name".into(), json!(nm));
+                        }
+                    }
+                    let node = make_node(&inst, src_dir_name, tree_mapping);
+                    upsert(root, &op.path, node)
+                } else {
+                    false
+                }
+            }
+            OpKind::Rename => {
+                if let Some(new_path) = &op.new_path {
+                    // Move the existing subtree from old to new path.
+                    if let Some((kids, leaf)) = parent_children(root, &op.path) {
+                        if let Some(i) = kids.iter().position(|c| c.get("name").and_then(|n| n.as_str()) == Some(leaf.as_str())) {
+                            let mut moved = kids.remove(i);
+                            let new_name = new_path.rsplit('/').next().unwrap_or(leaf.as_str()).to_string();
+                            moved.as_object_mut().unwrap().insert("name".into(), json!(new_name));
+                            upsert(root, new_path, moved)
+                        } else { false }
+                    } else { false }
+                } else { false }
+            }
+        };
+        if ok { applied += 1; }
+    }
+    applied
+}
+
+#[cfg(test)]
+mod apply_tests {
+    use super::*;
+    use serde_json::json;
+
+    fn empty_root() -> Value { json!({ "className": "DataModel", "name": "DataModel", "children": [] }) }
+    fn op(kind: OpKind, path: &str, data: Option<Value>, new_path: Option<&str>) -> SyncOp {
+        SyncOp { op: kind, path: path.into(), new_path: new_path.map(|s| s.into()), data }
+    }
+
+    #[test]
+    fn test_create_adds_node_under_synthesized_parents() {
+        let mut root = empty_root();
+        let n = apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Model/Part",
+            Some(json!({"className":"Part","properties":{}})), None)], "src", &HashMap::new());
+        assert_eq!(n, 1);
+        let ws = root["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        let model = ws["children"].as_array().unwrap().iter().find(|c| c["name"]=="Model").unwrap();
+        assert_eq!(model["children"].as_array().unwrap()[0]["className"], "Part");
+    }
+
+    #[test]
+    fn test_modify_updates_props_preserves_children() {
+        let mut root = empty_root();
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace", Some(json!({"className":"Workspace","properties":{}})), None)], "src", &HashMap::new());
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Child", Some(json!({"className":"Folder","properties":{}})), None)], "src", &HashMap::new());
+        apply_ops(&mut root, &[op(OpKind::Modify, "Workspace", Some(json!({"className":"Workspace","properties":{"Gravity":{"type":"float","value":10.0}}})), None)], "src", &HashMap::new());
+        let ws = root["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        assert_eq!(ws["properties"]["Gravity"], json!({"type":"float","value":10.0}));
+        assert_eq!(ws["children"].as_array().unwrap().len(), 1, "child preserved through modify");
+    }
+
+    #[test]
+    fn test_delete_removes_node() {
+        let mut root = empty_root();
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Gone", Some(json!({"className":"Part","properties":{}})), None)], "src", &HashMap::new());
+        let n = apply_ops(&mut root, &[op(OpKind::Delete, "Workspace/Gone", None, None)], "src", &HashMap::new());
+        assert_eq!(n, 1);
+        let ws = root["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        assert!(ws["children"].as_array().unwrap().is_empty());
+    }
+
+    #[test]
+    fn test_rename_moves_subtree() {
+        let mut root = empty_root();
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Old", Some(json!({"className":"Model","properties":{}})), None)], "src", &HashMap::new());
+        apply_ops(&mut root, &[op(OpKind::Create, "Workspace/Old/Leaf", Some(json!({"className":"Part","properties":{}})), None)], "src", &HashMap::new());
+        let n = apply_ops(&mut root, &[op(OpKind::Rename, "Workspace/Old", None, Some("Workspace/New"))], "src", &HashMap::new());
+        assert_eq!(n, 1);
+        let ws = root["children"].as_array().unwrap().iter().find(|c| c["name"]=="Workspace").unwrap();
+        let kids = ws["children"].as_array().unwrap();
+        assert!(kids.iter().all(|c| c["name"] != "Old"));
+        let new = kids.iter().find(|c| c["name"]=="New").unwrap();
+        assert_eq!(new["children"].as_array().unwrap()[0]["name"], "Leaf");
+    }
+
+    #[test]
+    fn test_unresolvable_op_skipped() {
+        let mut root = empty_root();
+        let n = apply_ops(&mut root, &[op(OpKind::Delete, "", None, None)], "src", &HashMap::new());
+        assert_eq!(n, 0);
+    }
+}
