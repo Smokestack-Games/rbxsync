@@ -2628,7 +2628,9 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         .and_then(|v| v.as_str())
         .unwrap_or("ServerScriptService/Packages");
 
-    // Recursively read all .rbxjson files
+    // Recursively read all script (.luau/.lua) files; non-script instance state
+    // now lives only in the single datamodel.rbxjson context document, which
+    // this endpoint does not read.
     let mut instances: Vec<serde_json::Value> = Vec::new();
     // (instance_path -> (source, original_filename)) for script files
     let mut scripts: std::collections::HashMap<String, (String, String)> = std::collections::HashMap::new();
@@ -2637,7 +2639,6 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         dir: &std::path::Path,
         base: &std::path::Path,
         path_prefix: &str,
-        instances: &mut Vec<serde_json::Value>,
         scripts: &mut std::collections::HashMap<String, (String, String)>,
         tree_mapping: &std::collections::HashMap<String, String>,
     ) {
@@ -2651,53 +2652,9 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
                     }
                 }
                 if path.is_dir() {
-                    walk_dir(&path, base, path_prefix, instances, scripts, tree_mapping);
+                    walk_dir(&path, base, path_prefix, scripts, tree_mapping);
                 } else if let Some(ext) = path.extension() {
-                    if ext == "rbxjson" {
-                        // Skip terrain.rbxjson - it has different format (terrain chunk data, not instance data)
-                        let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-                        if filename == "terrain.rbxjson" {
-                            tracing::debug!("Skipping terrain file: {:?}", path);
-                            continue;
-                        }
-                        // Read instance JSON
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
-                                // Derive path from file system if not present in JSON
-                                let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                // Convert file path to instance path:
-                                // e.g., "Workspace/MyPart.rbxjson" -> "Workspace/MyPart"
-                                // e.g., "Workspace/MyPart/_meta.rbxjson" -> "Workspace/MyPart"
-                                // e.g., "Workspace/Model/init.rbxjson" -> "Workspace/Model"
-                                let rel_inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
-                                let rel_inst_path = rbxsync_core::apply_reverse_tree_mapping(&rel_inst_path, tree_mapping);
-
-                                // Apply path prefix (for packages mapping to DataModel paths)
-                                let inst_path = if path_prefix.is_empty() {
-                                    rel_inst_path
-                                } else {
-                                    format!("{}/{}", path_prefix, rel_inst_path)
-                                };
-
-                                // Set path from file location (used for tracking, not naming)
-                                // Normalize path to strip disambiguation suffixes (RBXSYNC-68)
-                                // e.g., "Workspace/Part_a1b2c3d4" -> "Workspace/Part"
-                                let normalized_inst_path = normalize_path_for_comparison(&inst_path);
-                                if let Some(obj) = inst.as_object_mut() {
-                                    // Always set path from file location (normalized)
-                                    obj.insert("path".to_string(), serde_json::Value::String(normalized_inst_path.clone()));
-
-                                    // Only set name if not provided in JSON
-                                    if !obj.contains_key("name") {
-                                        if let Some(name) = normalized_inst_path.rsplit('/').next() {
-                                            obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
-                                        }
-                                    }
-                                }
-                                instances.push(inst);
-                            }
-                        }
-                    } else if ext == "luau" || ext == "lua" {
+                    if ext == "luau" || ext == "lua" {
                         // Read script source
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
                         let filename_str = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
@@ -2726,45 +2683,23 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
     }
 
     // Walk the main src directory (no prefix - paths map directly to DataModel)
-    walk_dir(&src_dir, &src_dir, "", &mut instances, &mut scripts, &tree_mapping);
+    walk_dir(&src_dir, &src_dir, "", &mut scripts, &tree_mapping);
 
     // Walk packages directory if enabled (packages_dir already validated when packages_enabled was set)
     if packages_enabled {
         tracing::info!("Reading Wally packages from {} -> {}", packages_folder, shared_packages_path);
-        walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut instances, &mut scripts, &std::collections::HashMap::new());
+        walk_dir(&packages_dir, &packages_dir, shared_packages_path, &mut scripts, &std::collections::HashMap::new());
 
         // Also check for server packages subdirectory
         let server_pkg_dir = packages_dir.join("ServerPackages");
         if server_pkg_dir.exists() && server_pkg_dir.is_dir() {
             tracing::info!("Reading server packages from ServerPackages -> {}", server_packages_path);
-            walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut instances, &mut scripts, &std::collections::HashMap::new());
+            walk_dir(&server_pkg_dir, &server_pkg_dir, server_packages_path, &mut scripts, &std::collections::HashMap::new());
         }
     }
 
-    // Merge script sources into their instance data
-    let mut merged_scripts = std::collections::HashSet::new();
-    for inst in &mut instances {
-        if let Some(path) = inst.get("path").and_then(|v| v.as_str()).map(|s| s.to_string()) {
-            if let Some((source, _filename)) = scripts.get(&path) {
-                // Add or update Source property
-                if let Some(props) = inst.get_mut("properties") {
-                    if let Some(obj) = props.as_object_mut() {
-                        obj.insert("Source".to_string(), serde_json::json!({
-                            "type": "string",
-                            "value": source
-                        }));
-                    }
-                }
-                merged_scripts.insert(path);
-            }
-        }
-    }
-
-    // Create standalone script instances for .luau files without matching .rbxjson
+    // Build script instances from every .luau/.lua file discovered
     for (inst_path, (source, filename)) in &scripts {
-        if merged_scripts.contains(inst_path) {
-            continue;
-        }
         let class_name = rbxsync_core::script_class_from_filename(filename);
         let name = inst_path.rsplit('/').next().unwrap_or(inst_path);
         instances.push(serde_json::json!({
@@ -2780,7 +2715,7 @@ async fn handle_sync_read_tree(Json(req): Json<ReadTreeRequest>) -> impl IntoRes
         }));
     }
 
-    tracing::info!("Read {} instances ({} standalone scripts) from {}", instances.len(), scripts.len() - merged_scripts.len(), src_dir.display());
+    tracing::info!("Read {} script instances from {}", instances.len(), src_dir.display());
 
     (
         StatusCode::OK,
@@ -2936,11 +2871,9 @@ async fn handle_sync_incremental(
     let mut files_checked = 0usize;
     let mut files_modified = 0usize;
 
-    #[allow(clippy::too_many_arguments)]
     fn walk_dir_incremental(
         dir: &std::path::Path,
         base: &std::path::Path,
-        instances: &mut Vec<serde_json::Value>,
         scripts: &mut std::collections::HashMap<String, (String, String)>,
         last_sync: Option<std::time::SystemTime>,
         files_checked: &mut usize,
@@ -2957,7 +2890,7 @@ async fn handle_sync_incremental(
                     }
                 }
                 if path.is_dir() {
-                    walk_dir_incremental(&path, base, instances, scripts, last_sync, files_checked, files_modified, tree_mapping);
+                    walk_dir_incremental(&path, base, scripts, last_sync, files_checked, files_modified, tree_mapping);
                 } else if let Some(ext) = path.extension() {
                     *files_checked += 1;
 
@@ -2982,30 +2915,7 @@ async fn handle_sync_incremental(
 
                     *files_modified += 1;
 
-                    if ext == "rbxjson" {
-                        let filename = path.file_name().map(|n| n.to_string_lossy()).unwrap_or_default();
-                        if filename == "terrain.rbxjson" {
-                            continue;
-                        }
-
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            if let Ok(mut inst) = serde_json::from_str::<serde_json::Value>(&content) {
-                                let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
-                                let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, tree_mapping);
-
-                                if let Some(obj) = inst.as_object_mut() {
-                                    obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
-                                    if !obj.contains_key("name") {
-                                        if let Some(name) = inst_path.rsplit('/').next() {
-                                            obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
-                                        }
-                                    }
-                                }
-                                instances.push(inst);
-                            }
-                        }
-                    } else if ext == "luau" || ext == "lua" {
+                    if ext == "luau" || ext == "lua" {
                         let rel_path = path.strip_prefix(base).unwrap_or(&path);
                         let filename_str = path.file_name().map(|n| n.to_string_lossy().to_string()).unwrap_or_default();
 
@@ -3022,48 +2932,25 @@ async fn handle_sync_incremental(
         }
     }
 
-    walk_dir_incremental(&src_dir, &src_dir, &mut instances, &mut scripts, last_sync, &mut files_checked, &mut files_modified, &tree_mapping);
+    walk_dir_incremental(&src_dir, &src_dir, &mut scripts, last_sync, &mut files_checked, &mut files_modified, &tree_mapping);
 
-    // Merge script sources into their instance data
-    for inst in &mut instances {
-        if let Some(path) = inst.get("path").and_then(|v| v.as_str()) {
-            if let Some((source, _filename)) = scripts.get(path) {
-                if let Some(props) = inst.get_mut("properties") {
-                    if let Some(obj) = props.as_object_mut() {
-                        obj.insert("Source".to_string(), serde_json::json!({
-                            "type": "string",
-                            "value": source
-                        }));
-                    }
+    // Build script instances from every modified .luau/.lua file discovered
+    for (script_path, (source, filename)) in &scripts {
+        // Determine script type from original filename (not the trimmed path)
+        let class_name = rbxsync_core::script_class_from_filename(filename);
+        let instance_name = script_path.rsplit('/').next().unwrap_or(script_path);
+
+        instances.push(serde_json::json!({
+            "className": class_name,
+            "name": instance_name,
+            "path": script_path,
+            "properties": {
+                "Source": {
+                    "type": "string",
+                    "value": source
                 }
             }
-        }
-    }
-
-    // Handle scripts that don't have an .rbxjson (standalone scripts)
-    let instance_paths: std::collections::HashSet<String> = instances.iter()
-        .filter_map(|inst| inst.get("path").and_then(|v| v.as_str()).map(String::from))
-        .collect();
-
-    for (script_path, (source, filename)) in &scripts {
-        if !instance_paths.contains(script_path) {
-            // Determine script type from original filename (not the trimmed path)
-            let class_name = rbxsync_core::script_class_from_filename(filename);
-
-            let instance_name = script_path.rsplit('/').next().unwrap_or(script_path);
-
-            instances.push(serde_json::json!({
-                "className": class_name,
-                "name": instance_name,
-                "path": script_path,
-                "properties": {
-                    "Source": {
-                        "type": "string",
-                        "value": source
-                    }
-                }
-            }));
-        }
+        }));
     }
 
     let full_sync = last_sync.is_none();
@@ -3214,47 +3101,49 @@ async fn handle_diff(
         );
     }
 
-    // Collect file paths
-    let tree_mapping = rbxsync_core::load_tree_mapping(std::path::Path::new(&req.project_dir));
+    // Collect DataModel paths from the single context document. Non-script
+    // instance state lives only in <project_dir>/datamodel.rbxjson now, so the
+    // file side of the diff is derived from that nested doc instead of a
+    // per-instance file walk.
     let mut file_paths: HashSet<String> = HashSet::new();
     let mut file_classes: HashMap<String, String> = HashMap::new();
 
-    fn collect_file_paths(
-        dir: &std::path::Path,
-        base: &std::path::Path,
+    /// Recursively walk the context document's nested `children`, recording
+    /// each node's DataModel path (built as `prefix/name`, or just `name` at
+    /// the top level under DataModel) and className.
+    fn collect_from_context(
+        node: &serde_json::Value,
+        prefix: &str,
         paths: &mut HashSet<String>,
         classes: &mut HashMap<String, String>,
-        tree_mapping: &HashMap<String, String>,
     ) {
-        if let Ok(entries) = std::fs::read_dir(dir) {
-            for entry in entries.flatten() {
-                let path = entry.path();
-                if path.is_dir() {
-                    collect_file_paths(&path, base, paths, classes, tree_mapping);
-                } else if let Some(ext) = path.extension() {
-                    if ext == "rbxjson" {
-                        if let Ok(content) = std::fs::read_to_string(&path) {
-                            if let Ok(inst) = serde_json::from_str::<serde_json::Value>(&content) {
-                                let rel_path = path.strip_prefix(base).unwrap_or(&path);
-                                let inst_path = rbxsync_core::file_to_instance_path(rel_path).instance_path;
-                                let inst_path = rbxsync_core::apply_reverse_tree_mapping(&inst_path, tree_mapping);
-                                // Strip disambiguation suffixes for comparison with Studio paths
-                                // (RBXSYNC-68: extract adds _refId suffixes, Studio paths don't have them)
-                                let normalized_path = normalize_path_for_comparison(&inst_path);
-                                paths.insert(normalized_path.clone());
-                                if let Some(class) = inst.get("className").and_then(|v| v.as_str()) {
-                                    classes.insert(normalized_path, class.to_string());
-                                }
-                            }
-                        }
-                    }
-                }
+        let Some(children) = node.get("children").and_then(|v| v.as_array()) else {
+            return;
+        };
+        for child in children {
+            let Some(name) = child.get("name").and_then(|v| v.as_str()) else {
+                continue;
+            };
+            let path = if prefix.is_empty() {
+                name.to_string()
+            } else {
+                format!("{}/{}", prefix, name)
+            };
+            paths.insert(path.clone());
+            if let Some(class) = child.get("className").and_then(|v| v.as_str()) {
+                classes.insert(path.clone(), class.to_string());
             }
+            collect_from_context(child, &path, paths, classes);
         }
     }
 
-    collect_file_paths(&src_dir, &src_dir, &mut file_paths, &mut file_classes, &tree_mapping);
-    tracing::info!("Read {} file paths from {}", file_paths.len(), src_dir.display());
+    let context_path = PathBuf::from(&req.project_dir).join("datamodel.rbxjson");
+    if let Ok(content) = std::fs::read_to_string(&context_path) {
+        if let Ok(doc) = serde_json::from_str::<serde_json::Value>(&content) {
+            collect_from_context(&doc, "", &mut file_paths, &mut file_classes);
+        }
+    }
+    tracing::info!("Read {} paths from {}", file_paths.len(), context_path.display());
 
     // 2. Get Studio paths via plugin
     let request_id = Uuid::new_v4();

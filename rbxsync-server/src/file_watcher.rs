@@ -465,49 +465,15 @@ pub fn process_file_change(
                         }
                     }
                 }))
-            } else if file_ext == "rbxjson" {
-                // Instance JSON file
-                let content = match std::fs::read_to_string(path) {
-                    Ok(s) => s,
-                    Err(e) => {
-                        tracing::warn!("Failed to read file {:?}: {}", path, e);
-                        return None;
-                    }
-                };
-
-                let mut data: serde_json::Value = match serde_json::from_str(&content) {
-                    Ok(d) => d,
-                    Err(e) => {
-                        tracing::warn!("Failed to parse JSON {:?}: {}", path, e);
-                        return None;
-                    }
-                };
-
-                // Ensure path is set from file location (used for tracking, not naming)
-                if let Some(obj) = data.as_object_mut() {
-                    obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
-                    // If no name provided, derive from path
-                    if !obj.contains_key("name") {
-                        if let Some(name) = inst_path.rsplit('/').next() {
-                            obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
-                        }
-                    }
-                }
-
-                Some(serde_json::json!({
-                    "type": if change.kind == FileChangeKind::Create { "create" } else { "update" },
-                    "path": inst_path,
-                    "data": data
-                }))
             } else {
                 None
             }
         }
         FileChangeKind::Rename { ref from_path } => {
             // Detect temp file renames (atomic saves): editors write to .tmp then rename.
-            // The from_path won't have a valid .luau/.lua/.rbxjson extension — treat as a Modify.
+            // The from_path won't have a valid .luau/.lua extension — treat as a Modify.
             let from_ext = from_path.extension().and_then(|e| e.to_str()).unwrap_or("");
-            if from_ext != "luau" && from_ext != "lua" && from_ext != "rbxjson" {
+            if from_ext != "luau" && from_ext != "lua" {
                 // Temp file → real file rename = content update, not instance rename
                 if !path.exists() {
                     return None;
@@ -539,34 +505,6 @@ pub fn process_file_change(
                                 }
                             }
                         }
-                    }));
-                } else if file_ext == "rbxjson" {
-                    let content = match std::fs::read_to_string(path) {
-                        Ok(s) => s,
-                        Err(e) => {
-                            tracing::warn!("Failed to read file {:?}: {}", path, e);
-                            return None;
-                        }
-                    };
-                    let mut data: serde_json::Value = match serde_json::from_str(&content) {
-                        Ok(d) => d,
-                        Err(e) => {
-                            tracing::warn!("Failed to parse JSON {:?}: {}", path, e);
-                            return None;
-                        }
-                    };
-                    if let Some(obj) = data.as_object_mut() {
-                        obj.insert("path".to_string(), serde_json::Value::String(inst_path.clone()));
-                        if !obj.contains_key("name") {
-                            if let Some(name) = inst_path.rsplit('/').next() {
-                                obj.insert("name".to_string(), serde_json::Value::String(name.to_string()));
-                            }
-                        }
-                    }
-                    return Some(serde_json::json!({
-                        "type": "update",
-                        "path": inst_path,
-                        "data": data
                     }));
                 } else {
                     return None;
@@ -670,26 +608,6 @@ mod tests {
         let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
         assert_eq!(op["data"]["className"], "ModuleScript");
         assert_eq!(op["path"], "ReplicatedStorage/Utils");
-    }
-
-    #[test]
-    fn test_rbxjson_sets_path_and_derives_name() {
-        let dir = temp_project();
-        let p = write_src(&dir, "Workspace/Part.rbxjson", r#"{"className":"Part"}"#);
-        let op = process_file_change(&change(&dir, p, FileChangeKind::Create)).unwrap();
-        assert_eq!(op["type"], "create");
-        assert_eq!(op["path"], "Workspace/Part");
-        assert_eq!(op["data"]["path"], "Workspace/Part");
-        assert_eq!(op["data"]["name"], "Part");
-        assert_eq!(op["data"]["className"], "Part");
-    }
-
-    #[test]
-    fn test_meta_rbxjson_maps_to_parent() {
-        let dir = temp_project();
-        let p = write_src(&dir, "Workspace/Container/_meta.rbxjson", r#"{"className":"Model","name":"Container"}"#);
-        let op = process_file_change(&change(&dir, p, FileChangeKind::Modify)).unwrap();
-        assert_eq!(op["path"], "Workspace/Container");
     }
 
     #[test]

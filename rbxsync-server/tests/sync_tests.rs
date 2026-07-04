@@ -20,17 +20,28 @@ fn write(root: &std::path::Path, rel: &str, content: &str) {
     std::fs::write(p, content).unwrap();
 }
 
-/// Project fixture covering every path-mapping convention
+/// Project fixture covering every script path-mapping convention. Non-script
+/// instance state no longer lives under `src/`; it's carried solely by
+/// `datamodel.rbxjson` at the project root (see `write_datamodel` below), which
+/// individual tests attach when they need to exercise that side.
 fn fixture_project() -> TempDir {
     let dir = tempfile::tempdir().unwrap();
     let src = dir.path().join("src");
     write(&src, "ServerScriptService/Main.server.luau", "print('main')");
     write(&src, "ReplicatedStorage/Utils.luau", "return {}");
     write(&src, "StarterPlayer/Ctl.client.luau", "print('ctl')");
-    write(&src, "Workspace/Part.rbxjson", r#"{"className":"Part","name":"Part"}"#);
-    write(&src, "Workspace/Container/_meta.rbxjson", r#"{"className":"Model","name":"Container"}"#);
     write(&src, "ReplicatedStorage/Mod/init.luau", "return {}");
     dir
+}
+
+/// Write a `datamodel.rbxjson` context document at the project root (the
+/// single source of file-side truth for non-script instances / diff).
+fn write_datamodel(project: &std::path::Path, doc: &serde_json::Value) {
+    std::fs::write(
+        project.join("datamodel.rbxjson"),
+        serde_json::to_string(doc).unwrap(),
+    )
+    .unwrap();
 }
 
 fn find_instance<'a>(instances: &'a [serde_json::Value], path: &str) -> &'a serde_json::Value {
@@ -44,7 +55,7 @@ mod read_tree {
     use super::*;
 
     #[tokio::test]
-    async fn test_read_tree_covers_all_conventions() {
+    async fn test_read_tree_covers_all_script_conventions() {
         let server = create_test_server();
         let project = fixture_project();
         let response = server
@@ -56,6 +67,8 @@ mod read_tree {
         assert_eq!(body["success"], true);
         let instances = body["instances"].as_array().unwrap();
         assert_eq!(body["count"], instances.len());
+        // Read-tree now returns script instances only: 4 in fixture_project.
+        assert_eq!(instances.len(), 4);
 
         let main = find_instance(instances, "ServerScriptService/Main");
         assert_eq!(main["className"], "Script");
@@ -66,12 +79,6 @@ mod read_tree {
 
         let utils = find_instance(instances, "ReplicatedStorage/Utils");
         assert_eq!(utils["className"], "ModuleScript");
-
-        let part = find_instance(instances, "Workspace/Part");
-        assert_eq!(part["className"], "Part");
-
-        let container = find_instance(instances, "Workspace/Container");
-        assert_eq!(container["className"], "Model");
 
         let module_dir = find_instance(instances, "ReplicatedStorage/Mod");
         assert_eq!(module_dir["className"], "ModuleScript");
@@ -230,61 +237,33 @@ mod tree_mapping {
         assert!(!instances.iter().any(|i| i["path"] == "shared/Util"));
     }
 
-    #[tokio::test]
-    async fn test_diff_applies_reverse_mapping() {
-        let server = create_test_server();
-        let project = fixture_project();
-        std::fs::write(
-            project.path().join("rbxsync.json"),
-            r#"{"treeMapping": {"ReplicatedStorage/Shared": "shared"}}"#,
-        )
-        .unwrap();
-        write(
-            &project.path().join("src"),
-            "shared/Thing.rbxjson",
-            r#"{"className":"Folder","name":"Thing"}"#,
-        );
-
-        let diff = server
-            .post("/diff")
-            .json(&json!({"project_dir": project.path().to_string_lossy()}));
-
-        let plugin = async {
-            let poll = server.get("/rbxsync/request").await;
-            poll.assert_status_ok();
-            let request: serde_json::Value = poll.json();
-            assert_eq!(request["command"], "studio:paths");
-            let id = request["id"].as_str().unwrap().to_string();
-            server
-                .post("/rbxsync/response")
-                .json(&json!({
-                    "id": id,
-                    "success": true,
-                    "data": {"paths": [
-                        {"path": "Workspace/Part", "className": "Part"}
-                    ]}
-                }))
-                .await
-                .assert_status_ok();
-        };
-
-        let (diff_response, _) = tokio::join!(diff, plugin);
-        diff_response.assert_status_ok();
-        let body: serde_json::Value = diff_response.json();
-        assert_eq!(body["success"], true);
-        let added: Vec<&str> = body["added"].as_array().unwrap().iter().map(|e| e["path"].as_str().unwrap()).collect();
-        assert!(added.contains(&"ReplicatedStorage/Shared/Thing"));
-        assert!(!added.contains(&"shared/Thing"));
-    }
+    // test_diff_applies_reverse_mapping removed: diff's file side used to derive
+    // DataModel paths from tree-mapped `src/` filesystem paths (reverse-mapping
+    // `shared/Thing.rbxjson` -> `ReplicatedStorage/Shared/Thing`). Now diff reads
+    // `datamodel.rbxjson`, whose nodes already carry canonical DataModel paths
+    // directly (see mod diff, which exercises collect_from_context) — there is
+    // no filesystem-path reverse-mapping left on that side to test.
 }
 
 mod diff {
     use super::*;
 
     #[tokio::test]
-    async fn test_diff_compares_rbxjson_files_with_studio_paths() {
+    async fn test_diff_compares_datamodel_rbxjson_with_studio_paths() {
         let server = create_test_server();
         let project = fixture_project();
+        // File-side truth is now the single nested context document instead of
+        // per-instance .rbxjson files.
+        write_datamodel(project.path(), &json!({
+            "className": "DataModel",
+            "name": "DataModel",
+            "children": [
+                {"className": "Workspace", "name": "Workspace", "children": [
+                    {"className": "Part", "name": "Part"},
+                    {"className": "Model", "name": "Container"}
+                ]}
+            ]
+        }));
 
         let diff = server
             .post("/diff")
@@ -314,12 +293,55 @@ mod diff {
         diff_response.assert_status_ok();
         let body: serde_json::Value = diff_response.json();
         assert_eq!(body["success"], true);
-        // File side counts only .rbxjson entries: Workspace/Part + Workspace/Container
+        // File side is derived from datamodel.rbxjson's nested children: the
+        // Workspace service node itself plus its Part and Container children.
         let added: Vec<&str> = body["added"].as_array().unwrap().iter().map(|e| e["path"].as_str().unwrap()).collect();
         let removed: Vec<&str> = body["removed"].as_array().unwrap().iter().map(|e| e["path"].as_str().unwrap()).collect();
+        assert!(added.contains(&"Workspace"), "the Workspace node itself is part of the context doc");
         assert!(added.contains(&"Workspace/Container"));
         assert!(removed.contains(&"Workspace/OnlyInStudio"));
-        assert_eq!(body["common"], 1);
+        assert_eq!(body["common"], 1, "only Workspace/Part is on both sides");
+
+        let container_entry = body["added"].as_array().unwrap().iter()
+            .find(|e| e["path"] == "Workspace/Container").unwrap();
+        assert_eq!(container_entry["className"], "Model");
+    }
+
+    #[tokio::test]
+    async fn test_diff_missing_datamodel_is_empty_file_side() {
+        // No datamodel.rbxjson written: diff should not error, just report an
+        // empty file side (everything Studio has looks "removed").
+        let server = create_test_server();
+        let project = fixture_project();
+
+        let diff = server
+            .post("/diff")
+            .json(&json!({"project_dir": project.path().to_string_lossy()}));
+
+        let plugin = async {
+            let poll = server.get("/rbxsync/request").await;
+            poll.assert_status_ok();
+            let request: serde_json::Value = poll.json();
+            let id = request["id"].as_str().unwrap().to_string();
+            server
+                .post("/rbxsync/response")
+                .json(&json!({
+                    "id": id,
+                    "success": true,
+                    "data": {"paths": [{"path": "Workspace/Solo", "className": "Part"}]}
+                }))
+                .await
+                .assert_status_ok();
+        };
+
+        let (diff_response, _) = tokio::join!(diff, plugin);
+        diff_response.assert_status_ok();
+        let body: serde_json::Value = diff_response.json();
+        assert_eq!(body["success"], true);
+        assert_eq!(body["added"].as_array().unwrap().len(), 0);
+        assert_eq!(body["common"], 0);
+        let removed: Vec<&str> = body["removed"].as_array().unwrap().iter().map(|e| e["path"].as_str().unwrap()).collect();
+        assert!(removed.contains(&"Workspace/Solo"));
     }
 }
 
