@@ -218,15 +218,13 @@
     }
   },
   "scripts": {
-    "vscode:prepublish": "npm run generate-schema && npm run build",
+    "vscode:prepublish": "npm run build",
     "build": "node esbuild.js --production",
     "compile": "node esbuild.js",
     "watch": "node esbuild.js --watch",
     "lint": "eslint src --ext ts",
     "package": "vsce package",
-    "publish": "vsce publish",
-    "generate-schema": "npx ts-node schemas/generate-schema.ts",
-    "update-schema": "npm run generate-schema"
+    "publish": "vsce publish"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
@@ -234,8 +232,6 @@
     "@typescript-eslint/eslint-plugin": "^6.13.0",
     "@typescript-eslint/parser": "^6.13.0",
     "@vscode/vsce": "^2.22.0",
-    "ajv": "^8.17.1",
-    "ajv-formats": "^3.0.1",
     "esbuild": "^0.27.2",
     "eslint": "^8.55.0",
     "ts-node": "^10.9.2",
