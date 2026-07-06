@@ -94,10 +94,6 @@
         "icon": "$(json)"
       },
       {
-        "command": "rbxsync.openMetadata",
-        "title": "RbxSync: Open Metadata"
-      },
-      {
         "command": "rbxsync.refresh",
         "title": "RbxSync: Refresh"
       },

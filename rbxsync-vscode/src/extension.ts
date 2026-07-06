@@ -1,6 +1,4 @@
 import * as vscode from 'vscode';
-import * as path from 'path';
-import * as fs from 'fs';
 import { RbxSyncClient } from './server/client';
 import { StatusBarManager } from './views/statusBar';
 import { SidebarWebviewProvider } from './views/sidebarWebview';
@@ -10,7 +8,6 @@ import { syncCommand } from './commands/sync';
 import { runPlayTest, disposeTestChannel } from './commands/test';
 import { openConsole, closeConsole, toggleE2EMode, initE2EMode, initConsole, disposeConsole, isE2EMode } from './commands/console';
 import { initTrashSystem, recoverDeletedFolder } from './commands/trash';
-import { RbxJsonDecorationProvider } from './icons';
 
 let client: RbxSyncClient;
 let statusBar: StatusBarManager;
@@ -266,32 +263,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       sidebarView.refresh();
     }),
 
-    vscode.commands.registerCommand('rbxsync.openMetadata', async () => {
-      const editor = vscode.window.activeTextEditor;
-      if (!editor) return;
-
-      const currentFile = editor.document.uri.fsPath;
-      const ext = path.extname(currentFile);
-
-      if (ext !== '.lua' && ext !== '.luau') return;
-
-      const baseName = path.basename(currentFile)
-        .replace('.server.luau', '')
-        .replace('.client.luau', '')
-        .replace('.luau', '')
-        .replace('.server.lua', '')
-        .replace('.client.lua', '')
-        .replace('.lua', '');
-
-      const dir = path.dirname(currentFile);
-      const metadataFile = path.join(dir, `${baseName}.rbxjson`);
-
-      if (fs.existsSync(metadataFile)) {
-        const doc = await vscode.workspace.openTextDocument(metadataFile);
-        await vscode.window.showTextDocument(doc, { viewColumn: vscode.ViewColumn.Beside });
-      }
-    }),
-
     vscode.commands.registerCommand('rbxsync.toggleMetadataFiles', async () => {
       const filesConfig = vscode.workspace.getConfiguration('files');
       const exclude = filesConfig.get<Record<string, boolean>>('exclude') || {};
@@ -339,13 +310,6 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
 
   // Initialize trash system for folder recovery
   initTrashSystem(context);
-
-  // Register file decoration provider for .rbxjson files
-  const decorationProvider = new RbxJsonDecorationProvider();
-  context.subscriptions.push(
-    vscode.window.registerFileDecorationProvider(decorationProvider),
-    decorationProvider
-  );
 
   // Add to subscriptions
   context.subscriptions.push(
