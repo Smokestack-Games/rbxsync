@@ -2562,9 +2562,7 @@
     "lua": "_modulescript",
     "rbxjson": "_meta"
   },
-  "fileNames": {
-    "datamodel.rbxjson": "_datamodel"
-  },
+  "fileNames": {},
   "file": null,
   "folder": "_folder",
   "folderExpanded": "_folder",
