@@ -11,15 +11,8 @@ import { runPlayTest, disposeTestChannel } from './commands/test';
 import { openConsole, closeConsole, toggleE2EMode, initE2EMode, initConsole, disposeConsole, isE2EMode } from './commands/console';
 import { initTrashSystem, recoverDeletedFolder } from './commands/trash';
 import { RbxJsonDecorationProvider } from './icons';
-import {
-  LanguageClient,
-  LanguageClientOptions,
-  ServerOptions,
-  TransportKind,
-} from 'vscode-languageclient/node';
 
 let client: RbxSyncClient;
-let languageClient: LanguageClient | undefined;
 let statusBar: StatusBarManager;
 let sidebarView: SidebarWebviewProvider;
 
@@ -386,62 +379,10 @@ export async function activate(context: vscode.ExtensionContext): Promise<void> 
       statusBar.startPolling();
     }, 1000);
   }
-
-  // Start rbxjson Language Server
-  await startLanguageServer(context);
-}
-
-/**
- * Start the rbxjson Language Server
- */
-async function startLanguageServer(context: vscode.ExtensionContext): Promise<void> {
-  // The server is implemented in the same extension
-  const serverModule = context.asAbsolutePath(path.join('dist', 'lsp', 'server.js'));
-
-  // If the server module doesn't exist, skip LSP (development mode)
-  if (!fs.existsSync(serverModule)) {
-    console.log('[rbxjson LSP] Server module not found, skipping LSP initialization');
-    return;
-  }
-
-  const serverOptions: ServerOptions = {
-    run: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-    },
-    debug: {
-      module: serverModule,
-      transport: TransportKind.ipc,
-      options: { execArgv: ['--nolazy', '--inspect=6009'] },
-    },
-  };
-
-  const clientOptions: LanguageClientOptions = {
-    documentSelector: [{ scheme: 'file', language: 'rbxjson' }],
-    synchronize: {
-      fileEvents: vscode.workspace.createFileSystemWatcher('**/*.rbxjson'),
-    },
-  };
-
-  languageClient = new LanguageClient(
-    'rbxjsonLanguageServer',
-    'rbxjson Language Server',
-    serverOptions,
-    clientOptions
-  );
-
-  // Start the client (also launches the server)
-  await languageClient.start();
-  console.log('[rbxjson LSP] Language server started');
 }
 
 export async function deactivate(): Promise<void> {
   disposeTestChannel();
   disposeConsole();
   disposeServerTerminal();
-
-  // Stop the language server
-  if (languageClient) {
-    await languageClient.stop();
-  }
 }
