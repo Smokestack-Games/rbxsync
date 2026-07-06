@@ -90,7 +90,7 @@
       },
       {
         "command": "rbxsync.toggleMetadataFiles",
-        "title": "RbxSync: Show/Hide .rbxjson",
+        "title": "RbxSync: Show/Hide Context File",
         "icon": "$(json)"
       },
       {
@@ -214,6 +214,9 @@
       },
       "files.associations": {
         "*.rbxjson": "rbxjson"
+      },
+      "files.readonlyInclude": {
+        "**/datamodel.rbxjson": true
       }
     }
   },
