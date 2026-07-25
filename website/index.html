@@ -5433,6 +5433,80 @@
                 transform: scale(0.75);
             }
         }
+
+        /* Pricing */
+        .pricing-card {
+            max-width: 420px;
+            margin: 0 auto;
+            background: linear-gradient(135deg, var(--bg-secondary), var(--bg-tertiary));
+            border: 1px solid var(--border);
+            border-radius: 16px;
+            padding: 2.5rem 2rem;
+            text-align: center;
+        }
+
+        .pricing-price {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            gap: 0.25rem;
+            margin-bottom: 1.75rem;
+        }
+
+        .pricing-amount {
+            font-size: 3.5rem;
+            font-weight: 800;
+            line-height: 1;
+            color: var(--text-primary);
+        }
+
+        .pricing-term {
+            font-size: 0.9375rem;
+            color: var(--text-muted);
+        }
+
+        .pricing-list {
+            list-style: none;
+            text-align: left;
+            max-width: 300px;
+            margin: 0 auto 1.75rem;
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .pricing-list li {
+            position: relative;
+            padding-left: 1.75rem;
+            font-size: 0.9375rem;
+            color: var(--text-secondary);
+        }
+
+        .pricing-list li::before {
+            content: '';
+            position: absolute;
+            left: 0;
+            top: 0.15em;
+            width: 1.1rem;
+            height: 1.1rem;
+            background: var(--rbx-red);
+            border-radius: 50%;
+            mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") center / 0.7rem no-repeat;
+            -webkit-mask: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none' stroke='white' stroke-width='3' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='20 6 9 17 4 12'/%3E%3C/svg%3E") center / 0.7rem no-repeat;
+        }
+
+        .pricing-buy {
+            width: 100%;
+            justify-content: center;
+            font-size: 1.0625rem;
+            padding: 1rem 1.75rem;
+        }
+
+        .pricing-note {
+            margin-top: 1.25rem;
+            font-size: 0.8125rem;
+            color: var(--text-muted);
+        }
     </style>
 </head>
 <body>
@@ -5455,9 +5529,12 @@
                 <a href="#features">Features</a>
                 <a href="https://docs.rbxsync.dev" target="_blank">Docs</a>
                 <a href="#format" class="rbxjson-rainbow">.rbxjson</a>
-                <a href="#install">Install</a>
+                <a href="#pricing">Pricing</a>
             </div>
             <div class="nav-right">
+                <!-- Buy CTA (stays visible on mobile) -->
+                <a href="https://buy.stripe.com/7sY5kC0MF1hq7GKfNZ2Ry02" class="nav-cta">Buy — $60</a>
+
                 <!-- Search (desktop) -->
                 <div class="nav-search">
                     <svg class="nav-search-icon" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
@@ -5648,6 +5725,41 @@
                     </div>
                     <h4>E2E Testing</h4>
                     <p>Run live playtests from CLI. Capture console output for verification.</p>
+                </div>
+            </div>
+        </div>
+    </section>
+
+    <!-- How It Works -->
+    <section class="section" id="how">
+        <div class="section-inner">
+            <div class="section-header">
+                <div class="section-tag">How It Works</div>
+                <h2 class="section-title">Build an amazing Roblox game with AI</h2>
+                <p class="section-desc">Three steps. No config.</p>
+            </div>
+
+            <div class="install-steps">
+                <div class="install-step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h4>Pull your game out of Studio</h4>
+                        <p>One click turns your whole game into plain files on your computer — every script, part, and setting.</p>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h4>Edit it, or let Claude build it for you</h4>
+                        <p>Change scripts in VS Code, or just tell Claude what you want. RbxSync's MCP tools let it read and write your real game.</p>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h4>Watch it show up in Studio, live</h4>
+                        <p>Every change syncs back into Studio instantly. Press play and your new game is right there.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -6145,218 +6257,91 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
         </div>
     </section>
 
-    <!-- Install -->
+    <!-- Pricing -->
+    <section class="section" id="pricing">
+        <div class="section-inner">
+            <div class="section-header">
+                <div class="section-tag">Pricing</div>
+                <h2 class="section-title">$60, yours forever</h2>
+                <p class="section-desc">One license. One payment. No subscription.</p>
+            </div>
+
+            <div class="pricing-card">
+                <div class="pricing-price">
+                    <span class="pricing-amount">$60</span>
+                    <span class="pricing-term">one-time license, yours forever</span>
+                </div>
+                <ul class="pricing-list">
+                    <li>The CLI and local sync server</li>
+                    <li>The VS Code extension</li>
+                    <li>The Roblox Studio plugin</li>
+                    <li>MCP tools so Claude can build your game</li>
+                    <li>Every v1.x update</li>
+                </ul>
+                <a href="https://buy.stripe.com/7sY5kC0MF1hq7GKfNZ2Ry02" class="btn-beta pricing-buy">
+                    <span class="hover-bg"></span>
+                    <span class="btn-text">Buy a license</span>
+                    <span class="beta-tag">$60</span>
+                </a>
+                <p class="pricing-note">Your license key and installer arrive by email right after checkout.</p>
+            </div>
+        </div>
+    </section>
+
+    <!-- Get Started (post-purchase) -->
     <section class="section section-alt" id="install" style="position: relative; overflow: hidden;">
         <canvas id="install-confetti-canvas" style="position: absolute; top: 0; left: 0; width: 100%; height: 100%; pointer-events: none; z-index: 0;"></canvas>
         <div class="section-inner">
             <div class="section-header">
-                <div class="section-tag">Get Started</div>
-                <h2 class="section-title">Migrate in Minutes</h2>
-                <p class="section-desc">Three commands. Ready to ship.</p>
+                <div class="section-tag">After You Buy</div>
+                <h2 class="section-title">From checkout to building in minutes</h2>
+                <p class="section-desc">No setup headaches. Just follow along.</p>
             </div>
 
-            <!-- Unified Control Bar -->
-            <div class="install-controls">
-                <!-- Platform Toggle -->
-                <div class="install-control-group">
-                    <span class="install-control-label">Platform</span>
-                    <div class="install-toggle" id="platform-toggle">
-                        <button class="install-toggle-btn icon-only active" data-platform="mac" title="macOS">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M18.71 19.5c-.83 1.24-1.71 2.45-3.05 2.47-1.34.03-1.77-.79-3.29-.79-1.53 0-2 .77-3.27.82-1.31.05-2.3-1.32-3.14-2.53C4.25 17 2.94 12.45 4.7 9.39c.87-1.52 2.43-2.48 4.12-2.51 1.28-.02 2.5.87 3.29.87.78 0 2.26-1.07 3.81-.91.65.03 2.47.26 3.64 1.98-.09.06-2.17 1.28-2.15 3.81.03 3.02 2.65 4.03 2.68 4.04-.03.07-.42 1.44-1.38 2.83M13 3.5c.73-.83 1.94-1.46 2.94-1.5.13 1.17-.34 2.35-1.04 3.19-.69.85-1.83 1.51-2.95 1.42-.15-1.15.41-2.35 1.05-3.11z"/></svg>
-                        </button>
-                        <button class="install-toggle-btn icon-only" data-platform="windows" title="Windows">
-                            <svg viewBox="0 0 24 24" fill="currentColor"><path d="M3 12V6.75l6-1.32v6.48L3 12zm17-9v8.75l-10 .15V5.21L20 3zM3 13l6 .09v6.81l-6-1.15V13zm17 .25V22l-10-1.91V13.1l10 .15z"/></svg>
-                        </button>
+            <div class="install-steps">
+                <div class="install-step">
+                    <div class="step-num">1</div>
+                    <div class="step-content">
+                        <h4>Buy your license</h4>
+                        <p>One payment of $60. Yours forever.</p>
                     </div>
                 </div>
-
-                <!-- Method Toggle -->
-                <div class="install-control-group">
-                    <span class="install-control-label">Method</span>
-                    <div class="install-toggle">
-                        <button class="install-toggle-btn active" data-mode="simple">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M13 2L3 14h9l-1 8 10-12h-9l1-8z"/></svg>
-                            Quick Install
-                        </button>
-                        <button class="install-toggle-btn" data-mode="advanced">
-                            <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 17l6-6-6-6M12 19h8"/></svg>
-                            Build from Source
-                        </button>
+                <div class="install-step">
+                    <div class="step-num">2</div>
+                    <div class="step-content">
+                        <h4>Check your email</h4>
+                        <p>Your license key and one-click installer land in your inbox seconds after checkout.</p>
                     </div>
                 </div>
-            </div>
-
-            <!-- SIMPLE MODE: Three clean cards -->
-            <div class="mode-content active" data-mode="simple">
-                <div class="install-cards-grid">
-                    <!-- Step 1: CLI Install -->
-                    <div class="install-card-wrapper">
-                        <div class="install-card">
-                            <div class="install-card-header">
-                                <span class="install-card-num">1</span>
-                                <h4>CLI</h4>
-                            </div>
-                            <div class="install-oneliner" data-cli-os="mac">
-                                <code>curl -fsSL https://rbxsync.dev/install.sh | sh</code>
-                                <button class="copy-oneliner-btn" data-copy="curl -fsSL https://raw.githubusercontent.com/Smokestack-Games/rbxsync/master/scripts/install.sh | sh" aria-label="Copy">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                </button>
-                            </div>
-                            <div class="install-oneliner" data-cli-os="windows" style="display: none;">
-                                <code>irm https://rbxsync.dev/install.ps1 | iex</code>
-                                <button class="copy-oneliner-btn" data-copy="irm https://raw.githubusercontent.com/Smokestack-Games/rbxsync/master/scripts/install.ps1 | iex" aria-label="Copy">
-                                    <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                </button>
-                            </div>
-                        </div>
-                        <a href="https://github.com/Smokestack-Games/rbxsync/releases/latest" class="install-alt-link">
-                            or download binary
-                        </a>
-                    </div>
-
-                    <!-- Step 2: Studio Plugin -->
-                    <div class="install-card-wrapper">
-                        <div class="install-card">
-                            <div class="install-card-header">
-                                <span class="install-card-num">2</span>
-                                <h4>Plugin</h4>
-                            </div>
-                            <a href="https://create.roblox.com/store/asset/89280418878393/RbxSync" target="_blank" rel="noopener noreferrer" class="install-store-btn roblox">
-                                <img class="store-icon" src="images/Roblox_Logo.svg" alt="Roblox">
-                                <span>Creator Store</span>
-                            </a>
-                        </div>
-                        <a href="https://github.com/Smokestack-Games/rbxsync/releases/latest" class="install-alt-link">
-                            or download .rbxm
-                        </a>
-                    </div>
-
-                    <!-- Step 3: VS Code Extension -->
-                    <div class="install-card-wrapper">
-                        <div class="install-card">
-                            <div class="install-card-header">
-                                <span class="install-card-num">3</span>
-                                <h4>Extension</h4>
-                                <span class="optional-badge">Optional</span>
-                            </div>
-                            <div class="extension-buttons">
-                                <a href="https://marketplace.visualstudio.com/items?itemName=rbxsync.rbxsync" target="_blank" rel="noopener noreferrer" class="install-store-btn vscode">
-                                    <img class="store-icon" src="https://code.visualstudio.com/assets/branding/code-stable-white.png" alt="VS Code">
-                                    <span>Marketplace</span>
-                                </a>
-                                <a href="https://open-vsx.org/extension/rbxsync/rbxsync" target="_blank" rel="noopener noreferrer" class="install-store-btn openvsx">
-                                    <svg class="store-icon" viewBox="0 0 100 128">
-                                        <path d="M30 44.2L52.6 5H7.3zM4.6 88.5h45.3L27.2 49.4zm51 0l22.6 39.2 22.6-39.2z" fill="rgba(255,255,255,0.7)"/>
-                                        <path d="M52.6 5L30 44.2h45.2zM27.2 49.4l22.7 39.1 22.6-39.1zm51 0L55.6 88.5h45.2z" fill="white"/>
-                                    </svg>
-                                    <span>Open VSX</span>
-                                </a>
-                            </div>
-                        </div>
-                        <a href="https://github.com/Smokestack-Games/rbxsync/releases/latest" class="install-alt-link">
-                            or download .vsix
-                        </a>
+                <div class="install-step">
+                    <div class="step-num">3</div>
+                    <div class="step-content">
+                        <h4>Run the installer</h4>
+                        <p>It sets up the CLI, the Studio plugin, and the VS Code extension for you.</p>
+                        <!-- INSTALLER_DOWNLOAD_TODO: installer is delivered by email after checkout; drop the download URL here once fulfillment ships -->
                     </div>
                 </div>
-
-                <!-- Final Step -->
-                <div class="install-final-step">
-                    <div class="final-step-paths">
-                        <div class="final-step-path">
-                            <p class="final-step-action">Open Studio. Click <span class="action-extract">Extract</span>.</p>
-                            <p class="final-step-sub">Your game, now in Git.</p>
-                        </div>
-                        <span class="final-step-divider">or</span>
-                        <div class="final-step-path migrate">
-                            <p class="final-step-action">From Rojo? <code class="action-migrate">rbxsync migrate</code></p>
-                            <p class="final-step-sub">Converts project.json instantly</p>
-                        </div>
+                <div class="install-step">
+                    <div class="step-num">4</div>
+                    <div class="step-content">
+                        <h4>Connect Studio and VS Code</h4>
+                        <p>Open your game in Studio, click Extract, and your whole game shows up in VS Code.</p>
+                    </div>
+                </div>
+                <div class="install-step">
+                    <div class="step-num">5</div>
+                    <div class="step-content">
+                        <h4>Tell Claude to build</h4>
+                        <p>Ask for a feature. Claude edits your real game through RbxSync's MCP tools and syncs it straight back to Studio.</p>
                     </div>
                 </div>
             </div>
 
-            <!-- ADVANCED MODE: Build from source steps -->
-            <div class="mode-content" data-mode="advanced">
-                <div class="install-steps">
-                    <div class="install-step">
-                        <div class="step-num">1</div>
-                        <div class="step-content">
-                            <h4>Build CLI from Source</h4>
-                            <p>Requires Rust toolchain.</p>
-
-                            <!-- macOS -->
-                            <div class="os-content active" data-os="mac">
-                                <div class="code-block-wrapper">
-                                    <div class="code-block" data-copy="curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh && git clone https://github.com/Smokestack-Games/rbxsync && cd rbxsync && cargo build --release && sudo cp target/release/rbxsync /usr/local/bin/">
-                                        <span class="comment"># Install Rust (if needed)</span><br>
-                                        <span class="cmd">curl</span> --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh<br><br>
-                                        <span class="comment"># Clone and build</span><br>
-                                        <span class="cmd">git clone</span> https://github.com/Smokestack-Games/rbxsync<br>
-                                        <span class="cmd">cd</span> rbxsync && <span class="cmd">cargo build</span> --release<br><br>
-                                        <span class="comment"># Add to PATH</span><br>
-                                        <span class="cmd">sudo cp</span> target/release/rbxsync /usr/local/bin/
-                                    </div>
-                                    <button class="copy-btn" aria-label="Copy to clipboard">
-                                        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                        <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-
-                            <!-- Windows -->
-                            <div class="os-content" data-os="windows">
-                                <div class="code-block-wrapper">
-                                    <div class="code-block">
-                                        <span class="comment"># 1. Install VS Build Tools with "Desktop dev with C++"</span><br>
-                                        <span class="comment">#    https://visualstudio.microsoft.com/visual-cpp-build-tools/</span><br><br>
-                                        <span class="comment"># 2. Install Rust from rustup.rs</span><br><br>
-                                        <span class="comment"># 3. Clone and build</span><br>
-                                        <span class="cmd">git clone</span> https://github.com/Smokestack-Games/rbxsync<br>
-                                        <span class="cmd">cd</span> rbxsync && <span class="cmd">cargo build</span> --release<br><br>
-                                        <span class="comment"># 4. Add target\release to PATH</span>
-                                    </div>
-                                    <button class="copy-btn" aria-label="Copy to clipboard">
-                                        <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                        <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                    </button>
-                                </div>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="install-step">
-                        <div class="step-num">2</div>
-                        <div class="step-content">
-                            <h4>Build & Install Plugin</h4>
-                            <div class="code-block-wrapper">
-                                <div class="code-block" data-copy="rbxsync build-plugin --install">
-                                    <span class="cmd">rbxsync build-plugin</span> --install
-                                </div>
-                                <button class="copy-btn" aria-label="Copy to clipboard">
-                                    <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                    <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                </button>
-                            </div>
-                        </div>
-                    </div>
-
-                    <div class="install-step">
-                        <div class="step-num">3</div>
-                        <div class="step-content">
-                            <h4>Build VS Code Extension</h4>
-                            <p style="font-size: 0.8125rem; color: var(--text-muted); margin-bottom: 0.75rem;">Optional - requires Node.js</p>
-                            <div class="code-block-wrapper">
-                                <div class="code-block" data-copy="cd rbxsync-vscode && npm install && npm run package && code --install-extension rbxsync-*.vsix">
-                                    <span class="cmd">cd</span> rbxsync-vscode<br>
-                                    <span class="cmd">npm install</span> && <span class="cmd">npm run package</span><br>
-                                    <span class="cmd">code</span> --install-extension rbxsync-*.vsix
-                                </div>
-                                <button class="copy-btn" aria-label="Copy to clipboard">
-                                    <svg class="copy-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect x="9" y="9" width="13" height="13" rx="2" ry="2"/><path d="M5 15H4a2 2 0 0 1-2-2V4a2 2 0 0 1 2-2h9a2 2 0 0 1 2 2v1"/></svg>
-                                    <svg class="check-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="20 6 9 17 4 12"/></svg>
-                                </button>
-                            </div>
-                        </div>
+            <div class="install-final-step">
+                <div class="final-step-paths">
+                    <div class="final-step-path">
+                        <p class="final-step-action">That's it. <span class="action-extract">Start building.</span></p>
+                        <p class="final-step-sub">Your game, now AI-native.</p>
                     </div>
                 </div>
             </div>
@@ -7440,7 +7425,7 @@ Try: <code>help</code>, <code>init</code>, <code>serve</code>, <code>extract</co
             }
 
             // Get the cards grid container
-            const cardsGrid = document.querySelector('.install-cards-grid');
+            const cardsGrid = document.querySelector('#install .install-steps');
 
             // Observer for the cards grid - triggers when cards are actually visible
             const cardsObserver = new IntersectionObserver((entries) => {
