@@ -71,7 +71,7 @@ fn adopted_of(body: &serde_json::Value) -> Vec<String> {
 }
 
 #[tokio::test]
-async fn test_bootstrap_writes_scripts_and_sidecars() {
+async fn test_bootstrap_writes_scripts_and_context_file() {
     let server = create_test_server();
     let dir = tempfile::tempdir().unwrap();
     let body = run_extraction(&server, &dir, json!([
@@ -82,9 +82,18 @@ async fn test_bootstrap_writes_scripts_and_sidecars() {
     assert_eq!(body["success"], true);
     let main = dir.path().join("src/ServerScriptService/Main.server.luau");
     assert_eq!(std::fs::read_to_string(&main).unwrap(), "print('main')");
-    let sidecar = std::fs::read_to_string(dir.path().join("src/ServerScriptService/Main.rbxjson")).unwrap();
-    assert!(!sidecar.contains("\"Source\""));
-    assert!(dir.path().join("src/Workspace/Part.rbxjson").exists());
+    // Non-script state lives in the single datamodel.rbxjson context document at
+    // the project root, not in per-instance sidecars. Scripts carry a sourcePath,
+    // never their Source.
+    let context = std::fs::read_to_string(dir.path().join("datamodel.rbxjson")).unwrap();
+    let doc: serde_json::Value = serde_json::from_str(&context).unwrap();
+    assert_eq!(doc["className"], "DataModel");
+    assert!(context.contains("\"sourcePath\""));
+    assert!(context.contains("ServerScriptService/Main.server.luau"));
+    assert!(!context.contains("\"Source\""), "script Source must be stripped from the context doc");
+    assert!(context.contains("\"Part\""), "non-script instances live in the context doc");
+    assert!(!dir.path().join("src/ServerScriptService/Main.rbxjson").exists(), "no per-instance sidecars");
+    assert!(!dir.path().join("src/Workspace/Part.rbxjson").exists(), "no per-instance sidecars");
     assert_eq!(adopted_of(&body), vec!["ServerScriptService/Main.server.luau"]);
     assert_eq!(body["scriptsWritten"], 1);
 
@@ -110,8 +119,8 @@ async fn test_reextract_preserves_modified_script() {
     assert_eq!(std::fs::read_to_string(&main).unwrap(), "-- local edit");
     assert!(adopted_of(&body).is_empty());
     assert_eq!(body["scriptsWritten"], 0);
-    // Sidecar still refreshed
-    assert!(dir.path().join("src/ServerScriptService/Main.rbxjson").exists());
+    // Context document refreshed each extraction
+    assert!(dir.path().join("datamodel.rbxjson").exists());
 }
 
 #[tokio::test]
@@ -172,7 +181,7 @@ async fn test_orphan_rbxjson_cleaned_scripts_survive() {
 
     assert!(!src.join("Workspace/Old.rbxjson").exists(), "orphaned instance file must be cleared");
     assert!(src.join("ReplicatedStorage/Keep.luau").exists(), "orphaned script must survive");
-    assert!(src.join("Workspace/Part.rbxjson").exists());
+    assert!(dir.path().join("datamodel.rbxjson").exists(), "extracted tree written to the context doc");
 }
 
 #[tokio::test]
@@ -259,7 +268,7 @@ async fn test_start_without_project_dir_does_not_mark_prepared() {
 
     // Finalize must have run its own prepare: stale instance file cleared
     assert!(!src.join("Workspace/Stale.rbxjson").exists());
-    assert!(src.join("Workspace/Part.rbxjson").exists());
+    assert!(dir.path().join("datamodel.rbxjson").exists());
 }
 
 #[tokio::test]

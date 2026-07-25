@@ -2057,13 +2057,15 @@ async fn handle_extract_finalize(
     // Maximum concurrent file writes to prevent overwhelming the filesystem
     const MAX_CONCURRENT_WRITES: usize = 64;
 
-    // Decide directories, script adoptions, and .rbxjson writes for the extracted tree
+    // Decide directories and script adoptions for the extracted tree. Non-script
+    // instance state is written as the single datamodel.rbxjson context document
+    // below, not as per-instance files, so json_ops is unused here.
     let rbxsync_core::extract_tree::WritePlan {
         dirs: directories_needed,
         script_ops: script_write_ops,
-        json_ops: json_write_ops,
         adopted,
         service_folders,
+        ..
     } = rbxsync_core::extract_tree::plan_instance_writes(&src_dir, &all_instances, &tree_mapping);
 
     // Batch create all directories (run in blocking task to not block async runtime)
@@ -2094,29 +2096,41 @@ async fn handle_extract_finalize(
         .await;
     let scripts_written = script_results.iter().filter(|&&ok| ok).count();
 
-    // Write JSON files in parallel
-    let json_count = json_write_ops.len();
-    let json_results: Vec<bool> = stream::iter(json_write_ops)
-        .map(|op| async move {
-            tokio::fs::write(&op.path, &op.content).await.is_ok()
-        })
-        .buffer_unordered(MAX_CONCURRENT_WRITES)
-        .collect()
-        .await;
-    let files_written = json_results.iter().filter(|&&ok| ok).count();
+    // Write the entire non-script instance tree as the single datamodel.rbxjson
+    // context document (atomic tmp+rename, stamps snapshot freshness).
+    let total_instances = all_instances.len();
+    let ctx_project_dir = req.project_dir.clone();
+    let context_written = tokio::task::spawn_blocking(move || {
+        rbxsync_core::context_tree::write_context_file(
+            std::path::Path::new(&ctx_project_dir),
+            &all_instances,
+            &tree_mapping,
+        )
+    })
+    .await
+    .unwrap_or_else(|e| Err(std::io::Error::other(format!("context write task panicked: {}", e))));
+
+    let context_ok = match &context_written {
+        Ok(_) => true,
+        Err(e) => {
+            tracing::error!("Failed to write datamodel.rbxjson: {}", e);
+            false
+        }
+    };
+    let files_written = if context_ok { 1 } else { 0 };
 
     tracing::info!(
-        "Wrote {} scripts and {} json files in {:?} ({} concurrent writes)",
-        scripts_written, files_written, write_start.elapsed(), MAX_CONCURRENT_WRITES
+        "Wrote {} scripts and the context document in {:?} ({} concurrent writes)",
+        scripts_written, write_start.elapsed(), MAX_CONCURRENT_WRITES
     );
 
     // Log if there were any failures
     let script_failures = script_count - scripts_written;
-    let json_failures = json_count - files_written;
-    if script_failures > 0 || json_failures > 0 {
+    if script_failures > 0 || !context_ok {
         tracing::warn!(
-            "Write failures: {} scripts, {} json files",
-            script_failures, json_failures
+            "Write failures: {} scripts, context document {}",
+            script_failures,
+            if context_ok { "ok" } else { "FAILED" }
         );
     }
 
@@ -2166,8 +2180,8 @@ async fn handle_extract_finalize(
     }
 
     tracing::info!(
-        "Finalize complete: {} .rbxjson files, {} .luau scripts, {} services{}",
-        files_written,
+        "Finalize complete: datamodel.rbxjson ({} instances), {} .luau scripts, {} services{}",
+        total_instances,
         scripts_written,
         service_folders.len(),
         if packages_preserved { ", packages preserved" } else { "" }
@@ -2227,7 +2241,7 @@ async fn handle_extract_finalize(
             "success": true,
             "filesWritten": files_written,
             "scriptsWritten": scripts_written,
-            "totalInstances": all_instances.len(),
+            "totalInstances": total_instances,
             "adopted": adopted
         })),
     )
