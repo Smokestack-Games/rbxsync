@@ -1,6 +1,6 @@
-# .luau Scripts
+# Scripts on Disk
 
-Scripts are stored as plain Luau files with naming conventions that determine their script type.
+Scripts are stored as plain Luau files with naming conventions that determine their script type. A script's `.luau` file is the editable source of truth for its code.
 
 ## Naming Conventions
 
@@ -48,21 +48,20 @@ return Utils
 
 ## Script Properties
 
-Script properties (like `Enabled`, `RunContext`) are stored in a companion `.rbxjson` file:
+A script's `.luau` file holds only its source. Everything else about the
+instance — its class, name, and any non-default properties like `Enabled` or
+`RunContext` — lives on the script's node in the [context file](/file-formats/rbxjson),
+where its `Source` is replaced by a `sourcePath` pointing back at the `.luau`
+file:
 
-```
-ServerScriptService/
-├── Main.server.luau      # Source code
-└── Main.rbxjson          # Properties (optional)
-```
-
-`Main.rbxjson`:
 ```json
 {
   "className": "Script",
+  "name": "Main",
   "properties": {
     "Enabled": { "type": "bool", "value": true }
-  }
+  },
+  "sourcePath": "src/ServerScriptService/Main.server.luau"
 }
 ```
 

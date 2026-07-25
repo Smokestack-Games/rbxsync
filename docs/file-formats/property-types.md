@@ -1,6 +1,8 @@
 # Property Types
 
-Complete reference for all supported property types in `.rbxjson` files.
+Complete reference for all supported property types. Property values inside the
+[context file](/file-formats/rbxjson) use the `{ "type": ..., "value": ... }`
+encoding shown below.
 
 ## Primitive Types
 

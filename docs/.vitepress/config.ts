@@ -85,8 +85,8 @@ export default defineConfig({
           text: 'File Formats',
           items: [
             { text: 'Overview', link: '/file-formats/' },
-            { text: '.luau Scripts', link: '/file-formats/luau' },
-            { text: '.rbxjson Format', link: '/file-formats/rbxjson' },
+            { text: 'Scripts on Disk', link: '/file-formats/luau' },
+            { text: 'The Context File', link: '/file-formats/rbxjson' },
             { text: 'Property Types', link: '/file-formats/property-types' },
           ]
         }
