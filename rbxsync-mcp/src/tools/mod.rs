@@ -375,6 +375,28 @@ pub struct DiffResponse {
     pub unchanged: usize,
 }
 
+/// A console message from Studio's log buffer
+#[derive(Debug, Deserialize)]
+pub struct ConsoleHistoryEntry {
+    #[serde(default)]
+    pub timestamp: String,
+    #[serde(default)]
+    pub message_type: String,
+    #[serde(default)]
+    pub message: String,
+    #[serde(default)]
+    pub source: Option<String>,
+}
+
+/// Response from the /console/history endpoint
+#[derive(Debug, Deserialize)]
+pub struct ConsoleHistoryResponse {
+    #[serde(default)]
+    pub messages: Vec<ConsoleHistoryEntry>,
+    #[serde(default)]
+    pub total: usize,
+}
+
 /// A connected Studio place from the /rbxsync/places endpoint
 #[derive(Debug, Deserialize)]
 pub struct PlaceEntry {
@@ -884,6 +906,17 @@ impl RbxSyncClient {
             .await?;
 
         send_and_parse(response, "get_diff").await
+    }
+
+    /// Get recent console messages from the server's log buffer
+    pub async fn get_console_history(&self, limit: u32) -> anyhow::Result<ConsoleHistoryResponse> {
+        let response = self
+            .client
+            .get(format!("{}/console/history?limit={}", self.base_url, limit))
+            .send()
+            .await?;
+
+        send_and_parse(response, "get_console_history").await
     }
 
     /// Get the server version and liveness from the health endpoint

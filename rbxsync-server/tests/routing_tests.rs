@@ -134,3 +134,30 @@ async fn test_registered_workspace_is_listed() {
         "registered workspace must appear in the list: {body:#?}"
     );
 }
+
+#[tokio::test]
+async fn test_pushed_console_messages_appear_in_history() {
+    let server = create_test_server();
+
+    let push = server
+        .post("/console/push")
+        .json(&json!({
+            "messages": [
+                { "timestamp": "0.0", "message_type": "info", "message": "starting", "source": "sync" },
+                { "timestamp": "0.1", "message_type": "error", "message": "boom", "source": null }
+            ]
+        }))
+        .await;
+    push.assert_status_ok();
+
+    let history = server.get("/console/history").add_query_param("limit", 10).await;
+    history.assert_status_ok();
+    let body: serde_json::Value = history.json();
+    assert_eq!(body["total"], 2);
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["message_type"], "info");
+    assert_eq!(messages[0]["timestamp"], "0.0");
+    assert_eq!(messages[0]["message"], "starting");
+    assert_eq!(messages[1]["message_type"], "error");
+}
