@@ -67,9 +67,10 @@ Cursor can use RbxSync through the .cursorrules file (already included in the re
 
 Other AI tools work with RbxSync at the file level:
 
-1. Edit .luau and .rbxjson files
+1. Edit `.luau` script files
 2. Changes sync automatically via file watcher
-3. Use llms.txt (in repo root) for project context
+3. Read `datamodel.rbxjson` for a full view of the instance tree
+4. Use llms.txt (in repo root) for project context
 
 **Tip:** Copy the contents of llms.txt into your AI assistant's context to help it understand the project.
 
@@ -225,7 +226,7 @@ User: "Add a coin collection system"
 AI workflow:
 1. extract_game to understand current structure
 2. Create CoinService.luau in ServerScriptService
-3. Create Coin.rbxjson model template
+3. run_code to build the coin model in Studio (it appears in datamodel.rbxjson)
 4. sync_to_studio
 5. run_test to verify no errors
 6. Use bot_observe to check if coins appear
