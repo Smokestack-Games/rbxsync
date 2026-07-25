@@ -74,6 +74,17 @@ pub struct DiffParams {
     pub project_dir: String,
 }
 
+/// Parameters for console_history tool
+#[derive(Debug, Deserialize, schemars::JsonSchema)]
+pub struct ConsoleHistoryParams {
+    /// Maximum number of messages to return (default: 50, max: 1000)
+    #[schemars(description = "Max messages to return (default: 50, max: 1000)")]
+    pub limit: Option<u32>,
+    /// Filter by message type: "error", "warn", "info"
+    #[schemars(description = "Filter by type: 'error', 'warn', 'info' (omit for all)")]
+    pub message_type: Option<String>,
+}
+
 /// Parameters for git_commit tool
 #[derive(Debug, Deserialize, schemars::JsonSchema)]
 pub struct GitCommitParams {
@@ -1010,6 +1021,124 @@ impl RbxSyncServer {
             for entry in &diff.removed {
                 let class = entry.class_name.as_deref().unwrap_or("?");
                 lines.push(format!("  - [{}] {}", class, entry.path));
+            }
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(lines.join("\n"))]))
+    }
+
+    /// Report server status and connected clients.
+    /// Returns server health and version, connected Roblox Studio places,
+    /// and registered VS Code workspaces. Call before extract, sync, or diff
+    /// to verify the system is ready.
+    #[tool(description = "Report server status and connected clients - server health, Studio places, and VS Code workspaces. Call before extract/sync/diff to verify the system is ready.")]
+    async fn connection_status(&self) -> Result<CallToolResult, McpError> {
+        let health = match self.client.get_health().await {
+            Ok(h) if h.status == "ok" => h,
+            _ => {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    "Server: not running. Start it with 'rbxsync serve'.",
+                )]));
+            }
+        };
+
+        let version = health.version.as_deref().unwrap_or("unknown");
+        let mut lines = vec![format!("Server: running (v{})", version)];
+
+        let places = self.client.get_places().await.unwrap_or_default();
+        lines.push(String::new());
+        if places.is_empty() {
+            lines.push("Studio: no places connected".to_string());
+        } else {
+            lines.push(format!(
+                "Studio: {} place{} connected",
+                places.len(),
+                if places.len() == 1 { "" } else { "s" }
+            ));
+            for place in &places {
+                let name = if place.place_name.is_empty() { "Unnamed" } else { &place.place_name };
+                lines.push(format!(
+                    "  • \"{}\" (Place ID: {}) → {}",
+                    name, place.place_id, place.project_dir
+                ));
+            }
+        }
+
+        let workspaces = self.client.get_workspaces().await.unwrap_or_default();
+        lines.push(String::new());
+        if workspaces.is_empty() {
+            lines.push("VS Code: no workspaces registered".to_string());
+        } else {
+            lines.push(format!(
+                "VS Code: {} workspace{}",
+                workspaces.len(),
+                if workspaces.len() == 1 { "" } else { "s" }
+            ));
+            for ws in &workspaces {
+                lines.push(format!("  • {}", ws));
+            }
+        }
+
+        lines.push(String::new());
+        if places.is_empty() {
+            lines.push("Status: not ready - open Roblox Studio with the RbxSync plugin installed".to_string());
+        } else {
+            lines.push("Status: ready for sync/extract".to_string());
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(lines.join("\n"))]))
+    }
+
+    /// Get recent console output from Roblox Studio.
+    /// Returns log messages with timestamps and types (error/warn/info),
+    /// optionally filtered by type. Messages are captured while the Studio
+    /// plugin is pushing console output to the server.
+    #[tool(description = "Get recent console output from Roblox Studio - log messages with timestamps and types (error/warn/info), optionally filtered by type.")]
+    async fn console_history(
+        &self,
+        Parameters(params): Parameters<ConsoleHistoryParams>,
+    ) -> Result<CallToolResult, McpError> {
+        if let Some(err) = self.require_connection().await? {
+            return Ok(err);
+        }
+
+        let limit = params.limit.unwrap_or(50).min(1000);
+        let result = self.client
+            .get_console_history(limit)
+            .await
+            .map_err(|e| mcp_error(e.to_string()))?;
+
+        let mut messages = result.messages;
+        if let Some(ref filter_type) = params.message_type {
+            messages.retain(|m| m.message_type == *filter_type);
+        }
+
+        if messages.is_empty() {
+            return Ok(CallToolResult::success(vec![Content::text(format!(
+                "Console: no messages (total in buffer: {})",
+                result.total
+            ))]));
+        }
+
+        let mut lines = vec![format!(
+            "Console ({} messages, showing {}):",
+            result.total,
+            messages.len()
+        )];
+        lines.push(String::new());
+
+        for msg in &messages {
+            let type_label = match msg.message_type.as_str() {
+                "error" => "[ERROR]",
+                "warn" => "[WARN] ",
+                "info" => "[INFO] ",
+                _ => "[LOG]  ",
+            };
+            let source = msg.source.as_deref().unwrap_or("");
+            if source.is_empty() {
+                lines.push(format!("{} {} {}", type_label, msg.timestamp, msg.message));
+            } else {
+                lines.push(format!("{} {} {} {}", type_label, msg.timestamp, source, msg.message));
             }
         }
 

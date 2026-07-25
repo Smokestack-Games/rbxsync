@@ -254,8 +254,8 @@ mod tests {
             "42"
         );
         assert_eq!(
-            json_value_to_luau(&serde_json::json!(3.14)),
-            "3.14"
+            json_value_to_luau(&serde_json::json!(1.5)),
+            "1.5"
         );
     }
 

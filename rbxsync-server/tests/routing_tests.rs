@@ -100,3 +100,64 @@ async fn test_operation_status_matches_across_path_styles() {
         "operation keyed by one path style must be visible via the other: {body:#?}"
     );
 }
+
+#[tokio::test]
+async fn test_health_reports_version() {
+    let server = create_test_server();
+
+    let health = server.get("/health").await;
+    health.assert_status_ok();
+    let body: serde_json::Value = health.json();
+    assert_eq!(body["status"], "ok");
+    assert!(
+        body["version"].as_str().is_some_and(|v| !v.is_empty()),
+        "health must report a non-empty version: {body:#?}"
+    );
+}
+
+#[tokio::test]
+async fn test_registered_workspace_is_listed() {
+    let server = create_test_server();
+
+    let register = server
+        .post("/rbxsync/register-vscode")
+        .json(&json!({ "workspace_dir": "C:/Users/rt/ws" }))
+        .await;
+    register.assert_status_ok();
+
+    let workspaces = server.get("/rbxsync/workspaces").await;
+    workspaces.assert_status_ok();
+    let body: serde_json::Value = workspaces.json();
+    let dirs = body["workspaces"].as_array().unwrap();
+    assert!(
+        dirs.iter().any(|d| d == "c:/Users/rt/ws"),
+        "registered workspace must appear in the list: {body:#?}"
+    );
+}
+
+#[tokio::test]
+async fn test_pushed_console_messages_appear_in_history() {
+    let server = create_test_server();
+
+    let push = server
+        .post("/console/push")
+        .json(&json!({
+            "messages": [
+                { "timestamp": "0.0", "message_type": "info", "message": "starting", "source": "sync" },
+                { "timestamp": "0.1", "message_type": "error", "message": "boom", "source": null }
+            ]
+        }))
+        .await;
+    push.assert_status_ok();
+
+    let history = server.get("/console/history").add_query_param("limit", 10).await;
+    history.assert_status_ok();
+    let body: serde_json::Value = history.json();
+    assert_eq!(body["total"], 2);
+    let messages = body["messages"].as_array().unwrap();
+    assert_eq!(messages.len(), 2);
+    assert_eq!(messages[0]["message_type"], "info");
+    assert_eq!(messages[0]["timestamp"], "0.0");
+    assert_eq!(messages[0]["message"], "starting");
+    assert_eq!(messages[1]["message_type"], "error");
+}
