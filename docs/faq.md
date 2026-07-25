@@ -133,7 +133,7 @@ This usually means the parent folder doesn't exist in Studio. Make sure:
 
 ### "Unknown property type" errors
 
-Run `rbxsync fmt-project` to fix JSON formatting issues, or check the `.rbxjson` file for typos in property types.
+Run `rbxsync fmt-project` to fix JSON formatting issues, or check `datamodel.rbxjson` for typos in property types.
 
 ### Build produces empty file
 
@@ -141,9 +141,7 @@ Make sure you have a valid `rbxsync.json` in your project root with the correct 
 ```json
 {
   "name": "MyGame",
-  "tree": {
-    "$path": "src"
-  }
+  "tree": "./src"
 }
 ```
 

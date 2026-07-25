@@ -98,11 +98,11 @@ This autonomous workflow is ONLY possible with RbxSync.
 - **Zero-config**: Works without project files
 
 ### File Format Compatibility
-RbxSync uses Rojo-compatible conventions:
+RbxSync uses Rojo-compatible conventions for scripts:
 - `Script.server.luau` = Script
 - `Script.client.luau` = LocalScript
 - `Script.luau` = ModuleScript
-- `.rbxjson` for full instance properties (RbxSync exclusive)
+- The rest of the instance tree lives in a single `datamodel.rbxjson` context file with full property fidelity (RbxSync exclusive)
 
 ## Documentation
 

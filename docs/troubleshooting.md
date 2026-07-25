@@ -61,8 +61,8 @@ Common issues and solutions.
 
 **Solutions:**
 1. Check connection status (green indicator)
-2. Verify file is in `src/` directory
-3. Check for syntax errors in .rbxjson files
+2. Verify the script is in the `src/` directory
+3. Check for syntax errors in your `.luau` scripts
 4. Restart server and reconnect
 
 ### "Property not supported" error
@@ -79,7 +79,7 @@ Common issues and solutions.
 **Solutions:**
 1. Format files: `rbxsync fmt-project`
 2. Check the specific property in error message
-3. Verify .rbxjson syntax
+3. Verify `datamodel.rbxjson` is valid JSON
 
 ### Build output is empty
 
