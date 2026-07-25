@@ -30,7 +30,7 @@ adding capabilities Rojo lacks.
 
 - [Getting Started](https://rbxsync.dev/getting-started/): Installation and first project setup, including migration from Rojo
 - [CLI Reference](https://rbxsync.dev/cli/): All CLI commands (init, serve, extract, sync, build)
-- [File Formats](https://rbxsync.dev/file-formats/): .luau scripts, .rbxjson metadata, project structure
+- [File Formats](https://rbxsync.dev/file-formats/): .luau scripts, the datamodel.rbxjson context file, project structure
 - [VS Code Extension](https://rbxsync.dev/vscode/): One-click Studio connection and sync
 - [MCP Integration](https://rbxsync.dev/mcp/): AI agent integration for autonomous Roblox development
 
@@ -48,7 +48,7 @@ RbxSync uses familiar conventions for Rojo users:
 - `Script.server.luau` → Script (like Rojo)
 - `Script.client.luau` → LocalScript (like Rojo)
 - `Script.luau` → ModuleScript (like Rojo)
-- `.rbxjson` files for full instance metadata (RbxSync exclusive)
+- A single `datamodel.rbxjson` context file holds the full instance tree with all properties (RbxSync exclusive)
 
 ### MCP Tools for AI Agents
 
