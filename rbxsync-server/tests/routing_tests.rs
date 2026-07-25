@@ -100,3 +100,37 @@ async fn test_operation_status_matches_across_path_styles() {
         "operation keyed by one path style must be visible via the other: {body:#?}"
     );
 }
+
+#[tokio::test]
+async fn test_health_reports_version() {
+    let server = create_test_server();
+
+    let health = server.get("/health").await;
+    health.assert_status_ok();
+    let body: serde_json::Value = health.json();
+    assert_eq!(body["status"], "ok");
+    assert!(
+        body["version"].as_str().is_some_and(|v| !v.is_empty()),
+        "health must report a non-empty version: {body:#?}"
+    );
+}
+
+#[tokio::test]
+async fn test_registered_workspace_is_listed() {
+    let server = create_test_server();
+
+    let register = server
+        .post("/rbxsync/register-vscode")
+        .json(&json!({ "workspace_dir": "C:/Users/rt/ws" }))
+        .await;
+    register.assert_status_ok();
+
+    let workspaces = server.get("/rbxsync/workspaces").await;
+    workspaces.assert_status_ok();
+    let body: serde_json::Value = workspaces.json();
+    let dirs = body["workspaces"].as_array().unwrap();
+    assert!(
+        dirs.iter().any(|d| d == "c:/Users/rt/ws"),
+        "registered workspace must appear in the list: {body:#?}"
+    );
+}

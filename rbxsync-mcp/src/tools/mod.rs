@@ -375,6 +375,31 @@ pub struct DiffResponse {
     pub unchanged: usize,
 }
 
+/// A connected Studio place from the /rbxsync/places endpoint
+#[derive(Debug, Deserialize)]
+pub struct PlaceEntry {
+    #[serde(default)]
+    pub place_id: u64,
+    #[serde(default)]
+    pub place_name: String,
+    #[serde(default)]
+    pub project_dir: String,
+}
+
+/// Response from the /rbxsync/places endpoint
+#[derive(Debug, Deserialize)]
+pub struct PlacesResponse {
+    #[serde(default)]
+    pub places: Vec<PlaceEntry>,
+}
+
+/// Response from the /rbxsync/workspaces endpoint
+#[derive(Debug, Deserialize)]
+pub struct WorkspacesResponse {
+    #[serde(default)]
+    pub workspaces: Vec<String>,
+}
+
 impl RbxSyncClient {
     pub fn new(port: u16) -> Self {
         Self {
@@ -859,6 +884,34 @@ impl RbxSyncClient {
             .await?;
 
         send_and_parse(response, "get_diff").await
+    }
+
+    /// Get the server version and liveness from the health endpoint
+    pub async fn get_health(&self) -> anyhow::Result<HealthResponse> {
+        let response = self.client.get(format!("{}/health", self.base_url)).send().await?;
+        send_and_parse(response, "get_health").await
+    }
+
+    /// Get the connected Studio places
+    pub async fn get_places(&self) -> anyhow::Result<Vec<PlaceEntry>> {
+        let response = self
+            .client
+            .get(format!("{}/rbxsync/places", self.base_url))
+            .send()
+            .await?;
+        let resp: PlacesResponse = send_and_parse(response, "get_places").await?;
+        Ok(resp.places)
+    }
+
+    /// Get the registered VS Code workspaces
+    pub async fn get_workspaces(&self) -> anyhow::Result<Vec<String>> {
+        let response = self
+            .client
+            .get(format!("{}/rbxsync/workspaces", self.base_url))
+            .send()
+            .await?;
+        let resp: WorkspacesResponse = send_and_parse(response, "get_workspaces").await?;
+        Ok(resp.workspaces)
     }
 
     // ========================================================================

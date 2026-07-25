@@ -137,10 +137,10 @@ If you are a teammate working on a task:
 
 ## MCP Tools Available
 
-When running with `rbxsync serve`, 46 MCP tools are registered (see
+When running with `rbxsync serve`, 47 MCP tools are registered (see
 `rbxsync-mcp/src/main.rs`). By area:
 
-- **Extract / sync:** `extract_game`, `sync_to_studio`, `diff`, `set_active_place`, `insert_model`, `git_status`, `git_commit`
+- **Extract / sync:** `extract_game`, `sync_to_studio`, `diff`, `connection_status`, `set_active_place`, `insert_model`, `git_status`, `git_commit`
 - **Scripting:** `run_code`, `get_script_source`, `set_script_source`, `edit_script_lines`
 - **Instances:** `read_properties`, `explore_hierarchy`, `find_instances`, `create_instance`, `delete_instance`, `duplicate_instance`, `get_selection`, `get_class_info`, `set_property`, `mass_set_property`, `search_by_property`
 - **Tags / attributes:** `get_tags`, `add_tag`, `remove_tag`, `get_tagged`, `get_attributes`, `set_attribute`, `delete_attribute`

@@ -1016,6 +1016,68 @@ impl RbxSyncServer {
         Ok(CallToolResult::success(vec![Content::text(lines.join("\n"))]))
     }
 
+    /// Report server status and connected clients.
+    /// Returns server health and version, connected Roblox Studio places,
+    /// and registered VS Code workspaces. Call before extract, sync, or diff
+    /// to verify the system is ready.
+    #[tool(description = "Report server status and connected clients - server health, Studio places, and VS Code workspaces. Call before extract/sync/diff to verify the system is ready.")]
+    async fn connection_status(&self) -> Result<CallToolResult, McpError> {
+        let health = match self.client.get_health().await {
+            Ok(h) if h.status == "ok" => h,
+            _ => {
+                return Ok(CallToolResult::success(vec![Content::text(
+                    "Server: not running. Start it with 'rbxsync serve'.",
+                )]));
+            }
+        };
+
+        let version = health.version.as_deref().unwrap_or("unknown");
+        let mut lines = vec![format!("Server: running (v{})", version)];
+
+        let places = self.client.get_places().await.unwrap_or_default();
+        lines.push(String::new());
+        if places.is_empty() {
+            lines.push("Studio: no places connected".to_string());
+        } else {
+            lines.push(format!(
+                "Studio: {} place{} connected",
+                places.len(),
+                if places.len() == 1 { "" } else { "s" }
+            ));
+            for place in &places {
+                let name = if place.place_name.is_empty() { "Unnamed" } else { &place.place_name };
+                lines.push(format!(
+                    "  • \"{}\" (Place ID: {}) → {}",
+                    name, place.place_id, place.project_dir
+                ));
+            }
+        }
+
+        let workspaces = self.client.get_workspaces().await.unwrap_or_default();
+        lines.push(String::new());
+        if workspaces.is_empty() {
+            lines.push("VS Code: no workspaces registered".to_string());
+        } else {
+            lines.push(format!(
+                "VS Code: {} workspace{}",
+                workspaces.len(),
+                if workspaces.len() == 1 { "" } else { "s" }
+            ));
+            for ws in &workspaces {
+                lines.push(format!("  • {}", ws));
+            }
+        }
+
+        lines.push(String::new());
+        if places.is_empty() {
+            lines.push("Status: not ready - open Roblox Studio with the RbxSync plugin installed".to_string());
+        } else {
+            lines.push("Status: ready for sync/extract".to_string());
+        }
+
+        Ok(CallToolResult::success(vec![Content::text(lines.join("\n"))]))
+    }
+
     /// Get the git status of a project directory.
     #[tool(description = "Get git status of the project")]
     async fn git_status(
