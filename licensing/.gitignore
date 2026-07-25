@@ -1,0 +1,21 @@
+# ─── Secrets — NEVER commit ──────────────────────────────────────────────────
+# Wrangler local secrets (loaded by `wrangler dev`). Only .dev.vars.example is tracked.
+.dev.vars
+.dev.vars.*
+!.dev.vars.example
+
+# Any generated private key material. gen-keys.mjs NEVER writes the private key to
+# disk, but guard against accidental redirects / copy-paste dumps landing here.
+*private*key*
+*.pem
+*.key
+keys/private*
+keys/*private*
+
+# ─── Node / build ────────────────────────────────────────────────────────────
+node_modules/
+dist/
+.wrangler/
+coverage/
+*.log
+.DS_Store
