@@ -1253,6 +1253,20 @@ fn is_port_available(port: u16) -> bool {
     std::net::TcpListener::bind(format!("127.0.0.1:{}", port)).is_ok()
 }
 
+/// Poll until the port is released or the timeout elapses. Returns true if released.
+async fn wait_for_port_release(port: u16, timeout_ms: u64) -> bool {
+    let deadline = std::time::Instant::now() + std::time::Duration::from_millis(timeout_ms);
+    loop {
+        if is_port_available(port) {
+            return true;
+        }
+        if std::time::Instant::now() >= deadline {
+            return false;
+        }
+        tokio::time::sleep(std::time::Duration::from_millis(100)).await;
+    }
+}
+
 /// Stop server on a specific port
 async fn stop_server_on_port(port: u16) -> Result<()> {
     // First, try to find any rbxsync server processes by port
