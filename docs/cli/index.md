@@ -45,8 +45,8 @@ Compile your project to Roblox formats.
 
 ### Utility Commands
 Helpful tools for development.
-- `sourcemap` - Generate LSP sourcemap
-- `fmt-project` - Format .rbxjson files
+- `sourcemap` - Generate a `sourcemap.json` for Luau LSP
+- `fmt-project` - Format `datamodel.rbxjson` and other `.rbxjson` files
 - `studio` - Launch Roblox Studio
 - `doc` - Open documentation
 

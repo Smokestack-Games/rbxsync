@@ -52,10 +52,9 @@ You should see a green connection indicator.
 
 | In Studio | Becomes |
 |-----------|---------|
-| Scripts | `.luau` files (ServerScript → `.server.luau`, LocalScript → `.client.luau`) |
-| Parts, Models, UI | `.rbxm` binary files |
-| Properties | `.rbxjson` metadata files |
-| Folders | Directories matching the hierarchy |
+| Scripts | `.luau` files (Script → `.server.luau`, LocalScript → `.client.luau`, ModuleScript → `.luau`) |
+| Parts, Models, UI, folders | Nodes in `datamodel.rbxjson` |
+| Properties | Values on those nodes |
 | Terrain | `terrain/` voxel data |
 
 ### How to Extract
@@ -65,22 +64,37 @@ You should see a green connection indicator.
 3. Connect via the RbxSync plugin toolbar button
 4. Click **Extract** in the plugin panel
 
-Your game structure will appear in the `src/` folder:
+Scripts appear in the `src/` folder, and the full instance tree is written to
+`datamodel.rbxjson` at the project root:
 
 ```
-src/
-├── Workspace/
-│   ├── Baseplate.rbxm
-│   └── SpawnLocation.rbxm
-├── ServerScriptService/
-│   └── GameManager.server.luau
-├── ReplicatedStorage/
-│   └── Modules/
-│       └── Utils.luau
-└── StarterPlayer/
-    └── StarterPlayerScripts/
-        └── ClientInit.client.luau
+MyGame/
+├── datamodel.rbxjson         # Full instance tree (Workspace, UI, Lighting, ...)
+└── src/
+    ├── ServerScriptService/
+    │   └── GameManager.server.luau
+    ├── ReplicatedStorage/
+    │   └── Modules/
+    │       └── Utils.luau
+    └── StarterPlayer/
+        └── StarterPlayerScripts/
+            └── ClientInit.client.luau
 ```
+
+Non-script instances like `Baseplate` and `SpawnLocation` don't become files —
+they live as nodes inside `datamodel.rbxjson`.
+
+<!-- VERIFY: The plugin-driven extraction path (`POST /extract/finalize` in
+rbxsync-server) currently still writes per-instance `.rbxjson` / `_meta.rbxjson`
+sidecar files instead of `datamodel.rbxjson`. The context-file layout shown here
+matches the core model, the CLI `extract --from-file` path, and VS Code
+project.json generation. -->
+
+::: tip datamodel.rbxjson is generated
+Treat `datamodel.rbxjson` as read-only — RbxSync maintains it. It gives AI
+assistants and the Luau language server a full view of the game. To change a
+non-script instance, edit it in Studio.
+:::
 
 ### When to Extract
 
@@ -89,7 +103,8 @@ src/
 - **Team sync**: Get the latest from a teammate who worked in Studio
 
 ::: tip
-Extraction also generates `project.json` for [Luau LSP](/vscode/luau-lsp), giving you intellisense in VS Code.
+The VS Code extension generates `default.project.json` from `datamodel.rbxjson`
+for [Luau LSP](/vscode/luau-lsp), giving you intellisense in VS Code.
 :::
 
 ## Sync Changes
@@ -105,5 +120,5 @@ rbxsync sync
 ## What's Next?
 
 - [CLI Commands](/cli/commands) - Full command reference
-- [File Formats](/file-formats/) - Understand .luau and .rbxjson files
+- [File Formats](/file-formats/) - Understand `.luau` scripts and the `datamodel.rbxjson` context file
 - [E2E Testing](/vscode/e2e-testing) - AI-powered development

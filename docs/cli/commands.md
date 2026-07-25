@@ -118,14 +118,19 @@ rbxsync build-plugin [--install]
 ## Utility Commands
 
 ### sourcemap
-Generate sourcemap.json for Luau LSP.
+Generate `sourcemap.json` for Luau LSP.
 
 ```bash
 rbxsync sourcemap
 ```
 
+The VS Code extension already generates `default.project.json` from
+`datamodel.rbxjson` for language-server support, so most projects don't need
+this. Use it when a tool specifically wants a `sourcemap.json`.
+
 ### fmt-project
-Format all .rbxjson files.
+Format `datamodel.rbxjson` (and any other `.rbxjson` files, such as terrain data)
+with consistent style.
 
 ```bash
 rbxsync fmt-project [--check]
@@ -167,8 +172,9 @@ rbxsync update [OPTIONS]
 
 | Option | Description |
 |--------|-------------|
-| `--vscode` | Also rebuild VS Code extension |
-| `--no-pull` | Skip git pull, just rebuild |
+| `--from-source` | Build from source instead of downloading a release |
+| `--vscode` | Also update the VS Code extension |
+| `-y, --yes` | Skip the confirmation prompt |
 
 This command:
 1. Pulls latest from GitHub
