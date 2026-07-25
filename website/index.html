@@ -5519,20 +5519,21 @@
             Sync <span class="code-box"><span class="rotating-wrapper"><span class="rotating-text" id="rotating-classnames">
                 <span class="active">Scripts</span>
             </span></span><span class="code-cursor"></span></span> to Git.<br>
-            <span class="accent">The sync tool built for AI.</span>
+            <span class="accent">Your whole game as one AI-readable context file.</span>
         </h1>
 
         <p class="hero-subtitle">
             <span class="hero-phrase">Let Claude build your Roblox game.</span>
-            <span class="hero-phrase">Native MCP integration. Two-way sync.</span>
+            <span class="hero-phrase">Real .luau scripts. Native MCP. Two-way sync.</span>
             <span class="hero-phrase">One-click extraction. Zero configuration.</span>
         </p>
 
         <div class="hero-actions">
-            <a href="#install" class="btn-beta">
+            <a href="STRIPE_CHECKOUT_URL_TODO" class="btn-beta">
+                <!-- TODO(marissa): real Stripe payment link -->
                 <span class="hover-bg"></span>
-                <span class="btn-text">Get Started</span>
-                <span class="beta-tag">FREE BETA</span>
+                <span class="btn-text">Buy a license</span>
+                <span class="beta-tag">$60</span>
             </a>
             <div class="btn-secondary-wrapper">
                 <div class="aurora-layer"></div>
@@ -5662,8 +5663,8 @@
                     <h3>One Click. Your Entire Game in Git.</h3>
                     <p>
                         <span class="copy-line">Open any game in Studio. Click Extract.</span>
-                        <span class="copy-line">50,000 instances become version-controlled files in seconds.</span>
-                        <span class="copy-line">Every property preserved perfectly in <span class="rbxjson-rainbow">.rbxjson</span> format.</span>
+                        <span class="copy-line">50,000 instances become one <span class="rbxjson-rainbow">datamodel.rbxjson</span>, plus real .luau scripts.</span>
+                        <span class="copy-line">Every property captured in seconds. Zero data loss.</span>
                         <span class="kicker">No other tool does this.</span>
                     </p>
                 </div>
@@ -5728,11 +5729,11 @@
             <div class="format-section">
                 <div class="format-info">
                     <div class="section-tag">File Format</div>
-                    <h3>Human-readable. AI-readable. Git-friendly.</h3>
+                    <h3>One context file. Real Luau. Git-friendly.</h3>
                     <p>
-                        <span class="copy-line">Scripts are .luau files. Everything else is <span class="rbxjson-rainbow">.rbxjson</span>.</span>
-                        <span class="copy-line">A clean JSON format with explicit types that preserves every property exactly.</span>
-                        <span class="copy-line">Readable diffs. Easy merges. Zero data loss.</span>
+                        <span class="copy-line">Scripts are real .luau files. Your whole tree lives in one <span class="rbxjson-rainbow">datamodel.rbxjson</span>.</span>
+                        <span class="copy-line">A hidden, read-only context file with explicit types: every instance, every property.</span>
+                        <span class="copy-line">Review the .luau diffs. Zero data loss.</span>
                     </p>
 
                     <div class="class-search-container">
@@ -5752,7 +5753,7 @@
                         <span class="format-type-quick" data-class="Sound">Sound</span>
                         <span class="format-type-quick" data-class="ProximityPrompt">ProximityPrompt</span>
                     </div>
-                    <p class="format-hint">Search any class or click a quick pick →</p>
+                    <p class="format-hint">See how any class serializes inside the file. Search or pick one →</p>
                 </div>
 
                 <div class="code-example">
@@ -5762,24 +5763,24 @@
                             <span class="code-header-dot yellow"></span>
                             <span class="code-header-dot green"></span>
                         </div>
-                        <span class="code-header-title"><span id="template-name">Baseplate</span><span class="rbxjson-rainbow">.rbxjson</span></span>
+                        <span class="code-header-title"><span id="template-name" class="rbxjson-rainbow">datamodel.rbxjson</span></span>
                     </div>
                     <pre id="template-code">{
-  <span class="key">"className"</span>: <span class="string">"Part"</span>,
-  <span class="key">"properties"</span>: {
-    <span class="key">"Anchored"</span>: {
-      <span class="key">"type"</span>: <span class="string">"bool"</span>,
-      <span class="key">"value"</span>: <span class="bool">true</span>
-    },
-    <span class="key">"Size"</span>: {
-      <span class="key">"type"</span>: <span class="string">"Vector3"</span>,
-      <span class="key">"value"</span>: { <span class="key">"x"</span>: <span class="number">512</span>, <span class="key">"y"</span>: <span class="number">20</span>, <span class="key">"z"</span>: <span class="number">512</span> }
-    },
-    <span class="key">"Material"</span>: {
-      <span class="key">"type"</span>: <span class="string">"Enum"</span>,
-      <span class="key">"value"</span>: { <span class="key">"enumType"</span>: <span class="string">"Material"</span>, <span class="key">"value"</span>: <span class="string">"Grass"</span> }
+  <span class="key">"className"</span>: <span class="string">"DataModel"</span>,
+  <span class="key">"name"</span>: <span class="string">"DataModel"</span>,
+  <span class="key">"children"</span>: [
+    {
+      <span class="key">"className"</span>: <span class="string">"ServerScriptService"</span>,
+      <span class="key">"name"</span>: <span class="string">"ServerScriptService"</span>,
+      <span class="key">"children"</span>: [
+        {
+          <span class="key">"className"</span>: <span class="string">"Script"</span>,
+          <span class="key">"name"</span>: <span class="string">"Main"</span>,
+          <span class="key">"sourcePath"</span>: <span class="string">"src/ServerScriptService/Main.server.luau"</span>
+        }
+      ]
     }
-  }
+  ]
 }</pre>
                 </div>
             </div>
@@ -5810,7 +5811,7 @@
                         <li style="margin-bottom: 0.5rem;"><span style="color: var(--success);">+</span> Clean Git diffs - see exactly what changed</li>
                         <li style="margin-bottom: 0.5rem;"><span style="color: var(--success);">+</span> Explicit types - no ambiguity</li>
                         <li style="margin-bottom: 0.5rem;"><span style="color: var(--success);">+</span> AI/LLM readable - agents can parse and modify</li>
-                        <li><span style="color: var(--success);">+</span> Human editable - fix properties by hand if needed</li>
+                        <li><span style="color: var(--success);">+</span> One context file - your whole tree in one place</li>
                     </ul>
                 </div>
 
@@ -5980,7 +5981,7 @@
                             <td><span class="status-icon no"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 12h12"/></svg></span></td>
                         </tr>
                         <tr>
-                            <td><span class="feature-name"><span class="rbxjson-text">.rbxjson</span> format</span></td>
+                            <td><span class="feature-name">Single context file</span></td>
                             <td class="col-rbxsync"><span class="exclusive-tag">Exclusive</span></td>
                             <td><span class="status-icon no"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 12h12"/></svg></span></td>
                             <td><span class="status-icon no"><svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M6 12h12"/></svg></span></td>
@@ -8097,10 +8098,9 @@ Installed plugins:
                 },
                 'fmt-project': {
                     desc: 'Format .rbxjson files',
-                    output: `Formatted: src/ReplicatedStorage/Config.rbxjson
-Formatted: src/Workspace/Spawn.rbxjson
+                    output: `Formatted: datamodel.rbxjson
 
-<span class="success">✓</span> Formatted 2 file(s).`
+<span class="success">✓</span> Formatted 1 file(s).`
                 },
                 debug: {
                     desc: 'Start/stop playtest in Studio',
