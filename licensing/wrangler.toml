@@ -1,0 +1,27 @@
+name = "rbxsync-licensing"
+main = "src/index.ts"
+compatibility_date = "2024-09-23"
+# nodejs_compat is NOT required — the Worker uses only Web Crypto + fetch.
+# Ed25519 in Web Crypto is available on workerd from compatibility_date 2024-09-01+.
+
+[vars]
+# From address for license emails (must be a verified sender on your ZeptoMail domain).
+FROM_EMAIL = "licenses@smokestackgames.com"
+# Where /download 302-redirects to. Placeholder until the binaries live in R2 / Vercel Blob.
+INSTALLER_BASE_URL = "https://downloads.smokestackgames.com/rbxsync/latest"
+# Public origin of THIS worker — used to build the download link inside the email.
+# Set to your deployed worker URL (or custom domain) after `wrangler deploy`.
+WORKER_URL = "https://rbxsync-licensing.smokestackgames.workers.dev"
+
+# KV namespace for licenses, download tokens, and processed Stripe event ids.
+# Create it with:  wrangler kv namespace create LICENSES
+# then paste the returned id below.
+[[kv_namespaces]]
+binding = "LICENSES"
+id = "" # Fill in after `wrangler kv namespace create LICENSES`
+
+# ─── Secrets (NOT stored here — set with `wrangler secret put <NAME>`) ─────────
+#   STRIPE_WEBHOOK_SECRET          (whsec_...)
+#   STRIPE_SECRET_KEY              (optional; only if you expand the session)
+#   ZEPTOMAIL_TOKEN               (ZeptoMail send token)
+#   LICENSE_SIGNING_PRIVATE_KEY   (base64 PKCS8, from gen-keys.mjs)

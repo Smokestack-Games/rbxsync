@@ -1,0 +1,21 @@
+# Copy this file to `licensing/.dev.vars` (gitignored) for local `wrangler dev`.
+# In production, set each of these with `wrangler secret put <NAME>` instead — do
+# NOT put real secrets in wrangler.toml or any committed file.
+
+# Stripe webhook signing secret (Developers → Webhooks → your endpoint → Signing secret).
+STRIPE_WEBHOOK_SECRET=REPLACE_WITH_STRIPE_WEBHOOK_SIGNING_SECRET
+
+# Optional — only needed if you later expand the checkout session server-side.
+# Paste your real Stripe secret key here (starts with sk_test_ or sk_live_).
+STRIPE_SECRET_KEY=REPLACE_WITH_STRIPE_SECRET_KEY
+
+# ZeptoMail send token. May include or omit the "Zoho-enczapikey " prefix.
+ZEPTOMAIL_TOKEN=REPLACE_WITH_ZEPTOMAIL_SEND_TOKEN
+
+# Ed25519 private key, base64 PKCS8 — printed by `node scripts/gen-keys.mjs`.
+LICENSE_SIGNING_PRIVATE_KEY=BASE64_PKCS8_FROM_GEN_KEYS
+
+# ─── The following are also settable as [vars] in wrangler.toml ───────────────
+FROM_EMAIL=licenses@smokestackgames.com
+INSTALLER_BASE_URL=https://downloads.smokestackgames.com/rbxsync/latest
+WORKER_URL=http://localhost:8787
