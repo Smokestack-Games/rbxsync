@@ -9,35 +9,25 @@ RbxSync is a bidirectional sync tool between Roblox Studio and local filesystem.
 - External editor support (VS Code)
 - AI-assisted development via MCP
 
-**Current Version:** v1.3.0
-**Status:** Active development
+**Current Version:** v1.4.0
+**Status:** Preparing v1.4.0 release
 
 ---
 
 ## Critical Context
 
-### Current Priority: BUG BASH
+### Current State
 
-**Recently fixed:**
-- ~~RBXSYNC-24~~ - Data loss with ScriptSync
-- ~~RBXSYNC-25~~ - Script timeout on large games
-- ~~RBXSYNC-26~~ - Large game extraction slow
-- ~~RBXSYNC-27~~ - Clear src folder before extraction
-- ~~RBXSYNC-28~~ - Delete orphans UI in VS Code
-- ~~RBXSYNC-30~~ - Extraction fails with excluded services
-- ~~RBXSYNC-17~~ - Windows path corruption
-- ~~RBXSYNC-33~~ - Zero-config mode
-- ~~RBXSYNC-34~~ - Echo prevention flag
-- ~~RBXSYNC-35~~ - 50ms deduplication window
-- ~~RBXSYNC-36~~ - GetDebugId for instance IDs
-- ~~RBXSYNC-38~~ - Union deletion during extract
+v1.4.0 replaces the per-instance `.rbxjson` + `_meta.rbxjson` sidecar format with a
+single hidden, read-only `datamodel.rbxjson` context document at the project root.
+Scripts are written as standalone `.luau` files under `src/`; the context document
+holds the rest of the instance tree by nesting and points each script at its
+`sourcePath` instead of carrying source. The standalone rbxjson language server and
+the per-instance VS Code decorations/tree view were retired as part of the same
+refactor.
 
-**Active bugs:**
-| Issue | Priority | Problem |
-|-------|----------|---------|
-| RBXSYNC-5 | - | Instance renames not handled |
-| RBXSYNC-18 | - | Multiple terminal windows in VS Code |
-| RBXSYNC-19 | - | Luau LSP can't find project.json |
+No formal issue tracker is wired up in this repo right now; track work in
+`TASKS.md` / commit history and open a PR per change (see Git Workflow below).
 
 ---
 
@@ -45,14 +35,20 @@ RbxSync is a bidirectional sync tool between Roblox Studio and local filesystem.
 
 ```
 rbxsync/
-├── rbxsync-core/     # Core serialization, DOM handling (Rust)
-├── rbxsync-server/   # HTTP server, sync logic (Rust)
-├── rbxsync-cli/      # CLI interface (Rust)
-├── rbxsync-mcp/      # MCP server for AI tools (Rust)
-├── rbxsync-vscode/   # VS Code extension (TypeScript)
-├── plugin/           # Roblox Studio plugin (Luau)
-└── .claude/          # AI agent configs and hooks
+├── datamodel.rbxjson   # Hidden, read-only whole-datamodel context document (generated)
+├── src/                # Standalone script sources (.luau), one file per script instance
+├── rbxsync-core/       # Core serialization, context-tree assembly, DOM handling (Rust)
+├── rbxsync-server/     # HTTP server, sync logic, live delta flush (Rust, axum)
+├── rbxsync-cli/        # CLI interface (Rust, clap)
+├── rbxsync-mcp/        # MCP server for AI tools (Rust, rmcp)
+├── rbxsync-vscode/     # VS Code extension (TypeScript)
+├── plugin/             # Roblox Studio plugin (Luau)
+└── .claude/            # AI agent configs and hooks
 ```
+
+`datamodel.rbxjson` and the `src/` script tree are produced by extraction; the
+context document is regenerated on extract and folded with live Studio deltas via a
+debounced flush, so treat it as generated output rather than hand-edited source.
 
 ---
 
@@ -130,9 +126,10 @@ If you are a teammate working on a task:
 
 | Component | Entry Point | Purpose |
 |-----------|-------------|---------|
-| Server | `rbxsync-server/src/server.rs` | HTTP server, sync logic |
+| Server | `rbxsync-server/src/lib.rs` | HTTP server, sync logic |
 | Core | `rbxsync-core/src/lib.rs` | DOM, serialization |
-| MCP | `rbxsync-mcp/src/lib.rs` | AI tool handlers |
+| Core (context tree) | `rbxsync-core/src/context_tree.rs` | `datamodel.rbxjson` assembly + delta patching |
+| MCP | `rbxsync-mcp/src/main.rs` | MCP server entry, tool registrations |
 | Plugin | `plugin/src/Sync.luau` | Studio sync logic |
 | VS Code | `rbxsync-vscode/src/extension.ts` | Extension entry |
 
@@ -140,15 +137,15 @@ If you are a teammate working on a task:
 
 ## MCP Tools Available
 
-When running with `rbxsync serve`, these MCP tools are available:
+When running with `rbxsync serve`, 46 MCP tools are registered (see
+`rbxsync-mcp/src/main.rs`). By area:
 
-- `extract_game` - Extract game from Studio to files
-- `sync_to_studio` - Push local changes to Studio
-- `run_test` - Start playtest
-- `run_code` - Execute Luau in Studio
-- `bot_observe` - Get game state during playtest
-- `bot_move` - Move character
-- `bot_action` - Perform actions (equip, interact, etc.)
+- **Extract / sync:** `extract_game`, `sync_to_studio`, `diff`, `set_active_place`, `insert_model`, `git_status`, `git_commit`
+- **Scripting:** `run_code`, `get_script_source`, `set_script_source`, `edit_script_lines`
+- **Instances:** `read_properties`, `explore_hierarchy`, `find_instances`, `create_instance`, `delete_instance`, `duplicate_instance`, `get_selection`, `get_class_info`, `set_property`, `mass_set_property`, `search_by_property`
+- **Tags / attributes:** `get_tags`, `add_tag`, `remove_tag`, `get_tagged`, `get_attributes`, `set_attribute`, `delete_attribute`
+- **Bot / playtest:** `run_test`, `stop_test`, `start_playtest`, `stop_playtest`, `playtest_status`, `bot_observe`, `bot_move`, `bot_action`, `bot_command`, `bot_query_server`, `bot_wait_for`, `verify`
+- **Harness:** `harness_init`, `harness_session_start`, `harness_session_end`, `harness_feature_update`, `harness_status`
 
 ---
 
