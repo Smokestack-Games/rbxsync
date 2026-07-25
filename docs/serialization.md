@@ -1,6 +1,6 @@
 # Serialization
 
-This document explains RbxSync's file format decisions, covering how Roblox instances are serialized to disk for version control and external editing.
+This document explains RbxSync's file format decisions, covering how Roblox instances are represented on disk for version control and external editing.
 
 ## Design Philosophy
 
@@ -11,28 +11,39 @@ RbxSync prioritizes:
 3. **External editor support** - Scripts as plain Luau files for LSP integration
 4. **Simplicity** - Minimal configuration, predictable file structure
 
-## File Formats Overview
+## What Lands on Disk
 
-| Format | Extension | Purpose |
-|--------|-----------|---------|
-| Luau Scripts | `.luau` | Script source code (plain text) |
-| Instance Data | `.rbxjson` | Properties and metadata (JSON) |
-| Binary Model | `.rbxm` | Plugin distribution only |
+RbxSync represents a game with two things:
 
-### Why JSON Over Binary?
+| What | Extension | Purpose |
+|------|-----------|---------|
+| Script source | `.luau` | Editable script code (plain text) |
+| The instance tree | `datamodel.rbxjson` | One nested JSON document for the whole game |
 
-RbxSync uses `.rbxjson` (JSON) instead of binary formats like `.rbxm` for game data:
+Binary `.rbxm` files are used only for building the RbxSync Studio plugin
+itself; game data is never stored as `.rbxm` because binary files cannot be
+diffed or merged.
+
+### Why a Single Context File?
+
+Rather than write every instance as its own file, RbxSync keeps the full
+instance tree in one `datamodel.rbxjson` document and stores only scripts as
+separate files. This keeps the working tree small, gives AI assistants and the
+Luau language server one place to read the whole game, and avoids thousands of
+tiny files for a large place.
+
+### Why JSON?
+
+`datamodel.rbxjson` is JSON with explicit type annotations because:
 
 - **Readable diffs**: JSON changes are visible in Git diffs
 - **Mergeable**: Concurrent changes can be merged manually
-- **Editable**: Properties can be modified in any text editor
 - **Type-safe**: Explicit type annotations prevent data corruption
-
-Binary `.rbxm` files are only used for building the RbxSync Studio plugin itself.
 
 ## Script Files (.luau)
 
-Scripts are stored as plain Luau files. The file extension determines the script type:
+Scripts are stored as plain Luau files. The filename suffix determines the
+script class:
 
 ```
 MyScript.server.luau  →  Script (runs on server)
@@ -42,38 +53,38 @@ MyScript.luau         →  ModuleScript
 
 ### Why Separate Script Source?
 
-Script source is stored separately from instance metadata because:
+Script source is stored separately from the rest of the tree because:
 
 1. **LSP support** - Editors like VS Code can provide autocomplete and diagnostics
 2. **Readable diffs** - Code changes are clearly visible in Git history
-3. **Single source of truth** - The `.luau` file is the canonical source
+3. **Single source of truth** - The `.luau` file is the canonical, editable source
 
 ### Script Properties
 
-If a script needs non-default properties (like `Enabled = false`), create a companion `.rbxjson`:
+A `.luau` file holds only source. The script's class, name, and any non-default
+properties (like `Enabled` or `RunContext`) live on the script's node in the
+context file, where `Source` is replaced by a `sourcePath` pointing back at the
+file:
 
-```
-ServerScriptService/
-├── GameLoop.server.luau     # Source code
-└── GameLoop.rbxjson         # Properties (optional)
-```
-
-`GameLoop.rbxjson`:
 ```json
 {
   "className": "Script",
+  "name": "GameLoop",
   "properties": {
     "Enabled": { "type": "bool", "value": false },
     "RunContext": { "type": "Enum", "value": { "enumType": "RunContext", "value": "Server" } }
-  }
+  },
+  "sourcePath": "src/ServerScriptService/GameLoop.server.luau"
 }
 ```
 
-See [.luau Scripts](/file-formats/luau) for more details.
+See [Scripts on Disk](/file-formats/luau) for more details.
 
-## Instance Data (.rbxjson)
+## The Context File (datamodel.rbxjson)
 
-Non-script instances use `.rbxjson` files with explicit type annotations:
+Every non-script instance — and the tree structure itself — lives in
+`datamodel.rbxjson`, a single nested document rooted at the DataModel. Each
+instance is a node with explicit property types:
 
 ```json
 {
@@ -101,35 +112,55 @@ Roblox has many property types that look similar but serialize differently:
 
 Without explicit types, round-trip conversion would lose precision or fail silently.
 
-See [.rbxjson Format](/file-formats/rbxjson) and [Property Types](/file-formats/property-types) for complete reference.
+See [The Context File](/file-formats/rbxjson) and [Property Types](/file-formats/property-types) for complete reference.
+
+### Container Properties
+
+A container (a service or folder) is just another node. Its own properties,
+attributes, and tags sit on that node, and its contents are nested under
+`children`:
+
+```json
+{
+  "className": "Folder",
+  "name": "Modules",
+  "attributes": { "version": { "type": "number", "value": 2 } },
+  "children": [ ... ]
+}
+```
 
 ## Directory Structure
 
-Extracted games follow a predictable directory structure:
+Extracted games follow a predictable structure:
 
 ```
 MyGame/
 ├── rbxsync.json              # Project configuration
-├── src/                      # Instance tree (required)
-│   ├── Workspace/
-│   │   ├── _meta.rbxjson     # Service properties
-│   │   ├── Baseplate.rbxjson
-│   │   └── SpawnLocation.rbxjson
+├── datamodel.rbxjson         # Full instance tree (generated by RbxSync)
+├── src/                      # Scripts on disk
 │   ├── ServerScriptService/
 │   │   └── Main.server.luau
 │   ├── ReplicatedStorage/
 │   │   └── Modules/
-│   │       ├── _meta.rbxjson # Folder properties
 │   │       └── Utils.luau
-│   ├── StarterGui/
-│   ├── StarterPack/
-│   ├── StarterPlayer/
-│   ├── Lighting.rbxjson      # Service as single file
-│   └── Terrain/
-│       └── terrain.rbxjson   # Terrain data
-├── .rbxsync-backup/          # Auto-backup (for undo)
-└── sourcemap.json            # For Luau LSP
+│   └── StarterPlayer/
+│       └── StarterPlayerScripts/
+│           └── Client.client.luau
+├── assets/                   # Binary assets (meshes, images, sounds)
+└── terrain/                  # Terrain voxel data
 ```
+
+Directories under `src/` mirror the DataModel path of the scripts they contain.
+Services or folders that hold no scripts don't appear under `src/`; they live in
+the context file.
+
+<!-- VERIFY: The plugin-driven extraction path (`POST /extract/finalize` in
+rbxsync-server) still writes per-instance `.rbxjson` / `_meta.rbxjson` sidecar
+files (via `plan_instance_writes`) instead of `datamodel.rbxjson`. The core
+model, the CLI `extract --from-file` path, and VS Code project.json generation
+all use the context-file model documented here. This server path looks like a
+straggler from the refactor and should be reconciled with the context-file
+model. -->
 
 ### Service Directories
 
@@ -145,92 +176,25 @@ Top-level directories under `src/` correspond to Roblox services:
 | `StarterPack/` | game.StarterPack |
 | `StarterPlayer/` | game.StarterPlayer |
 | `ServerStorage/` | game.ServerStorage |
-| `Lighting/` | game.Lighting |
-| `SoundService/` | game.SoundService |
 
-### Meta Files
+A service that contains no scripts has no `src/` directory — it is still present
+in `datamodel.rbxjson`, and the Luau language server picks it up from there.
 
-Directories can have a `_meta.rbxjson` file to set properties on the folder instance:
+### Duplicate Sibling Names
 
-```
-ReplicatedStorage/
-├── _meta.rbxjson          # Properties for the Folder itself
-├── Module1.luau
-└── Subfolder/
-    ├── _meta.rbxjson      # Properties for Subfolder
-    └── Module2.luau
-```
+When sibling instances share the same name, they remain distinct nodes in the
+context file with identical `name` fields. For duplicate scripts, RbxSync
+disambiguates the `.luau` filenames (and each node's `sourcePath`) so no source
+file is overwritten. The instance name in Studio is unchanged.
 
-This pattern allows folders to have attributes, tags, or custom properties.
+## Instance Identity and References
 
-### Name Disambiguation
+During extraction each instance carries an internal reference ID (from Roblox's
+`GetDebugId()`) that RbxSync uses to keep same-named siblings distinct. This ID
+is an implementation detail — it is not written as a field in the context file.
 
-When sibling instances share the same name, RbxSync adds suffixes:
-
-```
-Folder/
-├── Button.rbxjson       # First instance
-├── Button~2~.rbxjson    # Second instance named "Button"
-└── Button~3~.rbxjson    # Third instance named "Button"
-```
-
-The `~N~` suffix is only for filesystem storage; the actual instance name remains "Button".
-
-## Instance References
-
-Instances can reference other instances (e.g., `ObjectValue.Value`, `Weld.Part0`).
-
-### Reference IDs
-
-Each instance receives a unique reference ID during extraction using Roblox's `GetDebugId()`:
-
-```json
-{
-  "className": "Part",
-  "referenceId": "ABC123DEF456",
-  "properties": { ... }
-}
-```
-
-### Storing References
-
-References to other instances use the `Ref` type:
-
-```json
-{
-  "className": "ObjectValue",
-  "properties": {
-    "Value": {
-      "type": "Ref",
-      "value": "ABC123DEF456"
-    }
-  }
-}
-```
-
-### Null References
-
-Unset references use `null`:
-
-```json
-{
-  "className": "ObjectValue",
-  "properties": {
-    "Value": {
-      "type": "Ref",
-      "value": null
-    }
-  }
-}
-```
-
-### Reference Resolution
-
-During sync to Studio, RbxSync:
-
-1. Builds a map of reference IDs to instances
-2. Resolves `Ref` properties after all instances are created
-3. Handles missing references gracefully (sets to nil)
+Reference-typed properties (for example `ObjectValue.Value`, `Weld.Part0`) are
+not persisted in the context file; they are resolved live in Studio.
 
 ## Property Handling
 
@@ -255,12 +219,12 @@ See [Property Types](/file-formats/property-types) for complete examples.
 
 ### Attributes
 
-Instance attributes are stored in an `attributes` section:
+Instance attributes sit in an `attributes` section on the node:
 
 ```json
 {
   "className": "Part",
-  "properties": { ... },
+  "name": "Spawn",
   "attributes": {
     "health": { "type": "number", "value": 100 },
     "team": { "type": "string", "value": "red" },
@@ -271,12 +235,12 @@ Instance attributes are stored in an `attributes` section:
 
 ### Tags
 
-CollectionService tags are stored as an array:
+CollectionService tags are stored as an array on the node:
 
 ```json
 {
   "className": "Part",
-  "properties": { ... },
+  "name": "Checkpoint",
   "tags": ["interactable", "checkpoint", "glowing"]
 }
 ```
@@ -287,10 +251,11 @@ RbxSync uses `.rbxm` files only for plugin distribution:
 
 ```bash
 # Build the Studio plugin
-rojo build plugin/default.project.json -o build/RbxSync.rbxm
+rbxsync build-plugin
 ```
 
-The plugin binary is installed to Studio's plugins folder. Game data is never stored as `.rbxm` because binary files cannot be diffed or merged.
+The plugin binary is installed to Studio's plugins folder. Game data is never
+stored as `.rbxm` because binary files cannot be diffed or merged.
 
 ## Special Cases
 
@@ -312,72 +277,57 @@ Terrain data is stored in `src/Workspace/Terrain/terrain.rbxjson`:
 }
 ```
 
-Terrain voxel data is base64-encoded to preserve binary fidelity.
+Terrain voxel data is base64-encoded to preserve binary fidelity, and is synced
+separately from the main instance tree.
 
 ### CSG Operations
 
-UnionOperation, NegateOperation, and IntersectOperation instances store their serialized geometry data in the `.rbxjson` file. CSG operations are preserved through the AssetId property.
+UnionOperation, NegateOperation, and IntersectOperation instances are preserved
+through their `AssetId` property.
 
 ### Packages
 
-Package links are preserved during extraction. The `PackageLink` property maintains the connection to the asset library.
+Package links are preserved during extraction. The `PackageLink` property
+maintains the connection to the asset library. See
+[Configuration](/getting-started/configuration) for Wally package handling.
 
 ## Complete Example
 
-Here's a complete extracted game structure:
+A complete extracted game:
 
 ```
 MyGame/
 ├── rbxsync.json
-├── src/
-│   ├── Workspace/
-│   │   ├── _meta.rbxjson
-│   │   ├── Baseplate.rbxjson
-│   │   ├── SpawnLocation.rbxjson
-│   │   └── Models/
-│   │       ├── _meta.rbxjson
-│   │       ├── Tree.rbxjson
-│   │       └── Rock.rbxjson
-│   ├── ServerScriptService/
-│   │   ├── Main.server.luau
-│   │   └── Systems/
-│   │       ├── _meta.rbxjson
-│   │       ├── Combat.server.luau
-│   │       └── Inventory.server.luau
-│   ├── ReplicatedStorage/
-│   │   ├── Modules/
-│   │   │   ├── _meta.rbxjson
-│   │   │   ├── Utils.luau
-│   │   │   └── Config.luau
-│   │   └── Events/
-│   │       ├── _meta.rbxjson
-│   │       ├── PlayerDied.rbxjson
-│   │       └── ItemPurchased.rbxjson
-│   ├── StarterGui/
-│   │   └── MainMenu/
-│   │       ├── _meta.rbxjson
-│   │       ├── Frame.rbxjson
-│   │       └── PlayButton.rbxjson
-│   ├── StarterPlayer/
-│   │   └── StarterPlayerScripts/
-│   │       └── Client.client.luau
-│   └── Lighting.rbxjson
-└── sourcemap.json
+├── datamodel.rbxjson
+└── src/
+    ├── ServerScriptService/
+    │   ├── Main.server.luau
+    │   └── Systems/
+    │       ├── Combat.server.luau
+    │       └── Inventory.server.luau
+    ├── ReplicatedStorage/
+    │   └── Modules/
+    │       ├── Utils.luau
+    │       └── Config.luau
+    └── StarterPlayer/
+        └── StarterPlayerScripts/
+            └── Client.client.luau
 ```
+
+Everything that isn't a script — Workspace parts, GUI elements, Lighting,
+folders, and their properties — lives in `datamodel.rbxjson`.
 
 ## Summary
 
 | Decision | Rationale |
 |----------|-----------|
-| JSON for instances | Diff-friendly, editable, mergeable |
-| Separate `.luau` files | LSP support, clean diffs |
-| Explicit types | Round-trip fidelity |
-| Directory = hierarchy | Predictable structure |
-| `_meta.rbxjson` | Folder properties without ambiguity |
-| Reference IDs | Cross-instance linking |
+| Single context file for the tree | Small working tree, one place for AI/LSP context |
+| Separate `.luau` files | LSP support, clean diffs, editable source of truth |
+| Explicit property types | Round-trip fidelity |
+| Directory = script hierarchy | Predictable structure |
 | Binary only for plugin | Game data must be diffable |
 
-For detailed property specifications, see:
-- [.luau Scripts](/file-formats/luau)
-- [.rbxjson Format](/file-formats/rbxjson)
+For detailed specifications, see:
+- [Scripts on Disk](/file-formats/luau)
+- [The Context File](/file-formats/rbxjson)
 - [Property Types](/file-formats/property-types)
